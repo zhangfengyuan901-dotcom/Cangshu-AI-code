@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>仓鼠AI</title>
+    <link rel="icon" href="/hamster-logo.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/assets.css" />
+  </head>
+  <body>
+    <main class="app">
+      <aside class="rail">
+        <button class="logo" data-view="generate" aria-label="仓鼠AI">
+          <span class="logo-pixels" aria-hidden="true">
+            <i style="--px:-26px;--py:-18px;--delay:0s"></i><i style="--px:24px;--py:-22px;--delay:.45s"></i>
+            <i style="--px:-30px;--py:6px;--delay:.9s"></i><i style="--px:29px;--py:11px;--delay:1.35s"></i>
+            <i style="--px:-18px;--py:27px;--delay:1.8s"></i><i style="--px:17px;--py:30px;--delay:2.25s"></i>
+          </span>
+          <img src="/hamster-logo.png" alt="" />
+        </button>
+        <nav class="rail-nav">
+          <button class="rail-item active" data-view="generate"><span class="rail-icon"><i data-lucide="sparkles"></i></span><span>生成</span></button>
+          <button class="rail-item smart-video-launch" id="smartVideoButton" type="button" aria-label="在浏览器打开智能成片"><span class="rail-icon"><i data-lucide="clapperboard"></i></span><span>智能成片</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
+          <button class="rail-item smart-video-launch" id="creativeButton" type="button" aria-label="在浏览器打开创意工作台"><span class="rail-icon"><i data-lucide="scan-text"></i></span><span>创意工作台</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
+          <button class="rail-item" data-view="digital"><span class="rail-icon"><i data-lucide="scan-face"></i></span><span>数字人</span></button>
+          <button class="rail-item" data-view="assets"><span class="rail-icon"><i data-lucide="library"></i></span><span>达人资产</span></button>
+          <div class="rail-section-label">工具箱</div>
+          <button class="rail-item" data-view="depth"><span class="rail-icon"><i data-lucide="scan-line"></i></span><span>黑白深度</span></button>
+
+        </nav>
+        <div class="rail-utility">
+          <button class="rail-item" data-view="history"><span class="rail-icon"><i data-lucide="history"></i></span><span>历史</span></button>
+          <button class="rail-item" data-view="account"><span class="rail-icon"><i data-lucide="settings-2"></i></span><span>账户</span></button>
+        </div>
+      </aside>
+
+      <section class="view active" data-panel="generate">
+        <div class="view-heading">
+          <span class="eyebrow">HAMSTER CREATIVE STUDIO</span>
+          <h1 class="stage-title">每一个好创意都让人惊喜</h1>
+          <p>把灵感和素材放进来，剩下的交给仓鼠。</p>
+        </div>
+        <form id="generationForm" class="composer">
+          <div class="prompt-wrap">
+            <div class="media-tray">
+              <label class="media-tile" data-kind="image"><input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple /><span class="tile-icon"><i data-lucide="image-plus"></i></span><small>图片</small></label>
+              <label class="media-tile" data-kind="video"><input id="videoFile" type="file" accept="video/mp4,video/webm" multiple /><span class="tile-icon"><i data-lucide="video"></i></span><small>视频</small></label>
+              <label class="media-tile" data-kind="audio"><input id="audioFile" type="file" accept="audio/*" multiple /><span class="tile-icon"><i data-lucide="audio-lines"></i></span><small>音频</small></label>
+              <button class="media-tile url-tile" id="urlTile" type="button"><span class="tile-icon"><i data-lucide="link-2"></i></span><small>链接</small></button>
+              <button class="media-tile asset-tile" id="assetTile" type="button" aria-label="从达人资产库选择素材"><span class="tile-icon"><i data-lucide="library"></i></span><small>达人资产</small></button>
+              <div id="urlForm" class="url-form" hidden>
+                <input id="urlInput" type="text" placeholder="粘贴图片/视频/音频 URL" />
+                <select id="urlKind">
+                  <option value="image">图片</option>
+                  <option value="video">视频</option>
+                  <option value="audio">音频</option>
+                </select>
+                <button id="urlAdd" type="button"><i data-lucide="plus"></i>添加</button>
+              </div>
+              <div id="mediaList" class="media-list" hidden></div>
+            </div>
+            <div class="prompt-editor">
+              <textarea id="prompt" maxlength="6000" placeholder="今天我们要创作什么，输入 @ 引用素材" role="combobox" aria-autocomplete="list" aria-controls="mentionMenu" aria-expanded="false"></textarea>
+              <div id="mentionMenu" class="mention-menu" role="listbox" aria-label="引用素材" hidden></div>
+            </div>
+            <div class="drop-hint"><span></span><span id="mediaLimitHint" role="status">请先选择线路</span></div>
+          </div>
+          <div class="composer-tools">
+            <div class="tool-group">
+              <button type="button" class="tool-pill" data-menu="type"><i data-lucide="wand-sparkles"></i><span id="typeLabel">视频生成</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="model"><img class="route-logo" src="/hamster-logo.png" alt="" /><span id="modelLabel">暂无模型</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="reference" id="referencePill"><i data-lucide="scan"></i><span id="referenceLabel">全能参考</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="ratio" id="ratioPill"><i data-lucide="proportions"></i><span class="setting-copy"><small>比例</small><span id="ratioLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="quality" id="qualityPill"><i data-lucide="hd"></i><span class="setting-copy"><small>画质</small><span id="qualityLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="duration" id="durationPill"><i data-lucide="timer"></i><span class="setting-copy"><small>时长</small><span id="durationLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="concurrency"><i data-lucide="layers-3"></i><span id="concurrencyLabel">1x</span><span class="chevron">▾</span></button>
+            </div>
+            <div class="submit-group">
+              <button class="send-button" type="submit" aria-label="发送"><i data-lucide="arrow-up"></i></button>
+            </div>
+          </div>
+        </form>
+        <p id="taskPersistenceNote" class="hint" role="status">正在读取本地任务记录…</p>
+        <div id="taskFeed" class="task-feed"></div>
+      </section>
+
+      <section class="view" data-panel="digital">
+        <div class="view-heading compact">
+          <span class="eyebrow">DIGITAL HUMAN</span>
+          <h1 class="view-title">数字人</h1>
+          <p>一张清晰人像，一段自然声音，生成口型同步视频。</p>
+        </div>
+        <div class="digital-form">
+          <div class="upload-row">
+            <div class="upload-slot">
+              <span class="upload-label">人物参考图</span>
+              <label class="upload-box" id="dhImageBox">
+                <input id="dhImageFile" type="file" accept="image/png,image/jpeg,image/webp" />
+                <span class="upload-placeholder" id="dhImagePlaceholder"><b><i data-lucide="user-round-plus"></i></b><strong>拖入人物图片</strong><small>或点击选择 · PNG / JPG / WEBP</small></span>
+              </label>
+              <div id="dhImageInfo" class="upload-info"></div>
+            </div>
+            <div class="upload-slot">
+              <span class="upload-label">音频（≤30 秒）</span>
+              <label class="upload-box audio-box" id="dhAudioBox">
+                <input id="dhAudioFile" type="file" accept="audio/*" />
+                <span class="upload-placeholder" id="dhAudioPlaceholder"><b><i data-lucide="audio-lines"></i></b><strong>拖入声音文件</strong><small>或点击选择 · 最长 30 秒</small></span>
+              </label>
+              <div id="dhAudioInfo" class="upload-info"></div>
+            </div>
+          </div>
+          <div class="digital-actions">
+            <span class="cost" id="dhHint">请先上传人物参考图与音频</span>
+            <div class="digital-submit">
+              <button class="plain-button" id="dhSubmit" type="button" disabled><i data-lucide="scan-face"></i>生成数字人视频</button>
+            </div>
+          </div>
+        </div>
+        <div id="dhResults" class="task-feed"></div>
+      </section>
+
+      <section class="view" data-panel="depth">
+        <div class="view-heading compact">
+          <span class="eyebrow">TOOLBOX · DEPTH VIDEO</span>
+          <h1 class="view-title">黑白深度视频</h1>
+          <p>上传普通视频，生成便于后续特效与三维处理的黑白深度视频。</p>
+        </div>
+        <div class="digital-form depth-form">
+          <div class="upload-slot">
+            <span class="upload-label">源视频</span>
+            <label class="upload-box depth-video-box" id="depthVideoBox">
+              <input id="depthVideoFile" type="file" accept="video/mp4,video/webm,video/quicktime" />
+              <span class="upload-placeholder" id="depthVideoPlaceholder"><b><i data-lucide="scan-line"></i></b><strong>拖入需要转换的视频</strong><small>或点击选择 · MP4 / WEBM / MOV</small></span>
+            </label>
+            <div id="depthVideoInfo" class="upload-info"></div>
+          </div>
+          <div class="digital-actions">
+            <span class="cost" id="depthHint">请先上传源视频</span>
+            <div class="digital-submit">
+              <button class="plain-button" id="depthSubmit" type="button" disabled><i data-lucide="scan-line"></i>生成黑白深度视频</button>
+            </div>
+          </div>
+        </div>
+        <div id="depthResults" class="task-feed"></div>
+        <section class="tool-guide" aria-labelledby="depthGuideTitle">
+          <header class="guide-header">
+            <div>
+              <span class="guide-kicker">快速教程</span>
+              <h2 id="depthGuideTitle">什么是黑白深度视频？</h2>
+              <p>它是逐帧记录空间远近的 Depth Map：通常亮色代表近、暗色代表远。它弱化人物外观、服装颜色和场景风格，主要保留动作与空间信息。</p>
+            </div>
+            <span class="guide-badge">DEPTH MAP</span>
+          </header>
+          <div class="guide-points">
+            <span><i data-lucide="person-standing"></i>人物轮廓与动作</span>
+            <span><i data-lucide="move-3d"></i>前后空间关系</span>
+            <span><i data-lucide="camera"></i>镜头推拉与轨迹</span>
+            <span><i data-lucide="scan"></i>构图变化</span>
+          </div>
+          <div class="guide-formula" aria-label="参考素材分工">
+            <div><strong>Who</strong><span>人物图片</span><small>谁来演</small></div>
+            <i data-lucide="plus"></i>
+            <div><strong>What</strong><span>商品图片</span><small>穿什么</small></div>
+            <i data-lucide="plus"></i>
+            <div><strong>How / Where</strong><span>深度视频</span><small>怎么动、在哪里</small></div>
+          </div>
+          <ol class="guide-steps">
+            <li><b>1</b><div><strong>生成深度视频</strong><span>将原参考视频上传到上方工具，提取动作、姿态、空间和运镜。</span></div></li>
+            <li><b>2</b><div><strong>加入全能参考</strong><span><code>@图片1</code> 放模特，<code>@图片2</code> 放商品，<code>@视频1</code> 放生成的深度视频。</span></div></li>
+            <li><b>3</b><div><strong>限定参考范围</strong><span>明确写出“仅参考什么”和“不参考什么”，减少原人物、衣服及场景污染。</span></div></li>
+          </ol>
+          <div class="guide-prompt">
+            <div class="guide-prompt-head"><span>Seedance 2.0 提示词模板</span><button id="depthPromptCopy" type="button"><i data-lucide="copy"></i>复制模板</button></div>
+            <pre id="depthPromptTemplate">@图片1作为全程人物形象参考，保持人物一致。
+@图片2作为唯一服装参考。
+@视频1仅参考人物动作、身体姿态、空间深度、构图变化和镜头运动。
+不参考@视频1中的人物外观、颜色、材质和画面风格。
+严格按照@视频1的动作节奏和镜头轨迹生成真人自拍视频。</pre>
+          </div>
+          <p class="guide-note"><i data-lucide="info"></i>Seedance 2.0 没有单独的 Depth 控制通道；请把深度视频作为“全能参考”的视频素材使用，并通过提示词限定它只负责动作、空间和运镜。</p>
+        </section>
+      </section>
+
+
+      <section class="view" data-panel="history">
+        <h1 class="view-title">历史</h1>
+        <p class="hint">任务从提交起保存在本机，重开应用自动恢复查询。完全退出期间暂停本地轮询；已保存的结果可离线预览。</p>
+        <div class="history-toolbar">
+          <div class="chip-group" id="historyFilter">
+            <button class="chip active" data-hfilter="all" type="button">全部</button>
+            <button class="chip" data-hfilter="image" type="button">图片</button>
+            <button class="chip" data-hfilter="video" type="button">视频</button>
+          </div>
+          <button class="plain-button subtle" id="clearHistory" type="button"><i data-lucide="trash-2"></i>清除已结束记录</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section class="view" data-panel="assets">
+        <div class="view-heading compact"><span class="eyebrow">LOCAL ASSET LIBRARY</span><h1 class="view-title">达人资产库</h1><p>达人、产品与场景共用本地资产；选择后可用于当前生成，智能成片也可直接调用。</p></div>
+        <div id="assetLibrary"></div>
+      </section>
+      <section class="view" data-panel="account">
+        <h1 class="view-title">账户</h1>
+        <div class="account-card">
+          <label>API Key（图片 / 视频）<input id="apiKeyInput" type="password" placeholder="请输入 API Key" autocomplete="off" /></label>
+          <button id="saveKeyButton" class="plain-button" type="button"><i data-lucide="save"></i>保存配置</button>
+          <p id="accountStatus" class="hint"></p>
+        </div>
+        <div class="account-card">
+          <label>仓鼠工具 API Key（数字人 / 工具箱共用）<input id="rhKeyInput" type="password" placeholder="请输入 32 位 API Key" autocomplete="off" /></label>
+          <button id="saveRhKeyButton" class="plain-button" type="button"><i data-lucide="save"></i>保存</button>
+          <p id="rhStatus" class="hint"></p>
+        </div>
+        <div class="account-card">
+          <label>仓鼠智能 API Key（两个本地工作台共用）<input id="llmKeyInput" type="password" placeholder="请输入智能服务 API Key" autocomplete="off" /></label>
+          <button id="saveLlmKeyButton" class="plain-button" type="button"><i data-lucide="brain-circuit"></i>保存</button>
+          <p id="llmStatus" class="hint"></p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+    <script src="/vendor/lucide.min.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

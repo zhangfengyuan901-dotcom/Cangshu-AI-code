@@ -1,0 +1,70 @@
+{
+  "name": "hamster-ai",
+  "version": "1.5.0",
+  "description": "仓鼠AI本地版",
+  "author": "仓鼠AI",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node server.js",
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "build": {
+    "appId": "com.hamster.ai",
+    "productName": "仓鼠AI",
+    "files": [
+      "server.js",
+      "assets.cjs",
+      "tasks.cjs",
+      "public/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "public", "to": "smart-video-agent/studio-ui/shared", "filter": ["asset-library.mjs", "assets.css"] },
+      {
+        "from": "smart-video-agent",
+        "to": "smart-video-agent",
+        "filter": [
+          "**/*",
+          "!.venv/**/*",
+          "!merged_videos/**/*",
+          "!**/__pycache__/**/*",
+          "!**/.adk/**/*",
+          "!studio-data/**/*",
+          "!creative-data/**/*",
+          "!.env",
+          "!config.yaml"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "仓鼠AI-${version}-便携版.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.63.0"
+  },
+  "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
+    "lucide": "^1.45.0"
+  }
+}

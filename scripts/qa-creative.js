@@ -1,0 +1,45 @@
+async (page) => {
+  // Requires qa-creative-server.py (paid inference stubbed) + qa-asset-server.cjs.
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://127.0.0.1:8004/creative/');
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('#sourceInput').setInputFiles('output/playwright/qa-video.mp4');
+  await page.getByRole('button',{name:'自动拆解视频 ↗'}).click();
+  await page.getByRole('heading',{name:'分镜时间轴',exact:true}).waitFor();
+  await page.getByRole('button',{name:'生成全能参考 Prompt ↗'}).click();
+  await page.getByRole('alert').filter({hasText:'请先核对脚本'}).waitFor();
+  await page.getByRole('button',{name:'资产库',exact:true}).first().click();
+  await page.getByRole('button',{name:'使用此资产',exact:true}).first().click();
+  await page.locator('.binding').first().locator('img').waitFor();
+  await page.locator('.binding').nth(1).locator('input[type=file]').setInputFiles('public/hamster-logo.png');
+  await page.locator('.binding').nth(1).locator('img').waitFor();
+  await page.getByText('检查并编辑结构脚本',{exact:true}).click();
+  const original=JSON.parse(await page.locator('#scriptEditor').inputValue());
+  const invalid=JSON.parse(JSON.stringify(original));invalid.shots[0].end=99;
+  await page.locator('#scriptEditor').fill(JSON.stringify(invalid));
+  await page.getByRole('button',{name:'应用修改',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'脚本时间超过原片时长'}).waitFor();
+  original.summary='已核对的女装展示脚本';
+  await page.locator('#scriptEditor').fill(JSON.stringify(original));
+  await page.getByRole('button',{name:'应用修改',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'修改已保存'}).waitFor();
+  await page.getByText('检查并编辑结构脚本',{exact:true}).click();
+  await page.getByRole('checkbox',{name:'我已核对角色、对白来源与时间轴'}).check();
+  await page.getByRole('button',{name:'生成全能参考 Prompt ↗'}).click();
+  await page.getByRole('heading',{name:'你的生成方案',exact:true}).waitFor();
+  const prompt=await page.locator('#prompt').inputValue();
+  if(!prompt.includes('@图片1')||!prompt.includes('@图片2')||!prompt.includes('@视频1'))throw new Error('Reference mapping missing');
+  if(await page.locator('#manifest a').count()!==3)throw new Error('Reference download manifest missing');
+  const downloading=page.waitForEvent('download');
+  await page.getByRole('link',{name:'下载 TXT',exact:true}).click();
+  const download=await downloading;await download.saveAs('output/playwright/creative-prompt.txt');
+  await page.reload();
+  await page.getByRole('heading',{name:'你的生成方案',exact:true}).waitFor();
+  if(await page.locator('.binding img').count()!==2)throw new Error('Bindings not restored');
+  await page.screenshot({path:'output/playwright/creative-workbench.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Mobile horizontal overflow');
+  await page.screenshot({path:'output/playwright/creative-mobile.png'});
+  if(errors.length)throw new Error(errors.join('\n'));
+  console.log('PASS: real local video upload/inspection, asset library import, temporary reference, review gate, script edit+validation, adaptation+bindings, TXT download, reload recovery, mobile layout. Paid inference mocked.');
+}
