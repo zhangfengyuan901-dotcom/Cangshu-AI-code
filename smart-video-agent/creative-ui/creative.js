@@ -26,6 +26,7 @@ async function selectSource(file) {
   if(!file||busy||uploading)return;
   if(!['video/mp4','video/quicktime'].includes(file.type)||file.size>50*1024*1024)throw new Error('请选择50MB以内的 MP4 / MOV 视频。');
   uploading=true;controls();
+  $('#failureDetails').hidden=true;
   try {source=await upload(file);pollGeneration++;job=null;script=null;bindings={};$('#sourcePreview').src='/creative-api/media/'+source.id;$('#sourcePreview').hidden=false;$('#sourceName').textContent=source.name;$('#scriptArea').hidden=true;$('#empty').hidden=false;$('#resultPanel').hidden=true;$('#progress').hidden=true;localStorage.removeItem('hamster-creative-job');}
   finally {uploading=false;controls();}
 }
@@ -63,7 +64,12 @@ async function show(item) {
   $('#seconds').value=String(item.brief?.seconds||10);$('#ratio').value=item.brief?.ratio||'9:16';$('#motion').checked=item.brief?.reference_motion??true;$('#notes').value=item.brief?.notes||'';
   renderResult();busy=item.status==='running';controls();status(item);if(busy)poll(item.id);
 }
-function status(item){$('#progress').hidden=false;$('#progress').textContent=(item.error||item.stage||item.status)+(item.cleanup_warning?' · '+item.cleanup_warning:'');}
+function status(item){
+  $('#progress').hidden=false;$('#progress').textContent=(item.error||item.stage||item.status)+(item.cleanup_warning?' · '+item.cleanup_warning:'');
+  $('#failureDetails').hidden=!item.failure;
+  const f=item.failure;
+  $('#failureText').textContent=f?`失败步骤：${f.step}\n原因：${f.message}\n错误码：${f.code}\nHTTP：${f.http_status||'无响应'}\n请求编号：${f.request_id||'未返回'}\n本地任务：${item.id}`:'';
+}
 async function poll(id) {
   const generation=++pollGeneration;
   while(generation===pollGeneration&&job?.id===id&&busy){await new Promise(r=>setTimeout(r,1500));try{const item=await request('/jobs/'+id);if(generation!==pollGeneration||job?.id!==id)return;job=item;status(item);if(item.status!=='running'){busy=false;if(item.script){script=item.script;renderScript();}renderResult();controls();await history();}}catch(e){if(generation!==pollGeneration)return;busy=false;controls();toast('状态连接中断；任务可能仍在运行，可从最近创作重新打开。');}}
@@ -72,7 +78,7 @@ async function history(){const items=await request('/jobs');$('#history').replac
 async function safe(action){try{await action();}catch(e){toast(e.message);}}
 $('#pickSource').onclick=()=>$('#sourceInput').click();$('#sourceInput').onchange=()=>safe(()=>selectSource($('#sourceInput').files[0]));
 $('#dropZone').ondragover=e=>{e.preventDefault();$('#dropZone').classList.add('drag');};$('#dropZone').ondragleave=()=>$('#dropZone').classList.remove('drag');$('#dropZone').ondrop=e=>{e.preventDefault();$('#dropZone').classList.remove('drag');safe(()=>selectSource(e.dataTransfer.files[0]));};
-$('#analyze').onclick=()=>safe(async()=>{busy=true;controls();try{const item=await post('/analyze/'+source.id);await show(item);await history();}catch(e){busy=false;controls();throw e;}});
+$('#analyze').onclick=()=>safe(async()=>{busy=true;controls();try{const item=await post('/analyze/'+source.id,{});await show(item);await history();}catch(e){busy=false;controls();throw e;}});
 $('#applyScript').onclick=()=>safe(async()=>{if(!job)throw new Error('请先拆解视频');const candidate=JSON.parse($('#scriptEditor').value);const checked=await post('/jobs/'+job.id+'/script',candidate);script=checked;$('#resultPanel').hidden=true;renderScript();toast('修改已保存，请重新核对并生成方案。');});
 $('#adapt').onclick=()=>safe(async()=>{
   if(!$('#reviewed').checked)throw new Error('请先核对脚本并勾选确认。');
@@ -85,4 +91,5 @@ $('#adapt').onclick=()=>safe(async()=>{
 $('#cancel').onclick=()=>safe(async()=>{if(job){const item=await post('/jobs/'+job.id+'/cancel');pollGeneration++;busy=false;job=item;status(item);controls();await history();}});
 $('#copyPrompt').onclick=()=>safe(async()=>{await navigator.clipboard.writeText($('#prompt').value);toast('完整方案已复制，请按素材绑定顺序上传。');});
 $('#refresh').onclick=()=>safe(config);$('#refreshHistory').onclick=()=>safe(history);
+$('#copyFailure').onclick=()=>safe(async()=>{await navigator.clipboard.writeText($('#failureText').textContent);toast('已复制脱敏诊断，不含密钥、素材内容或账户信息。');});
 safe(async()=>{await config();await history();const id=localStorage.getItem('hamster-creative-job');if(id)await show(await request('/jobs/'+id));});

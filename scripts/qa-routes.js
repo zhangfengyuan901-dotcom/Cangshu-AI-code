@@ -13,6 +13,7 @@ async (page) => {
     const path=route.request().url().split('?')[0];
     let body={};
     if(path.endsWith('/config')) body={configured:true,rhConfigured:false,llmConfigured:false};
+    else if(path.endsWith('/diagnostics/status')) body={checks:{port:{state:'available',port:8000}}};
     else if(path.endsWith('/tasks/import')) {savedTasks=route.request().postDataJSON().tasks;body={tasks:savedTasks};}
     else if(path.endsWith('/tasks')) body={tasks:savedTasks};
     else if(path.endsWith('/assets')) body={items:[],root:'offline fixture'};

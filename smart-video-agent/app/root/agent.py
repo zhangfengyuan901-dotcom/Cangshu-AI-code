@@ -125,5 +125,17 @@ def get_root_agent() -> MMSequentialAgent:
             get_release_agent(),
         ],
     )
+    # Read the per-job settings, not the SDK's cached startup model defaults.
+    endpoint = os.getenv("LLM_ENDPOINT_ID", "").strip()
+    if endpoint:
+        from app.model import ArkLlm
+        for agent in root_agent.sub_agents:
+            if isinstance(getattr(agent, "model", None), ArkLlm):
+                agent.model_name = endpoint
+                agent.model = ArkLlm(
+                    model=f"{agent.model_provider}/{endpoint}",
+                    api_key=os.environ["MODEL_AGENT_API_KEY"],
+                    api_base=agent.model_api_base,
+                    **agent.model_extra_config,
+                )
     return root_agent
-

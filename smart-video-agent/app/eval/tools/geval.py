@@ -148,7 +148,7 @@ async def evaluate_media(
 
     async def process_message(msg):
         response = await client.responses.create(
-            model=os.getenv("MODEL_EVALUATE_NAME", get_evaluate_model()),
+            model=os.getenv("LLM_ENDPOINT_ID") or os.getenv("MODEL_EVALUATE_NAME", get_evaluate_model()),
             instructions=evaluate_agent_instruction,
             input=[msg],
             text={
@@ -285,4 +285,3 @@ async def evaluate_media(
             return model.model_dump()
         except Exception:
             return output
-

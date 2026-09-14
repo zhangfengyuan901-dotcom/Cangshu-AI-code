@@ -17,6 +17,13 @@ os.environ['HAMSTER_ASSET_API']='http://127.0.0.1:8788/api/assets'
 
 async def ask(self,item,text,schema,**kwargs):
     await asyncio.sleep(.3)
+    if os.getenv('HAMSTER_QA_MODALITY_ERRORS') == '1':
+        item['step']='inference'
+        error=RuntimeError('private raw provider message')
+        error.status_code=400
+        error.body={'code':'InvalidParameter','param':'input.content','message':'content type is not supported'}
+        error.request_id='20260915OfflineTrace123'
+        raise error
     if schema is Script:
         script=copy.deepcopy(SCRIPT)
         script['shots'][0]['end']=item['video']['duration']

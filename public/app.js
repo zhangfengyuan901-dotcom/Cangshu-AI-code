@@ -911,7 +911,7 @@ function renderLlmStatus() {
   const status = $('#llmStatus');
   if (!status) return;
   const configured = Boolean(state.llmApiKey || state.llmServerConfigured);
-  status.textContent = configured ? '已配置，智能成片与创意工作台共用' : '未配置，本地工作台可打开但无法调用智能模型';
+  status.textContent = configured ? '已配置，仓鼠智能体、智能成片与创意工作台共用' : '未配置，本地工作台可打开但无法调用智能模型';
   status.className = `hint${configured ? ' ok' : ''}`;
 }
 async function saveRhKey() {
@@ -925,15 +925,20 @@ async function saveRhKey() {
   renderRhStatus();
 }
 async function saveLlmKey() {
-  state.llmApiKey = $('#llmKeyInput').value.trim();
-  if (!state.llmApiKey) { toast('请输入仓鼠智能 API Key'); return; }
-  localStorage.setItem(KEY_STORAGE_LLM, state.llmApiKey);
+  const key = $('#llmKeyInput').value.trim();
+  if (!key && !state.llmServerConfigured) { toast('请输入仓鼠智能 API Key'); return; }
+  const button = $('#saveLlmKeyButton');
+  button.disabled = true;
   try {
-    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ llmApiKey: state.llmApiKey }) });
-    state.llmServerConfigured = true;
-  } catch (e) { /* 可选持久化，失败忽略 */ }
-  toast('智能成片大模型 Key 已保存');
-  renderLlmStatus();
+    const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(key ? {llmApiKey:key} : {}), llmEndpointId:$('#llmEndpointInput').value.trim() }) });
+    if (!response.ok) throw Error('保存失败，请检查 ep- 开头的接入点编号及本地服务。');
+    const data = await response.json();
+    state.llmServerConfigured = data.llmConfigured;
+    if (key) { state.llmApiKey = key; localStorage.setItem(KEY_STORAGE_LLM, key); }
+    renderLlmStatus();
+    toast('智能服务配置已保存，三个功能的新请求共用');
+  } catch (e) { toast(e.message); }
+  finally { button.disabled = false; }
 }
 
 // ---- 视图 & 初始化 ----
@@ -962,7 +967,7 @@ function switchView(name) {
   $$('.rail-item').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
   if (name === 'history') { renderHistory(); syncTasks(); }
   if (name === 'assets') assetLibrary($('#assetLibrary'),{onSelect:useGenerationAsset});
-  if (name === 'account') { renderAccount(); renderRhStatus(); renderLlmStatus(); }
+  if (name === 'account') { renderAccount(); renderRhStatus(); renderLlmStatus(); checkDiagnostics(); }
   if (name === 'digital') { renderDhSlots(); renderDhResults(); }
   if (name === 'depth') { renderDepthSlot(); renderDepthResults(); }
 }
@@ -973,13 +978,39 @@ async function readSmartVideoResponse(path, options) {
   if (!response.ok) throw new Error(data.message || '智能成片服务启动失败');
   return data;
 }
-async function openSmartVideo(creative = false) {
-  const endpoint = creative ? '/api/creative' : '/api/smart-video';
-  const label = creative ? '创意工作台' : '智能成片';
-  const button = $(creative ? '#creativeButton' : '#smartVideoButton');
+async function checkDiagnostics() {
+  const button=$('#checkDiagnostics');button.disabled=true;
+  const status=$('#diagnosticStatus');status.textContent='正在检查本地端口与启动环境…';
+  try {
+    const response=await fetch('/api/diagnostics/status');
+    const data=await response.json();if(!response.ok)throw new Error('诊断检查失败');
+    const port=data.checks?.port;
+    const owners=(port?.owners || []).map(x=>`${x.name}（PID ${x.pid}）`).join('、');
+    const labels={available:'端口可用',occupied:`端口被占用${owners?'：'+owners:''}`,restricted:'系统限制访问此端口',unknown:'端口状态暂无法确定','own-service':'本地工作台已运行'};
+    status.textContent=`${port?.port || 8000}：${labels[port?.state] || '状态待确认'}`;
+    if(data.lastFailure)status.textContent+=`\n最近启动错误：${publicText(data.lastFailure.message)}（${data.lastFailure.code}）`;
+    if(data.persistenceError)status.textContent+='\n'+data.persistenceError;
+  }catch(e){status.textContent=publicText(e.message);}finally{button.disabled=false;}
+}
+async function exportDiagnostics() {
+  const buttons=$$('[data-export-diagnostics]');buttons.forEach(button=>button.disabled=true);
+  $$('[data-diagnostic-result]').forEach(el=>el.textContent='正在生成脱敏诊断文件…');
+  try {
+    const response=await fetch('/api/diagnostics/export',{method:'POST'});
+    const data=await response.json();if(!response.ok)throw new Error('诊断导出失败，请检查桌面文件夹写入权限');
+    $$('[data-diagnostic-result]').forEach(el=>el.textContent=`已导出：${data.localPath}\n请把这个文件发送给支持人员。`);
+    toast('诊断文件已保存到桌面「仓鼠AI诊断」');
+  }catch(e){$$('[data-diagnostic-result]').forEach(el=>el.textContent=publicText(e.message));}
+  finally{buttons.forEach(button=>button.disabled=false);}
+}
+async function openWorkbench() {
+  const endpoint = '/api/chat';
+  const label = '工作台';
+  const button = $('#workbenchButton');
   button.disabled = true;
   button.classList.add('is-launching');
   try {
+    toast('正在准备本地运行环境，首次释放可能需要几分钟，请勿关闭应用…');
     let state = await readSmartVideoResponse(endpoint + '/open', { method: 'POST' });
     if (state.status === 'ready') { toast(label + '已在浏览器打开'); return; }
     toast('正在启动' + label + '，请稍候…');
@@ -993,18 +1024,22 @@ async function openSmartVideo(creative = false) {
       }
       if (state.status === 'error') throw new Error(state.message || '智能成片服务启动失败');
     }
-    toast('智能成片准备超时，请检查网络后重试');
+    throw new Error('本地工作台准备超时，请导出诊断信息检查环境文件或系统权限');
   } catch (error) {
-    toast(error.message || '智能成片服务启动失败');
+    $('#startupErrorMessage').textContent=publicText(error.message || '本地工作台启动失败');
+    $$('[data-diagnostic-result]').forEach(el=>el.textContent='');
+    if(!$('#startupErrorDialog').open)$('#startupErrorDialog').showModal();
   } finally {
     button.disabled = false;
     button.classList.remove('is-launching');
   }
 }
 function bindEvents() {
+  $('#checkDiagnostics').addEventListener('click',checkDiagnostics);
+  $$('[data-export-diagnostics]').forEach(button=>button.addEventListener('click',exportDiagnostics));
+  $('#closeStartupError').addEventListener('click',()=>$('#startupErrorDialog').close());
   $$('.rail-item[data-view]').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
-  $('#smartVideoButton').addEventListener('click', () => openSmartVideo());
-  $('#creativeButton').addEventListener('click', () => openSmartVideo(true));
+  $('#workbenchButton').addEventListener('click', openWorkbench);
   $('.logo').addEventListener('click', () => switchView('generate'));
   $('[data-menu="type"]').addEventListener('click', (e) => typeMenu(e.currentTarget));
   $('[data-menu="model"]').addEventListener('click', (e) => modelMenu(e.currentTarget));
@@ -1087,6 +1122,7 @@ async function init() {
     state.serverKeyConfigured = Boolean(d && d.configured);
     state.rhServerConfigured = Boolean(d && d.rhConfigured);
     state.llmServerConfigured = Boolean(d && d.llmConfigured);
+    $('#llmEndpointInput').value = d.llmEndpointId ?? d.creativeEndpointId ?? '';
   } catch (e) { state.serverKeyConfigured = false; state.rhServerConfigured = false; state.llmServerConfigured = false; }
   await loadModels();                      // 模型列表走公共端点，无需 Key
   renderAccount();

@@ -30,8 +30,11 @@ __pycache__/
 
 # User tasks, assets, results and local test/browser artifacts
 task-history/
+diagnostics/
+/仓鼠AI诊断/
 studio-data/
 creative-data/
+chat-data/
 merged_videos/
 /output/
 /tmp-fixtures/

@@ -1,6 +1,6 @@
 {
   "name": "hamster-ai",
-  "version": "1.5.0",
+  "version": "1.7.5",
   "description": "仓鼠AI本地版",
   "author": "仓鼠AI",
   "private": true,
@@ -8,8 +8,9 @@
   "scripts": {
     "start": "node server.js",
     "electron": "electron .",
-    "dist": "electron-builder",
-    "test": "node --test"
+    "runtime:build": "node scripts/build-python-runtime.cjs",
+    "dist": "node scripts/check-runtime.cjs && electron-builder",
+    "test": "node --test tests/*.test.js tests/*.test.mjs"
   },
   "engines": {
     "node": ">=18"
@@ -21,23 +22,42 @@
       "server.js",
       "assets.cjs",
       "tasks.cjs",
+      "diagnostics.cjs",
+      "runtime.cjs",
       "public/**/*",
       "electron/**/*",
       "package.json"
     ],
     "extraResources": [
-      { "from": "public", "to": "smart-video-agent/studio-ui/shared", "filter": ["asset-library.mjs", "assets.css"] },
+      {
+        "from": "build/python-runtime.zip",
+        "to": "python-runtime.zip"
+      },
+      {
+        "from": "build/python-runtime.json",
+        "to": "python-runtime.json"
+      },
+      {
+        "from": "public",
+        "to": "smart-video-agent/studio-ui/shared",
+        "filter": [
+          "asset-library.mjs",
+          "assets.css"
+        ]
+      },
       {
         "from": "smart-video-agent",
         "to": "smart-video-agent",
         "filter": [
           "**/*",
           "!.venv/**/*",
+          "!bin/**/*",
           "!merged_videos/**/*",
           "!**/__pycache__/**/*",
           "!**/.adk/**/*",
           "!studio-data/**/*",
           "!creative-data/**/*",
+          "!chat-data/**/*",
           "!.env",
           "!config.yaml"
         ]
@@ -65,6 +85,7 @@
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.10.0",
-    "lucide": "^1.45.0"
+    "lucide": "^1.45.0",
+    "yauzl": "3.4.0"
   }
 }

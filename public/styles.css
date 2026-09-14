@@ -329,6 +329,10 @@ button:disabled { transform: none !important; box-shadow: none !important; }
 .task-status { font-size: 11px; padding: 4px 9px; border-radius: 999px; }
 .task-status.queued { background: #eee9d8; color: #887849; }
 .task-status.submitting, .task-status.unknown { background: #eee9d8; color: #887849; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.diagnostic-card h2 { margin: 0; font-size: 17px; }
+.diagnostic-result, #startupErrorMessage { overflow-wrap: anywhere; white-space: pre-wrap; }
+#startupErrorDialog h2 { font-size: 20px; }
 .task-status.processing { background: var(--accent-soft); color: var(--accent-2); }
 .task-status.processing { animation: status-breathe 1.8s ease-in-out infinite alternate; }
 @keyframes status-breathe { to { box-shadow: 0 0 0 4px rgba(184,117,80,.08); } }

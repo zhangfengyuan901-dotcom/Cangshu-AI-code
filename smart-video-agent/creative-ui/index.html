@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>创意工作台 · 仓鼠AI</title><link rel="icon" href="/hamster-logo.png"><link rel="stylesheet" href="creative.css"><link rel="stylesheet" href="/shared/assets.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>创意工作台 · 仓鼠AI工作台</title><link rel="icon" href="/hamster-logo.png"><link rel="stylesheet" href="creative.css"><link rel="stylesheet" href="/shared/assets.css"><link rel="stylesheet" href="/workbench.css"></head>
 <body>
-<aside class="rail"><a href="/" class="brand"><img src="/hamster-logo.png" alt="仓鼠AI"></a><a href="/">智能成片</a><a href="/creative/" class="active">创意工作台</a><span>LOCAL<br>CREATIVE</span></aside>
+<aside class="rail"><a href="/chat/" class="brand"><img src="/hamster-logo.png" alt="仓鼠AI工作台"></a><span>LOCAL<br>WORKBENCH</span></aside>
 <main>
+<nav class="workbench-nav" aria-label="工作台功能"><span>仓鼠AI工作台</span><a href="/chat/">仓鼠智能体</a><a href="/">智能成片</a><a href="/creative/" aria-current="page">创意工作台</a></nav>
 <header><span class="eyebrow">HAMSTER CREATIVE STUDIO / REMIX</span><button id="refresh">检查连接</button></header>
 <section class="intro"><h1>看懂好创意，<br>拍出你的故事<span>。</span></h1><p>从对标视频出发，拆解脚本、替换资产，让每个镜头都有明确参考。</p></section>
 <p id="connection" class="notice" role="status">正在连接本地服务…</p>
@@ -12,10 +13,12 @@
 <section class="panel source-panel"><span class="eyebrow">01 / REFERENCE</span><h2>放入一条参考视频</h2>
 <div class="upload" id="dropZone"><input id="sourceInput" type="file" accept="video/mp4,video/quicktime" hidden><button id="pickSource"><span class="upload-symbol">＋</span><b>拖入视频，开始理解</b><small>MP4 / MOV · 最大50MB · 3分钟以内</small></button></div>
 <video id="sourcePreview" controls preload="metadata" hidden></video><p id="sourceName" class="muted">原片会保存在本地，不加入公共资产库。</p>
-<p class="privacy">点击拆解后，视频及同源音轨将发送至智能模型服务。请仅使用你有权处理的素材。按模型实际用量计费，不再收取原反推功能的固定积分。</p>
+<p class="privacy">点击拆解后，原视频会发送至智能模型服务，仅分析画面与可见字幕，不提取或识别音轨。字幕不等于实际对白。请仅使用你有权处理的素材，按模型实际用量计费。</p>
 <button id="analyze" class="primary" disabled>自动拆解视频 ↗</button>
-<div id="progress" class="notice" role="status" hidden></div><button id="cancel" hidden>停止本次任务</button>
-<details class="help"><summary>它会为你分析什么？</summary><p>全局角色表、人物关系、场景、动作、神态情绪、对白来源、分镜结构、时间戳和剧情脉络。</p><p>时间戳为模型估计。听不清的对白和推测的人物关系会标记待核对，不应当作事实直接发布。</p></details>
+<div id="progress" class="notice" role="status" hidden></div>
+<details id="failureDetails" hidden><summary>查看错误原因与诊断编号</summary><pre id="failureText" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><button id="copyFailure" type="button">复制脱敏诊断信息</button></details>
+<button id="cancel" hidden>停止本次任务</button>
+<details class="help"><summary>它会为你分析什么？</summary><p>全局角色表、人物关系、场景、动作、神态情绪、画面字幕、分镜结构、时间戳和剧情脉络。</p><p>时间戳为模型估计。无法辨认的字幕和推测的人物关系会标记待核对，不识别语音或背景音乐。</p></details>
 </section>
 <section class="panel script-panel"><span class="eyebrow">02 / SCRIPT & ASSETS</span><h2>让故事，换上你的素材</h2>
 <div id="empty" class="empty"><span>◎</span><h3>先理解，再创作</h3><p>完成拆解后，角色表和分镜会出现在这里。<br>为每个角色、场景绑定资产，也可以临时上传图片。</p></div>

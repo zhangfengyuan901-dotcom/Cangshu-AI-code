@@ -1,5 +1,6 @@
 """Offline contract tests: no paid generation requests."""
 import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -7,10 +8,42 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from studio import Brief, Jobs, create_studio
+from studio import Brief, Jobs, create_studio, configured_keys
 
 
 class StudioTests(unittest.IsolatedAsyncioTestCase):
+    def test_shared_settings_reload_migrate_and_clear(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root)/'config.json'
+            with patch.dict(os.environ, {'HAMSTER_CONFIG_PATH':str(config)}):
+                config.write_text(json.dumps({'llmApiKey':'test-key','creativeEndpointId':'ep-legacy-test'}))
+                self.assertEqual(configured_keys()['LLM_ENDPOINT_ID'],'ep-legacy-test')
+                config.write_text(json.dumps({'llmApiKey':'test-key','llmEndpointId':'ep-next-test'}))
+                self.assertEqual(configured_keys()['LLM_ENDPOINT_ID'],'ep-next-test')
+                config.write_text(json.dumps({'llmEndpointId':'','creativeEndpointId':'ep-legacy-test'}))
+                self.assertEqual(configured_keys()['LLM_ENDPOINT_ID'],'')
+
+    def test_workbench_navigation_on_all_three_pages(self):
+        with tempfile.TemporaryDirectory() as root:
+            with TestClient(create_studio(Path(root)/'jobs', Path(root)/'out')) as client:
+                for path in ('/chat/', '/', '/creative/'):
+                    response = client.get(path)
+                    self.assertEqual(response.status_code,200)
+                    self.assertIn('aria-label="工作台功能"',response.text)
+                    self.assertIn(f'href="{path}" aria-current="page"',response.text)
+                    for target in ('/chat/','/','/creative/'):
+                        self.assertIn(f'href="{target}"',response.text)
+                self.assertEqual(client.get('/workbench.css').status_code,200)
+
+    async def test_evaluation_tool_uses_shared_endpoint(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        from app.eval.tools import geval
+        client = SimpleNamespace(responses=SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(output_text='{"evaluation":{}}'))))
+        with patch.dict(os.environ, {'LLM_ENDPOINT_ID':'ep-shared-eval','MODEL_AGENT_API_KEY':'test-key'}), patch.object(geval,'AsyncOpenAI',return_value=client), patch.object(geval,'repair_evaluate_input',AsyncMock(return_value=[{'role':'user','content':[]}])):
+            await geval.evaluate_media([])
+        self.assertEqual(client.responses.create.call_args.kwargs['model'],'ep-shared-eval')
+
     async def test_image_generation_uses_image25_and_auto_quality(self):
         from unittest.mock import AsyncMock
         from app.image.tools import image_generate_gather as adapter
@@ -59,15 +92,22 @@ class StudioTests(unittest.IsolatedAsyncioTestCase):
             from app.model import ArkLlm
             from google.adk.models import LlmResponse
             from google.genai import types
+            seen = []
             async def offline_response(self, llm_request, stream=False):
+                seen.append((self.model, self._additional_args['model']))
                 yield LlmResponse(content=types.Content(role='model', parts=[types.Part(text='离线验证：阶段内容')]))
             with tempfile.TemporaryDirectory() as root, patch.object(ArkLlm, 'generate_content_async', offline_response):
                 jobs = Jobs(Path(root)/'jobs', Path(root)/'out')
-                item = jobs.create(Brief(product='开衫', selling_points='亲肤'))
-                await jobs.tasks[item['id']]
-                self.assertEqual(item['status'], 'failed')
-                self.assertIn('未生成', item['error'])
-                self.assertTrue(all('离线验证' in stage['text'] for stage in item['stages']))
+                for endpoint in ('ep-shared-first','ep-shared-second'):
+                    seen.clear()
+                    with patch('studio.configured_keys',return_value={'MODEL_AGENT_API_KEY':'test-key','SANBAO_API_KEY':'test-key','LLM_ENDPOINT_ID':endpoint}):
+                        item = jobs.create(Brief(product='开衫', selling_points='亲肤'))
+                        await jobs.tasks[item['id']]
+                    self.assertEqual(item['status'], 'failed')
+                    self.assertIn('未生成', item['error'])
+                    self.assertTrue(all('离线验证' in stage['text'] for stage in item['stages']))
+                    self.assertEqual(len(seen),7)
+                    self.assertTrue(all(model.endswith('/'+endpoint) and arg==model for model,arg in seen))
 
     async def test_missing_video_is_not_success(self):
         async def no_output(item, brief):
@@ -101,7 +141,7 @@ class StudioTests(unittest.IsolatedAsyncioTestCase):
         async def waiting(item, brief):
             await asyncio.sleep(60)
         with tempfile.TemporaryDirectory() as root, patch('studio.configured_keys', return_value={
-            'SANBAO_API_KEY': 'test-media', 'MODEL_AGENT_API_KEY': 'test-llm'
+            'SANBAO_API_KEY': 'test-media', 'MODEL_AGENT_API_KEY': 'test-llm', 'LLM_ENDPOINT_ID': ''
         }):
             app = create_studio(Path(root) / "jobs", Path(root) / "out", waiting)
             with TestClient(app) as client:

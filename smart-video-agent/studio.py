@@ -90,6 +90,7 @@ def configured_keys():
     return {
         "SANBAO_API_KEY": str(cfg.get("apiKey", os.getenv("SANBAO_API_KEY", ""))).strip(),
         "MODEL_AGENT_API_KEY": str(cfg.get("llmApiKey", os.getenv("MODEL_AGENT_API_KEY", ""))).strip(),
+        "LLM_ENDPOINT_ID": str(cfg.get("llmEndpointId", cfg.get("creativeEndpointId", ""))).strip(),
     }
 
 
@@ -259,10 +260,11 @@ def create_studio(directory=None, output=None, executor=None):
     @asynccontextmanager
     async def lifespan(app):
         yield
-        tasks = list(jobs.tasks.values()) + list(app.state.creative.tasks.values())
+        tasks = list(jobs.tasks.values()) + list(app.state.creative.tasks.values()) + list(app.state.chat.tasks.values())
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        app.state.chat.db.close()
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.jobs = jobs
@@ -270,6 +272,9 @@ def create_studio(directory=None, output=None, executor=None):
     @app.middleware("http")
     async def local_only(request: Request, call_next):
         origin = request.headers.get("origin")
+        if request.url.path.startswith(('/chat/', '/chat-api/')) and request.url.hostname not in ('127.0.0.1', 'localhost', 'testserver'):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({'detail':'请使用本机地址访问智能体'}, status_code=403)
         if origin and origin != str(request.base_url).rstrip("/"):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "请在本地工作台操作"}, status_code=403)
@@ -277,7 +282,8 @@ def create_studio(directory=None, output=None, executor=None):
 
     @app.get("/studio-api/health")
     async def health():
-        return {"app": "hamster-smart-video", "version": 12, "creative": True}
+        return {"app": "hamster-smart-video", "version": 19, "creative": True, "chat": True,
+                "instance": os.getenv("HAMSTER_SERVICE_INSTANCE", "")}
 
     @app.get("/studio-api/config")
     async def config():
@@ -292,7 +298,8 @@ def create_studio(directory=None, output=None, executor=None):
 
     @app.post("/studio-api/jobs", status_code=202)
     async def create(brief: Brief):
-        if not all(configured_keys().values()):
+        keys = configured_keys()
+        if not all(keys.get(name) for name in ('SANBAO_API_KEY', 'MODEL_AGENT_API_KEY')):
             raise HTTPException(400, "请在仓鼠AI账户页保存图片/视频 API Key 和仓鼠智能 API Key，再刷新配置")
         if brief.image_url and not public_url(brief.image_url):
             raise HTTPException(422, "参考图片必须是可访问的 HTTP/HTTPS 地址")
@@ -405,5 +412,7 @@ def create_studio(directory=None, output=None, executor=None):
         return FileResponse((shared if shared.is_dir() else ROOT.parent/'public')/name, media_type=types[name])
     from creative import install_creative
     install_creative(app, Path(directory).parent / 'creative-data' if directory else ROOT/'creative-data', jobs.output.parent/'创意工作台', configured_keys)
+    from chat import install_chat
+    install_chat(app, Path(directory).parent / 'chat-data' if directory else ROOT/'chat-data', configured_keys)
     app.mount("/", StaticFiles(directory=ROOT / "studio-ui", html=True), name="studio-ui")
     return app

@@ -20,9 +20,8 @@
           <img src="/hamster-logo.png" alt="" />
         </button>
         <nav class="rail-nav">
+          <button class="rail-item smart-video-launch" id="workbenchButton" type="button" aria-label="在浏览器打开工作台"><span class="rail-icon"><i data-lucide="panels-top-left"></i></span><span>工作台</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
           <button class="rail-item active" data-view="generate"><span class="rail-icon"><i data-lucide="sparkles"></i></span><span>生成</span></button>
-          <button class="rail-item smart-video-launch" id="smartVideoButton" type="button" aria-label="在浏览器打开智能成片"><span class="rail-icon"><i data-lucide="clapperboard"></i></span><span>智能成片</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
-          <button class="rail-item smart-video-launch" id="creativeButton" type="button" aria-label="在浏览器打开创意工作台"><span class="rail-icon"><i data-lucide="scan-text"></i></span><span>创意工作台</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
           <button class="rail-item" data-view="digital"><span class="rail-icon"><i data-lucide="scan-face"></i></span><span>数字人</span></button>
           <button class="rail-item" data-view="assets"><span class="rail-icon"><i data-lucide="library"></i></span><span>达人资产</span></button>
           <div class="rail-section-label">工具箱</div>
@@ -214,13 +213,36 @@
           <p id="rhStatus" class="hint"></p>
         </div>
         <div class="account-card">
-          <label>仓鼠智能 API Key（两个本地工作台共用）<input id="llmKeyInput" type="password" placeholder="请输入智能服务 API Key" autocomplete="off" /></label>
-          <button id="saveLlmKeyButton" class="plain-button" type="button"><i data-lucide="brain-circuit"></i>保存</button>
+          <label>仓鼠智能 API Key<input id="llmKeyInput" type="password" placeholder="请输入智能服务 API Key；已配置可留空保留" autocomplete="off" /></label>
+          <label>统一推理接入点 ID（可选）<input id="llmEndpointInput" type="text" placeholder="ep-…，留空使用默认配置" autocomplete="off" /></label>
+          <button id="saveLlmKeyButton" class="plain-button" type="button"><i data-lucide="brain-circuit"></i>保存智能服务配置</button>
           <p id="llmStatus" class="hint"></p>
+          <p class="hint">仓鼠智能体、智能成片与创意工作台共用，保存后新请求生效，无需重启。接入点须支持图片、视频与文本理解，智能成片还需支持工具调用；不使用音频输入。此配置不改变图片 / 视频生成线路。</p>
+        </div>
+        <div class="account-card diagnostic-card">
+          <h2>启动诊断</h2>
+          <p class="hint">检测本地工作台端口、运行环境和最近的启动错误。导出文件保存在桌面「仓鼠AI诊断」，不会自动上传。</p>
+          <p id="diagnosticStatus" class="hint" role="status">点击检测查看启动状态</p>
+          <div class="diagnostic-actions">
+            <button id="checkDiagnostics" class="plain-button" type="button"><i data-lucide="activity"></i>检测启动环境</button>
+            <button class="plain-button" type="button" data-export-diagnostics><i data-lucide="download"></i>导出诊断信息</button>
+          </div>
+          <p class="hint diagnostic-result" data-diagnostic-result role="status"></p>
+          <small class="hint">仅包含脱敏后的启动日志与基础环境信息，不包含密钥、任务提示词和用户素材。</small>
         </div>
       </section>
     </main>
 
+    <dialog id="startupErrorDialog" class="asset-dialog compact">
+      <h2>本地工作台未能启动</h2>
+      <p id="startupErrorMessage"></p>
+      <p class="hint">请导出诊断信息，将桌面「仓鼠AI诊断」中的文件发送给支持人员。不要发送账户密钥或个人配置文件。</p>
+      <div class="diagnostic-actions">
+        <button class="plain-button" type="button" data-export-diagnostics><i data-lucide="download"></i>导出诊断信息</button>
+        <button class="plain-button subtle" id="closeStartupError" type="button">关闭</button>
+      </div>
+      <p class="hint diagnostic-result" data-diagnostic-result role="status"></p>
+    </dialog>
     <div id="toast" class="toast"></div>
     <script src="/vendor/lucide.min.js"></script>
     <script type="module" src="/app.js"></script>

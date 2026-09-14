@@ -9,7 +9,7 @@ const { createApp: createServerApp, createSmartVideoLauncher, findSmartVideoDir 
 const qaTaskRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hamster-proxy-tasks-'));
 after(() => fs.rmSync(qaTaskRoot,{recursive:true,force:true}));
 let qaTaskIndex = 0;
-const createApp = options => createServerApp({taskDir:path.join(qaTaskRoot,String(++qaTaskIndex)),...options});
+const createApp = options => createServerApp({taskDir:path.join(qaTaskRoot,String(++qaTaskIndex)),diagnosticsDir:path.join(qaTaskRoot,'diagnostics'),...options});
 
 const RH_PATH = '/openapi/v2';
 
@@ -84,8 +84,8 @@ test('all credit badges are removed and composer includes shared asset picker', 
   assert.match(html, /id="assetTile"/);
   assert.match(js, /pickAsset\(\{category:'talent'\}\)/);
   assert.doesNotMatch(html, /reverseCostPreview|data-view="reverse"/);
-  assert.ok(html.indexOf('smartVideoButton') < html.indexOf('creativeButton'));
-  assert.ok(html.indexOf('creativeButton') < html.indexOf('data-view="digital"'));
+  assert.ok(html.indexOf('workbenchButton') < html.indexOf('data-view="digital"'));
+  assert.doesNotMatch(html, /id="(?:smartVideoButton|creativeButton|chatButton)"/);
   assert.match(html, /保存配置/);
 });
 
@@ -240,6 +240,7 @@ test('uses the bundled uv launcher when the workflow virtual environment is abse
   const launcher = createSmartVideoLauncher({
     workflowDir,
     fetchImpl: async () => { throw new Error('not ready'); },
+    portProbe:async()=>({state:'available',port:8000}),
     spawnImpl: (command, args, options) => {
       spawned = { command, args, options };
       return child;
@@ -307,6 +308,17 @@ test('opens and reports smart video service through dedicated local endpoints', 
   const statusResponse = await fetch(`http://localhost:${port}/api/smart-video/status`);
   assert.equal(statusResponse.status, 200);
   assert.equal((await statusResponse.json()).url, 'http://127.0.0.1:8000/');
+});
+
+test('chat uses its dedicated launcher target and does not proxy to generation upstream', async (t) => {
+  let target;
+  const smartVideoLauncher = {open:async value => {target=value;return {status:'ready',url:'http://127.0.0.1:8000/chat/'};}, status:async()=>({status:'ready'})};
+  const app=createApp({smartVideoLauncher});t.after(()=>app.close());const port=await listen(app);
+  assert.equal((await fetch(`http://localhost:${port}/api/chat/open`)).status,405);
+  const response=await fetch(`http://localhost:${port}/api/chat/open`,{method:'POST'});
+  assert.equal(response.status,200);assert.equal(target,'chat');assert.match((await response.json()).url,/\/chat\/$/);
+  assert.equal((await fetch(`http://localhost:${port}/api/chat/status`)).status,200);
+  assert.match(await (await fetch(`http://localhost:${port}/`)).text(),/id="workbenchButton"/);
 });
 
 test('returns a useful smart video setup error', async (t) => {
@@ -460,4 +472,24 @@ test('/api/config stores and reports both keys independently', async (t) => {
   assert.equal(data.configured, true);
   assert.equal(data.rhConfigured, true);
   assert.equal(data.llmConfigured, true);
+});
+
+test('shared endpoint migrates legacy settings, validates atomically and never returns keys', async (t) => {
+  const cfg=tmpConfig('creative-endpoint'), app=createApp({configPath:cfg});
+  t.after(()=>{app.close();cleanupFile(cfg);});
+  const base=`http://localhost:${await listen(app)}/api/config`;
+  const save=value=>fetch(base,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});
+  fs.writeFileSync(cfg, JSON.stringify({llmApiKey:'private-key',creativeEndpointId:'ep-test-endpoint'}));
+  let data=await (await fetch(base)).json();
+  assert.equal(data.llmEndpointId,'ep-test-endpoint');assert.equal(data.llmConfigured,true);
+  assert.ok(!JSON.stringify(data).includes('private-key'));
+  assert.equal((await save({llmApiKey:'changed-key',llmEndpointId:'https://private.invalid'})).status,400);
+  assert.equal(JSON.parse(fs.readFileSync(cfg)).llmApiKey,'private-key');
+  await save({llmEndpointId:'ep-shared-next',creativeEndpointId:'ep-legacy-old'});
+  data=await (await fetch(base)).json();assert.equal(data.llmEndpointId,'ep-shared-next');
+  assert.equal(JSON.parse(fs.readFileSync(cfg)).creativeEndpointId,undefined);
+  await save({llmEndpointId:''});
+  data=await (await fetch(base)).json();assert.equal(data.llmEndpointId,'');assert.equal(data.llmConfigured,true);
+  await save({creativeEndpointId:'ep-legacy-client'});
+  data=await (await fetch(base)).json();assert.equal(data.llmEndpointId,'ep-legacy-client');
 });

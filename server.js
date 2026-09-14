@@ -5,11 +5,17 @@ const os = require('node:os');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { exec, execFile, spawn } = require('node:child_process');
+const { createDiagnostics, inspectPort, classifyFailure } = require('./diagnostics.cjs');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const RESULT_DIR = path.join(os.homedir(), 'Desktop', '仓鼠AI生成结果');
 const SMART_VIDEO_URL = 'http://127.0.0.1:8000/';
+async function freeLocalPort(){
+  const net=require('node:net');
+  return new Promise((resolve,reject)=>{const probe=net.createServer();probe.once('error',reject);
+    probe.listen(0,'127.0.0.1',()=>{const port=probe.address().port;probe.close(()=>resolve(port));});});
+}
 
 /* 上游服务 */
 const GEN_UPSTREAM = 'https://sanbaobeauty.com';        // 图片/视频生成上游
@@ -153,101 +159,172 @@ function createSmartVideoLauncher({
   fetchImpl = fetch,
   spawnImpl = spawn,
   envProvider = () => ({}),
+  diagnostics,
+  portProbe = inspectPort,
+  allocatePort = freeLocalPort,
+  dynamicPorts = true,
+  runtimeProvider,
+  requireIdentity = false,
+  startupTimeoutMs = 120000,
 } = {}) {
   let child = null;
-  let startError = '';
+  let startError = null, starting = null, captureEnabled = false, failureText = '';
+  let lastPortCheck = null;
+  let port = Number(new URL(url).port || 8000), stopped=false, startupTimer=null, healthTimer=null, retries=0;
+  function clearStartupWatch(){clearTimeout(startupTimer);clearInterval(healthTimer);}
+  const instanceId=require('node:crypto').randomUUID();
+  const diag = diagnostics || {log(){},failure(){},redact:String,addSecrets(){},capture(){return ()=>{};}};
+
+  function failed(details) {
+    startError = details;
+    diag.failure(details);
+    return {status:'error',url,...details};
+  }
 
   async function readyUrl() {
     try {
       const response = await fetchImpl(new URL('/studio-api/health', url), {
         signal: AbortSignal.timeout(1500),
       });
-      if (response.status >= 500) return '';
+      if (response.status !== 200) return '';
       const health = await response.json();
-      if (health.app === 'hamster-smart-video') return url;
+      if (health.app === 'hamster-smart-video' && (!requireIdentity || (health.instance===instanceId && health.version===19))) return health;
       return '';
     } catch {
       return '';
     }
   }
 
-  function start() {
+  async function start() {
+    if(stopped)return {status:'stopped',url};
     if (child && child.exitCode === null) return { status: 'starting', url };
+    if (starting) return starting;
+    starting = startChecked();
+    try {return await starting;} finally {starting=null;}
+  }
+  async function startChecked() {
+    startError = null;
+    const runtime=runtimeProvider?await runtimeProvider():null;
+    if(stopped)return {status:'stopped',url};
+    lastPortCheck = await portProbe(port);
+    diag.log('port-preflight',lastPortCheck);
+    if (lastPortCheck.state !== 'available' && dynamicPorts) {
+      const previous=port;port=await allocatePort();url=`http://127.0.0.1:${port}/`;
+      diag.log('port-switch',{previous,port,reason:lastPortCheck.state});
+    } else if (lastPortCheck.state !== 'available') {
+      const owners=(lastPortCheck.owners || []).map(item=>`${item.name}（PID ${item.pid}）`).join('、');
+      return failed({code:lastPortCheck.state==='occupied'?'PORT_IN_USE':'PORT_UNAVAILABLE',port,
+        message:lastPortCheck.state==='occupied'?`${port} 端口已被${owners || '其他本地程序'}占用，工作台未启动。请确认占用程序后处理，或导出诊断信息`:`无法使用 ${port} 端口，请检查系统权限、安全软件或端口保留策略`,portCheck:lastPortCheck});
+    }
     const dir = findSmartVideoDir(workflowDir);
     if (!dir) {
-      return {
-        status: 'error',
-        url,
-        message: '未找到智能成片工作流，请设置 HAMSTER_SMART_VIDEO_DIR 指向 ad_video_gen_seq 目录',
-      };
+      return failed({code:'WORKFLOW_MISSING',message:'未找到本地工作流文件，请检查安装是否完整并导出诊断信息'});
     }
 
-    startError = '';
     const localVeadk = process.platform === 'win32'
       ? path.join(dir, '.venv', 'Scripts', 'python.exe')
       : path.join(dir, '.venv', 'bin', 'python');
     const bundledUv = process.platform === 'win32'
       ? path.join(dir, 'bin', 'uv.exe')
       : '';
-    const command = fs.existsSync(localVeadk)
+    const command = runtime ? runtime.python : fs.existsSync(localVeadk)
       ? localVeadk
       : fs.existsSync(bundledUv) ? bundledUv : 'uv';
-    const args = fs.existsSync(localVeadk)
-      ? ['web.py', '--port', '8000']
-      : ['run', 'python', 'web.py', '--port', '8000'];
-
-    const launched = spawnImpl(command, args, {
+    const args = runtime ? ['-I','-B',runtime.bootstrap,dir,'--port',String(port)] : fs.existsSync(localVeadk)
+      ? ['web.py', '--port', String(port)]
+      : ['run', 'python', 'web.py', '--port', String(port)];
+    const extraEnv = envProvider();
+    if(stopped)return {status:'stopped',url};
+    diag.addSecrets(extraEnv);
+    diag.log('launch',{runtime:runtime?runtime.id:fs.existsSync(localVeadk)?'python-venv':'uv-bootstrap',command,port,workflow:dir});
+    let launched;
+    try { launched = spawnImpl(command, args, {
       cwd: dir,
       env: {
         ...process.env,
-        ...envProvider(),
+        ...extraEnv,
         PYTHONPATH: [dir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
         PYTHONUNBUFFERED: '1',
+        HAMSTER_SERVICE_INSTANCE: instanceId,
+        HAMSTER_PARENT_PID: String(process.pid),
+        PYTHONNOUSERSITE: '1',
       },
       windowsHide: true,
-      stdio: 'ignore',
-    });
+      stdio: ['ignore','pipe','pipe'],
+    }); } catch(error) {return failed(classifyFailure(String(error),diag.redact(error.message)));}
     child = launched;
+    clearStartupWatch();
+    let checking=false;
+    healthTimer=setInterval(async()=>{
+      if(checking||child!==launched)return;
+      checking=true;
+      try{if(await readyUrl()){captureEnabled=false;clearStartupWatch();diag.log('health-ready',{port});}}finally{checking=false;}
+    },1000);
+    healthTimer.unref?.();
+    startupTimer=setTimeout(()=>{
+      if(child!==launched)return;
+      failed({code:'STARTUP_TIMEOUT',message:'本地工作台未在预期时间内通过健康检查，请导出诊断信息'});
+      child=null;launched.kill?.();
+      clearStartupWatch();
+    },startupTimeoutMs);
+    startupTimer.unref?.();
+    captureEnabled=true;failureText='';
+    const note=line=>{
+      failureText=(failureText+'\n'+line).slice(-32768);
+      if(/Uvicorn running on/i.test(line)){captureEnabled=false;diag.log('ready','本地服务已开始监听；停止采集业务期输出');}
+    };
+    const enabled=()=>captureEnabled && child===launched;
+    const flushOut=diag.capture(launched.stdout,'stdout',note,enabled);
+    const flushErr=diag.capture(launched.stderr,'stderr',note,enabled);
     launched.once('error', (err) => {
       if (child !== launched) return;
-      startError = command === 'uv'
-        ? `启动失败：${err.message}。当前系统不支持内置启动器，请安装 uv 后重试`
-        : `启动失败：${err.message}`;
-      child = null;
+      flushOut();flushErr();diag.log('spawn-error',String(err));
+      failed(classifyFailure(String(err),`启动失败：${diag.redact(err.message)}`));
+      child = null;captureEnabled=false;
+      clearStartupWatch();
     });
-    launched.once('exit', (code) => {
+    launched.once('close', (code, signal) => {
       if (child !== launched) return;
-      if (code && !startError) startError = `智能成片服务已退出（代码 ${code}）`;
-      child = null;
+      flushOut();flushErr();
+      diag.log('process-close',{code,signal});
+      clearStartupWatch();
+      if(!stopped && dynamicPorts && classifyFailure(failureText).code==='PORT_IN_USE' && retries++<3){
+        child=null;captureEnabled=false;
+        start().catch(error=>failed(classifyFailure(String(error))));return;
+      }
+      if(!startError)failed({...classifyFailure(failureText,`本地工作台已退出（代码 ${code ?? '未知'}），请导出诊断信息`),exitCode:code,signal});
+      child = null;captureEnabled=false;
     });
     return { status: 'starting', url };
   }
 
   async function status() {
-    const detectedUrl = await readyUrl();
-    if (detectedUrl) return { status: 'ready', url: detectedUrl };
-    if (startError) return { status: 'error', url, message: startError };
-    return { status: child && child.exitCode === null ? 'starting' : 'stopped', url };
+    const health = await readyUrl();
+    if (health) {captureEnabled=false;clearStartupWatch();return { status: 'ready', url };}
+    if (startError) return { status: 'error', url, ...startError };
+    return { status: starting || (child && child.exitCode === null) ? 'starting' : 'stopped', url };
   }
 
   async function open(creative = false) {
-    const detectedUrl = await readyUrl();
-    if (detectedUrl) {
-      if (creative) {
-        const health = await (await fetchImpl(new URL('/studio-api/health',url))).json();
-        if (!health.creative) return {status:'error',message:'本地服务仍是旧版本，请关闭旧版应用及其本地工作台服务后重新打开。'};
-      }
-      const target = creative ? new URL('/creative/', detectedUrl).href : detectedUrl;
+    const health = await readyUrl();
+    if (health) {
+      captureEnabled=false;
+      clearStartupWatch();
+      if ((creative === 'chat' && !health.chat) || (creative === true && !health.creative)) return failed({code:'WORKFLOW_VERSION_MISMATCH',message:'本地工作台仍是旧版本，请退出旧版应用及其工作台后重试'});
+      diag.log('reuse-service',{port,version:health.version || 'unknown'});
+      const target = creative === 'chat' ? new URL('/chat/', url).href : creative ? new URL('/creative/', url).href : url;
       openExternal(target);
       return { status: 'ready', url: target };
     }
-    return start();
+    try{return await start();}catch(error){diag.log('prepare-error',String(error));return failed(classifyFailure(String(error)));}
   }
 
   function stop() {
+    stopped=true;clearStartupWatch();
     const launched = child;
     child = null;
-    startError = '';
+    startError = null;captureEnabled=false;
+    diag.log('stop','应用正在关闭本次启动的工作台');
     if (!launched || launched.exitCode !== null) return;
     if (process.platform === 'win32' && launched.pid) {
       execFile('taskkill', ['/PID', String(launched.pid), '/T', '/F'], { windowsHide: true }, () => {});
@@ -256,7 +333,16 @@ function createSmartVideoLauncher({
     }
   }
 
-  return { open, status, stop };
+  async function diagnose() {
+    const health=await readyUrl();
+    const check=health?{port,host:'127.0.0.1',state:'own-service',version:health.version || null}:await portProbe(port);
+    const dir=findSmartVideoDir(workflowDir);
+    const exists=relative=>!!dir && fs.existsSync(path.join(dir,relative));
+    return {service:health?'ready':child?'starting':startError?'error':'stopped',port:check,lastPortCheck,
+      workflow:{found:!!dir,webEntry:exists('web.py'),manifest:exists('pyproject.toml'),
+        python:exists(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python'),bundledRuntime:!!runtimeProvider,bundledLauncher:exists('bin/uv.exe')},currentFailure:startError};
+  }
+  return { open, status, stop, diagnose };
 }
 
 async function handleSmartVideo(req, res, launcher, action, creative = false) {
@@ -309,6 +395,7 @@ async function handleConfig(req, res, configPath) {
       configured: Boolean((cfg.apiKey || '').trim()),
       rhConfigured: Boolean((cfg.rhApiKey || '').trim()),
       llmConfigured: Boolean((cfg.llmApiKey || '').trim()),
+      llmEndpointId: String(cfg.llmEndpointId ?? cfg.creativeEndpointId ?? ''),
     }));
   }
   if (req.method === 'POST') {
@@ -316,6 +403,16 @@ async function handleConfig(req, res, configPath) {
     let payload = {};
     try { payload = body && body.length ? JSON.parse(body.toString('utf8')) : {}; } catch { payload = {}; }
     const cfg = loadConfig(configPath);
+    const endpoint = Object.hasOwn(payload, 'llmEndpointId') ? payload.llmEndpointId : payload.creativeEndpointId;
+    if (endpoint !== undefined) {
+      if (typeof endpoint !== 'string' || (endpoint.trim() && !/^ep-[a-zA-Z0-9-]{5,100}$/.test(endpoint.trim()))) {
+        res.writeHead(400, { 'Content-Type':'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({error:'接入点 ID 格式不正确，请输入 ep- 开头的接入点编号。'}));
+      }
+      cfg.llmEndpointId = endpoint.trim();
+    }
+    if (!Object.hasOwn(cfg, 'llmEndpointId') && Object.hasOwn(cfg, 'creativeEndpointId')) cfg.llmEndpointId = cfg.creativeEndpointId;
+    delete cfg.creativeEndpointId;
     if (typeof payload.apiKey === 'string') cfg.apiKey = payload.apiKey.trim();
     if (typeof payload.rhApiKey === 'string') cfg.rhApiKey = payload.rhApiKey.trim();
     if (typeof payload.llmApiKey === 'string') cfg.llmApiKey = payload.llmApiKey.trim();
@@ -408,12 +505,20 @@ function createApp({
   resultDir = RESULT_DIR,
   taskDir = path.join(path.dirname(configPath), 'task-history'),
   taskOptions = {},
+  diagnostics = null,
+  diagnosticsDir = path.join(path.dirname(configPath),'diagnostics'),
+  diagnosticExportDir = path.join(path.dirname(resultDir),'仓鼠AI诊断'),
   assetDir = path.join(path.dirname(resultDir), '仓鼠AI资产库'),
   smartVideoLauncher = null,
   smartVideoDir,
+  runtimeProvider,
 } = {}) {
+  const diagnosticStore = diagnostics || createDiagnostics({dir:diagnosticsDir,exportDir:diagnosticExportDir,configPath,version:require('./package.json').version});
   const activeSmartVideoLauncher = smartVideoLauncher || createSmartVideoLauncher({
     workflowDir: smartVideoDir,
+    diagnostics:diagnosticStore,
+    runtimeProvider,
+    requireIdentity:true,
     envProvider: () => ({
       SANBAO_API_KEY: String(loadConfig(configPath).apiKey || '').trim(),
       MODEL_AGENT_API_KEY: String(loadConfig(configPath).llmApiKey || '').trim(),
@@ -447,7 +552,21 @@ function createApp({
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
 
-    if (p === '/api/tasks' || p.startsWith('/api/tasks/')) {
+    if (p === '/api/diagnostics/status' || p === '/api/diagnostics/export') {
+      const exportRequested=p.endsWith('/export');
+      if(req.method!==(exportRequested?'POST':'GET')){res.writeHead(405);res.end();return;}
+      (async()=>{
+        const checks=await activeSmartVideoLauncher.diagnose?.() || {service:'unknown'};
+        if(exportRequested){
+          const exported=diagnosticStore.exportReport(checks);
+          res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+          res.end(JSON.stringify({ok:true,fileName:exported.fileName,localPath:exported.localPath}));
+        }else{
+          res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+          res.end(JSON.stringify({...diagnosticStore.snapshot(),checks}));
+        }
+      })().catch(fail(res));
+    } else if (p === '/api/tasks' || p.startsWith('/api/tasks/')) {
       try { taskStore().handle(req,res,url).catch(fail(res)); } catch (error) { fail(res)(error); }
     } else if (p === '/api/assets' || p.startsWith('/api/assets/')) {
       assetsHandler ||= require('./assets.cjs').createAssets(assetDir,resultDir,upstream,(r)=>resolveGenKey(r,configPath));
@@ -460,6 +579,10 @@ function createApp({
       handleSmartVideo(req, res, activeSmartVideoLauncher, 'open').catch(fail(res));
     } else if (p === '/api/smart-video/status') {
       handleSmartVideo(req, res, activeSmartVideoLauncher, 'status').catch(fail(res));
+    } else if (p === '/api/chat/open') {
+      handleSmartVideo(req, res, activeSmartVideoLauncher, 'open', 'chat').catch(fail(res));
+    } else if (p === '/api/chat/status') {
+      handleSmartVideo(req, res, activeSmartVideoLauncher, 'status', 'chat').catch(fail(res));
     } else if (p === '/api/creative/open') {
       handleSmartVideo(req, res, activeSmartVideoLauncher, 'open', true).catch(fail(res));
     } else if (p === '/api/creative/status') {
