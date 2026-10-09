@@ -1,0 +1,5285 @@
+{
+  "fetchedAt": "2026-10-08T05:41:08.620Z",
+  "specs": [
+    {
+      "provider": "sanbao",
+      "key": "pikno-sanbao",
+      "name": "PIKNO 三宝",
+      "baseUrl": "https://sanbaobeauty.com",
+      "models": {
+        "sanbao/sd2_5_official_real": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "21:9",
+            "1:1",
+            "4:3"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 0,
+            "audio": 10
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_5_official_real",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_5_limited_720p": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_5_limited_720p",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_5_line5": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "ratios": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_5_line5",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_5_limited_line1": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "ratios": [
+            "1:1",
+            "3:4",
+            "4:3",
+            "9:16",
+            "16:9",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 0,
+            "audio": 10
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_5_limited_line1",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd25_30img_special": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "durations": [
+            5,
+            10,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 0,
+            "audio": 0
+          },
+          "kind": "video",
+          "upstreamModel": "sd25_30img_special",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/hailuo_h3_2k": {
+          "qualities": [],
+          "resolutions": [
+            "2k"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "hailuo_h3_2k",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/hailuo_h3_2k_line2": {
+          "qualities": [],
+          "resolutions": [
+            "2k"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "hailuo_h3_2k_line2",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_9img_full": {
+          "qualities": [],
+          "resolutions": [
+            "720p",
+            "1080p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_9img_full",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_9img_full_line2": {
+          "qualities": [],
+          "resolutions": [
+            "720p",
+            "1080p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_9img_full_line2",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_9img_full_fast_line": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "1:1",
+            "3:4",
+            "4:3",
+            "9:16",
+            "16:9",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_9img_full_fast_line",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_value": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "21:9"
+          ],
+          "durations": [
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 0,
+            "audio": 0
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_value",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_fast_4img_real": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_fast_4img_real",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_limited_line3": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "9:16",
+            "1:1",
+            "16:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_limited_line3",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_480p_real": {
+          "qualities": [],
+          "resolutions": [
+            "480p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_480p_real",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_9img_limited_special": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ],
+          "durations": [
+            10,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_9img_limited_special",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_933_limited_line": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_933_limited_line",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_9img_seconds_720p_real": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_9img_seconds_720p_real",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/wan30_720p_real": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 10,
+            "video": 5,
+            "audio": 5
+          },
+          "kind": "video",
+          "upstreamModel": "wan30_720p_real",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_9img_special_full": {
+          "qualities": [],
+          "resolutions": [
+            "720p",
+            "1080p",
+            "4k"
+          ],
+          "ratios": [
+            "1:1",
+            "3:4",
+            "4:3",
+            "9:16",
+            "16:9",
+            "21:9",
+            "adaptive"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 0,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_9img_special_full",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_0_mini_933": {
+          "qualities": [],
+          "resolutions": [
+            "480p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_0_mini_933",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd_2_5_once_720p": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "upstreamModel": "sd_2_5_once_720p",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/wan_3_0": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p",
+            "1080p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 10,
+            "video": 5,
+            "audio": 5
+          },
+          "kind": "video",
+          "upstreamModel": "wan_3_0",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd2_5_line7": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "upstreamModel": "sd2_5_line7",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/sd_2_5_900_30s": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3",
+            "21:9"
+          ],
+          "durations": [
+            30
+          ],
+          "limits": {
+            "image": 9,
+            "video": 0,
+            "audio": 0
+          },
+          "kind": "video",
+          "upstreamModel": "sd_2_5_900_30s",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        },
+        "sanbao/hailuo_h3_2k_line3": {
+          "qualities": [],
+          "resolutions": [
+            "2k"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "4:3"
+          ],
+          "durations": [
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 6,
+            "video": 0,
+            "audio": 0
+          },
+          "kind": "video",
+          "upstreamModel": "hailuo_h3_2k_line3",
+          "path": "/openapi/v1/videos",
+          "minImages": 0
+        }
+      },
+      "fields": {
+        "video": [
+          "prompt",
+          "ratio",
+          "resolution",
+          "duration",
+          "reference",
+          "images",
+          "videos",
+          "audios",
+          "concurrency"
+        ]
+      }
+    },
+    {
+      "provider": "canseedream",
+      "key": "pikno-canseedream",
+      "name": "PIKNO CanSeeDream",
+      "baseUrl": "https://see.ximeiedu.org",
+      "models": {
+        "canseedream/video/juzi_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "21:9",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ],
+          "durations": [
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "juzi_pool",
+          "maxPrompt": 5000
+        },
+        "canseedream/video/aggc": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "1:1",
+            "9:16",
+            "16:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 0,
+            "audio": 3
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "aggc",
+          "maxPrompt": 10000
+        },
+        "canseedream/video/donggua_pool": {
+          "qualities": [],
+          "resolutions": [
+            "480p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "donggua_pool",
+          "maxPrompt": 30000
+        },
+        "canseedream/video/donggua2_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "donggua2_pool",
+          "maxPrompt": 30000
+        },
+        "canseedream/video/ningmeng_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9",
+            "adaptive"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "ningmeng_pool",
+          "maxPrompt": 30000
+        },
+        "canseedream/video/yadan_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "21:9"
+          ],
+          "durations": [
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "yadan_pool",
+          "maxPrompt": 30000
+        },
+        "canseedream/video/xigua2_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 3,
+            "audio": 3
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "xigua2_pool",
+          "maxPrompt": 30000
+        },
+        "canseedream/video/minih3_a_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "21:9"
+          ],
+          "durations": [
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 0,
+            "audio": 3
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "minih3_a_pool",
+          "maxPrompt": 30000
+        },
+        "canseedream/video/ningmeng_c_pool": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "ratios": [
+            "adaptive",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 10,
+            "video": 5,
+            "audio": 5
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "ningmeng_c_pool",
+          "maxPrompt": 20000
+        },
+        "canseedream/video/dami_c_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16"
+          ],
+          "durations": [
+            5,
+            10,
+            15
+          ],
+          "limits": {
+            "image": 9,
+            "video": 0,
+            "audio": 0
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "dami_c_pool",
+          "maxPrompt": 5000
+        },
+        "canseedream/video/dami_e_pool": {
+          "qualities": [],
+          "resolutions": [
+            "720p"
+          ],
+          "ratios": [
+            "16:9",
+            "9:16"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "dami_e_pool",
+          "maxPrompt": 20000
+        },
+        "canseedream/video/caomeinewa": {
+          "qualities": [],
+          "resolutions": [
+            "480p"
+          ],
+          "ratios": [
+            "auto",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "1:1",
+            "21:9"
+          ],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "caomeinewa",
+          "maxPrompt": 20000
+        },
+        "canseedream/video/nanguar": {
+          "qualities": [],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "ratios": [],
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "limits": {
+            "image": 30,
+            "video": 10,
+            "audio": 10
+          },
+          "kind": "video",
+          "path": "/api/v3/contents/generations/tasks",
+          "route": "provider_router",
+          "line": "nanguar",
+          "maxPrompt": 10000
+        }
+      },
+      "fields": {
+        "video": [
+          "prompt",
+          "image_urls",
+          "audio_urls",
+          "video_urls",
+          "duration",
+          "resolution",
+          "aspect_ratio",
+          "generate_audio",
+          "number_of_runs"
+        ]
+      }
+    }
+  ],
+  "sanbao": [
+    {
+      "id": "sd2_5_official_real",
+      "object": "model",
+      "name": "SD2.5-官转-过真人",
+      "description": "最多支持30张图片，10个音频，不支持视频参考，能过真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 14.4,
+      "price_per_second_credits": 14.4,
+      "price_per_second_cny": 1.44,
+      "price_per_second_by_resolution_credits": {
+        "480p": 7.2,
+        "720p": 14.4
+      },
+      "price_per_second_by_resolution": {
+        "480p": 7.2,
+        "720p": 14.4
+      },
+      "price_per_second_by_resolution_cny": {
+        "480p": 0.72,
+        "720p": 1.44
+      },
+      "web_price_credits": 14.4,
+      "web_price_by_resolution_credits": {
+        "480p": 7.2,
+        "720p": 14.4
+      },
+      "resolutions": [
+        "480p",
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "21:9",
+        "1:1",
+        "4:3"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "default_resolution": "720p",
+      "default_duration_seconds": 10,
+      "default_ratio": "16:9",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 30,
+      "max_videos": 0,
+      "max_audios": 10,
+      "max_media_files": 40,
+      "max_image_size_mb": 20,
+      "max_video_size_mb": 0,
+      "max_audio_size_mb": 20,
+      "supports_real_person": true,
+      "audio_only_supported": true,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd25",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_5_limited_720p",
+      "object": "model",
+      "name": "SD2.5-限时优惠-720P",
+      "description": "支持30图10视频10音频，过真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 5.5,
+      "price_per_second_credits": 5.5,
+      "price_per_second_cny": 0.55,
+      "price_per_second_by_resolution_credits": {
+        "720p": 5.5
+      },
+      "price_per_second_by_resolution": {
+        "720p": 5.5
+      },
+      "price_per_second_by_resolution_cny": {
+        "720p": 0.55
+      },
+      "web_price_credits": 5.5,
+      "web_price_by_resolution_credits": {
+        "720p": 5.5
+      },
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "21:9",
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "default_resolution": "720p",
+      "default_duration_seconds": 10,
+      "default_ratio": "16:9",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 30,
+      "max_videos": 10,
+      "max_audios": 10,
+      "max_media_files": 50,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "supports_real_person": true,
+      "audio_only_supported": true,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd25",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_5_line5",
+      "object": "model",
+      "name": "SD2.5-线路5",
+      "description": "支持30图10视频10音频，原生过人脸。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 8,
+      "price_per_second_credits": 8,
+      "price_per_second_cny": 0.72,
+      "price_per_second_by_resolution_credits": {
+        "480p": 4.6,
+        "720p": 8
+      },
+      "price_per_second_by_resolution": {
+        "480p": 4.6,
+        "720p": 8
+      },
+      "price_per_second_by_resolution_cny": {
+        "480p": 0.55,
+        "720p": 0.72
+      },
+      "web_price_credits": 8,
+      "web_price_by_resolution_credits": {
+        "480p": 4.6,
+        "720p": 8
+      },
+      "resolutions": [
+        "480p",
+        "720p"
+      ],
+      "ratios": [
+        "21:9",
+        "16:9",
+        "4:3",
+        "1:1",
+        "3:4",
+        "9:16"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "default_resolution": "720p",
+      "default_duration_seconds": 10,
+      "default_ratio": "16:9",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 30,
+      "max_videos": 10,
+      "max_audios": 10,
+      "max_media_files": 50,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "supports_real_person": true,
+      "audio_only_supported": true,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd25",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_5_limited_line1",
+      "object": "model",
+      "name": "SD2.5-限时优惠-线路1",
+      "description": "支持30图0视频10音频，720P，过真人。速度快，速度快，稳定，稳定",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 8,
+      "price_per_second_credits": 8,
+      "price_per_second_cny": 0.55,
+      "price_per_second_by_resolution_credits": {
+        "480p": 5,
+        "720p": 8
+      },
+      "price_per_second_by_resolution": {
+        "480p": 5,
+        "720p": 8
+      },
+      "price_per_second_by_resolution_cny": {
+        "480p": 0.37,
+        "720p": 0.55
+      },
+      "web_price_credits": 8,
+      "web_price_by_resolution_credits": {
+        "480p": 5,
+        "720p": 8
+      },
+      "resolutions": [
+        "480p",
+        "720p"
+      ],
+      "ratios": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "default_resolution": "720p",
+      "default_duration_seconds": 10,
+      "default_ratio": "16:9",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 30,
+      "max_videos": 0,
+      "max_audios": 10,
+      "max_media_files": 40,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 0,
+      "max_audio_size_mb": 15,
+      "supports_real_person": true,
+      "audio_only_supported": true,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd25",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd25_30img_special",
+      "object": "model",
+      "name": "SD2.5-30图特价版",
+      "description": "支持30图0视频0音频，技术过人脸（有概率失败，最好自行处理一下人脸），720P",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 36,
+      "web_price_credits": 36,
+      "price_cny": 3.6,
+      "billing": "per_generation",
+      "price_by_resolution_credits": {
+        "720p": 36
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 36
+      },
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "4:3",
+        "3:4",
+        "21:9"
+      ],
+      "durations": [
+        5,
+        10,
+        30
+      ],
+      "default_resolution": "720p",
+      "default_duration_seconds": 30,
+      "default_ratio": "9:16",
+      "max_prompt_length": 6000,
+      "min_images": 0,
+      "max_images": 30,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 30,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 0,
+      "max_audio_size_mb": 0,
+      "supports_real_person": true,
+      "audio_only_supported": false,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd25",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "hailuo_h3_2k",
+      "object": "model",
+      "name": "Hailuo-H3-2K",
+      "description": "支持9图0视频3音频，能过真人",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 20,
+      "web_price_credits": 20,
+      "price_cny": 2,
+      "billing": "per_generation",
+      "resolutions": [
+        "2k"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "4:3",
+        "3:4",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_resolution": "2k",
+      "default_duration_seconds": 15,
+      "default_ratio": "9:16",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "supports_real_person": true,
+      "audio_only_supported": true,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "2k": 20
+      },
+      "web_price_by_resolution_credits": {
+        "2k": 20
+      },
+      "enabled": true,
+      "display_group": "sd2_fast",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "hailuo_h3_2k_line2",
+      "object": "model",
+      "name": "Hailuo-H3-2K-线路2",
+      "description": "支持9图0视频3音频，素材总数最多12个，2K。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 23,
+      "web_price_credits": 23,
+      "price_cny": 2.3,
+      "billing": "per_generation",
+      "resolutions": [
+        "2k"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "4:3",
+        "3:4",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_resolution": "2k",
+      "default_duration_seconds": 15,
+      "default_ratio": "9:16",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 12,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "supports_real_person": true,
+      "audio_only_supported": true,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "2k": 23
+      },
+      "web_price_by_resolution_credits": {
+        "2k": 23
+      },
+      "enabled": true,
+      "display_group": "sd2_fast",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_9img_full",
+      "object": "model",
+      "name": "SD2.0-9图满血",
+      "description": "速度快，稳定，过真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 6.4,
+      "price_per_second_credits": 6.4,
+      "price_per_second_cny": 0.64,
+      "price_per_second_by_resolution_credits": {
+        "720p": 6.4,
+        "1080p": 7
+      },
+      "price_per_second_by_resolution_cny": {
+        "720p": 0.64,
+        "1080p": 0.7
+      },
+      "resolutions": [
+        "720p",
+        "1080p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 20,
+      "max_video_size_mb": 200,
+      "max_audio_size_mb": 30,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 6.4,
+      "price_per_second_by_resolution": {
+        "720p": 6.4,
+        "1080p": 7
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 6.4,
+        "1080p": 7
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_9img_full_line2",
+      "object": "model",
+      "name": "SD2.0-9图满血-线路2",
+      "description": "支持9图3视频3音频，过真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 5.5,
+      "price_per_second_credits": 5.5,
+      "price_per_second_cny": 0.5,
+      "price_per_second_by_resolution_credits": {
+        "720p": 5.5,
+        "1080p": 12
+      },
+      "price_per_second_by_resolution_cny": {
+        "720p": 0.5,
+        "1080p": 0.65
+      },
+      "resolutions": [
+        "720p",
+        "1080p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_duration_seconds": 5,
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 20,
+      "max_video_size_mb": 200,
+      "max_audio_size_mb": 30,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 5.5,
+      "price_per_second_by_resolution": {
+        "720p": 5.5,
+        "1080p": 12
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 5.5,
+        "1080p": 12
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_9img_full_fast_line",
+      "object": "model",
+      "name": "SD2.0-9图满血-快速线路",
+      "description": "支持9图3视频3音频，概率卡人脸。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 54,
+      "web_price_credits": 54,
+      "price_by_resolution_credits": {
+        "720p": 54
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 54
+      },
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_duration_seconds": 5,
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 20,
+      "max_video_size_mb": 200,
+      "max_audio_size_mb": 30,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_value",
+      "object": "model",
+      "name": "SD2.0高性价比版",
+      "description": "支持最多9张参考图，不支持视频、音频，技术过的人脸(失败了大概率是卡人脸了，可以自行网格处理一下再提交）",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 40,
+      "web_price_credits": 40,
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "21:9"
+      ],
+      "sizes": [
+        "1280x720",
+        "720x1280",
+        "1024x1024"
+      ],
+      "durations": [
+        15
+      ],
+      "max_prompt_length": 2500,
+      "max_images": 9,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 9,
+      "supports_real_person": false,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "720p": 40
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 40
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_fast_4img_real",
+      "object": "model",
+      "name": "SD2.0-fast-9图-过真人",
+      "description": "支持9图3视频3音频，720P，4-15秒可选，过真人；",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 36,
+      "web_price_credits": 36,
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_duration_seconds": 5,
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "720p": 36
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 36
+      },
+      "enabled": true,
+      "display_group": "sd2_fast",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_limited_line3",
+      "object": "model",
+      "name": "SD2.0-限时特价-线路3",
+      "description": "支持9图3视频3音频，有概率卡人脸失败（失败的话自行网格处理一下人脸再提交）",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 48,
+      "web_price_credits": 48,
+      "price_cny": 4,
+      "web_price_cny": 4,
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "9:16",
+        "1:1",
+        "16:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_duration_seconds": 15,
+      "default_ratio": "9:16",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "720p": 48
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 48
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_480p_real",
+      "object": "model",
+      "name": "SD2.0-480P-过真人",
+      "description": "支持9图3视频3音频，过人脸，480P。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 30,
+      "web_price_credits": 30,
+      "price_cny": 3,
+      "web_price_cny": 3,
+      "resolutions": [
+        "480p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_duration_seconds": 4,
+      "default_ratio": "16:9",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 20,
+      "supports_real_person": true,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "480p": 30
+      },
+      "web_price_by_resolution_credits": {
+        "480p": 30
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_9img_limited_special",
+      "object": "model",
+      "name": "SD2.0-9图-限时特价",
+      "description": "支持9图3视频3音频，支持真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 50,
+      "web_price_credits": 50,
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ],
+      "durations": [
+        10,
+        15
+      ],
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "720p": 50
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 50
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_933_limited_line",
+      "object": "model",
+      "name": "SD2.0-933-限量线路",
+      "description": "支持9图0视频3音频，过真人，720P。（不支持视频，不支持视频参考）",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 40,
+      "web_price_credits": 40,
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 20,
+      "max_video_size_mb": 80,
+      "max_audio_size_mb": 30,
+      "billing": "per_generation",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_by_resolution_credits": {
+        "720p": 40
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 40
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_9img_seconds_720p_real",
+      "object": "model",
+      "name": "SD2.0-9图-按秒-720P",
+      "description": "支持9图3视频3音频，能过真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 5.5,
+      "price_per_second_credits": 5.5,
+      "price_per_second_cny": 0.55,
+      "price_per_second_by_resolution_credits": {
+        "720p": 5.5
+      },
+      "price_per_second_by_resolution_cny": {
+        "720p": 0.55
+      },
+      "web_price_credits": 5.5,
+      "web_price_by_resolution_credits": {
+        "720p": 5.5
+      },
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media_files": 15,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "price_per_second_by_resolution": {
+        "720p": 5.5
+      },
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "wan30_720p_real",
+      "object": "model",
+      "name": "wan3.0-720P-过真人",
+      "description": "支持10图0视频5音频，能过真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 2.5,
+      "price_per_second_credits": 2.5,
+      "price_per_second_cny": 0.25,
+      "price_per_second_by_resolution_credits": {
+        "720p": 2.5
+      },
+      "price_per_second_by_resolution": {
+        "720p": 2.5
+      },
+      "price_per_second_by_resolution_cny": {
+        "720p": 0.25
+      },
+      "web_price_credits": 2.5,
+      "web_price_by_resolution_credits": {
+        "720p": 2.5
+      },
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "4:3",
+        "3:4",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "default_resolution": "720p",
+      "default_duration_seconds": 10,
+      "default_ratio": "16:9",
+      "max_prompt_length": 10000,
+      "min_images": 0,
+      "max_images": 10,
+      "max_videos": 5,
+      "max_audios": 5,
+      "max_media_files": 20,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 50,
+      "max_audio_size_mb": 15,
+      "supports_real_person": true,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_9img_special_full",
+      "object": "model",
+      "name": "SD2.0-9图-特价满血",
+      "description": "支持720P/1080P/4K，最多9图、0视频、3音频，支持真人。",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "price_credits": 6,
+      "price_per_second_credits": 6,
+      "price_per_second_cny": 0.6,
+      "price_per_second_by_resolution_credits": {
+        "720p": 6,
+        "1080p": 7,
+        "4k": 9
+      },
+      "price_per_second_by_resolution": {
+        "720p": 6,
+        "1080p": 7,
+        "4k": 9
+      },
+      "price_per_second_by_resolution_cny": {
+        "720p": 0.6,
+        "1080p": 0.7,
+        "4k": 0.9
+      },
+      "web_price_credits": 6,
+      "web_price_by_resolution_credits": {
+        "720p": 6,
+        "1080p": 7,
+        "4k": 9
+      },
+      "resolutions": [
+        "720p",
+        "1080p",
+        "4k"
+      ],
+      "ratios": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "21:9",
+        "adaptive"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "max_prompt_length": 10000,
+      "max_images": 9,
+      "max_videos": 0,
+      "max_audios": 3,
+      "max_media_files": 12,
+      "max_image_size_mb": 30,
+      "max_video_size_mb": 0,
+      "max_audio_size_mb": 15,
+      "audio_only_supported": true,
+      "supports_real_person": true,
+      "billing": "per_second",
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "display_group": "sd2",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "gpt-image2",
+      "object": "model",
+      "name": "gpt-image2",
+      "description": "AI 图片生成，最多 5 张参考图，gpt-image2。",
+      "type": "image",
+      "category": "image",
+      "model_type": "image",
+      "modalities": [
+        "image"
+      ],
+      "capabilities": {
+        "image": true,
+        "image_generation": true,
+        "video": false,
+        "video_generation": false,
+        "chat": false
+      },
+      "endpoint": "/v1/images",
+      "legacy_endpoint": "/openapi/v1/images",
+      "price_credits": 0.8,
+      "price_cny": 0.06999999999999999,
+      "billing": "per_generation",
+      "aspect_ratio_field": "aspect_ratio",
+      "aspect_ratios": [
+        "auto",
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "5:4",
+        "4:5",
+        "21:9"
+      ],
+      "aspect_ratio_values": {
+        "auto": "auto",
+        "1:1": "1024x1024",
+        "16:9": "1672x941",
+        "9:16": "941x1672",
+        "4:3": "1443x1090",
+        "3:4": "1090x1443",
+        "3:2": "1536x1024",
+        "2:3": "1024x1536",
+        "5:4": "1408x1120",
+        "4:5": "1120x1408",
+        "21:9": "1920x832"
+      },
+      "default_aspect_ratio": "auto",
+      "quality_options": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "default_quality": "high",
+      "max_prompt_length": 10000,
+      "max_images": 5,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 5,
+      "max_image_size_mb": 20,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 0.8,
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "gpt-image2-1K",
+      "object": "model",
+      "name": "gpt-image2-1K",
+      "description": "AI 图片生成，最多 5 张参考图，gpt-image2-1K。",
+      "type": "image",
+      "category": "image",
+      "model_type": "image",
+      "modalities": [
+        "image"
+      ],
+      "capabilities": {
+        "image": true,
+        "image_generation": true,
+        "video": false,
+        "video_generation": false,
+        "chat": false
+      },
+      "endpoint": "/v1/images",
+      "legacy_endpoint": "/openapi/v1/images",
+      "price_credits": 1,
+      "price_cny": 0.09,
+      "billing": "per_generation",
+      "aspect_ratio_field": "aspect_ratio",
+      "aspect_ratios": [
+        "auto",
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "5:4",
+        "4:5",
+        "21:9",
+        "9:21"
+      ],
+      "aspect_ratio_values": {
+        "auto": "auto",
+        "1:1": "1024x1024",
+        "16:9": "1280x720",
+        "9:16": "720x1280",
+        "4:3": "1152x864",
+        "3:4": "864x1152",
+        "3:2": "1536x1024",
+        "2:3": "1024x1536",
+        "5:4": "1120x896",
+        "4:5": "896x1120",
+        "21:9": "1456x624",
+        "9:21": "624x1456"
+      },
+      "default_aspect_ratio": "auto",
+      "quality_options": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "default_quality": "high",
+      "max_prompt_length": 10000,
+      "max_images": 5,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 5,
+      "max_image_size_mb": 20,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 1,
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "gpt-image2-2K",
+      "object": "model",
+      "name": "gpt-image2-2K",
+      "description": "AI 图片生成，最多 5 张参考图，gpt-image2-2K。",
+      "type": "image",
+      "category": "image",
+      "model_type": "image",
+      "modalities": [
+        "image"
+      ],
+      "capabilities": {
+        "image": true,
+        "image_generation": true,
+        "video": false,
+        "video_generation": false,
+        "chat": false
+      },
+      "endpoint": "/v1/images",
+      "legacy_endpoint": "/openapi/v1/images",
+      "price_credits": 1.2,
+      "price_cny": 0.11000000000000001,
+      "billing": "per_generation",
+      "aspect_ratio_field": "aspect_ratio",
+      "aspect_ratios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "5:4",
+        "4:5",
+        "21:9"
+      ],
+      "aspect_ratio_values": {
+        "1:1": "2048x2048",
+        "16:9": "2048x1152",
+        "9:16": "1152x2048",
+        "4:3": "2304x1728",
+        "3:4": "1728x2304",
+        "3:2": "2048x1360",
+        "2:3": "1360x2048",
+        "5:4": "2240x1792",
+        "4:5": "1792x2240",
+        "21:9": "2912x1248"
+      },
+      "default_aspect_ratio": "9:16",
+      "quality_options": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "default_quality": "high",
+      "max_prompt_length": 10000,
+      "max_images": 5,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 5,
+      "max_image_size_mb": 20,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 1.2,
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "gpt-image2-4K",
+      "object": "model",
+      "name": "gpt-image2-4K",
+      "description": "AI 图片生成，最多 5 张参考图，gpt-image2-4K。",
+      "type": "image",
+      "category": "image",
+      "model_type": "image",
+      "modalities": [
+        "image"
+      ],
+      "capabilities": {
+        "image": true,
+        "image_generation": true,
+        "video": false,
+        "video_generation": false,
+        "chat": false
+      },
+      "endpoint": "/v1/images",
+      "legacy_endpoint": "/openapi/v1/images",
+      "price_credits": 1.3,
+      "price_cny": 0.11000000000000001,
+      "billing": "per_generation",
+      "aspect_ratio_field": "aspect_ratio",
+      "aspect_ratios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "5:4",
+        "4:5",
+        "21:9"
+      ],
+      "aspect_ratio_values": {
+        "1:1": "2880x2880",
+        "16:9": "3840x2160",
+        "9:16": "2160x3840",
+        "4:3": "3264x2448",
+        "3:4": "2448x3264",
+        "3:2": "3504x2336",
+        "2:3": "2336x3504",
+        "5:4": "3200x2560",
+        "4:5": "2560x3200",
+        "21:9": "3840x1648"
+      },
+      "default_aspect_ratio": "9:16",
+      "quality_options": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "default_quality": "high",
+      "max_prompt_length": 10000,
+      "max_images": 5,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 5,
+      "max_image_size_mb": 20,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 1.3,
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "image_2_5_flare",
+      "object": "model",
+      "name": "Image 2.5 Flare",
+      "description": "支持七种常用画幅、1K 输出和最多 9 张参考图，JPEG/PNG",
+      "type": "image",
+      "category": "image",
+      "model_type": "image",
+      "modalities": [
+        "image"
+      ],
+      "capabilities": {
+        "image": true,
+        "image_generation": true,
+        "video": false,
+        "video_generation": false,
+        "chat": false
+      },
+      "endpoint": "/v1/images",
+      "legacy_endpoint": "/openapi/v1/images",
+      "price_credits": 0.7,
+      "price_cny": 0.07,
+      "billing": "per_generation",
+      "aspect_ratio_field": "aspect_ratio",
+      "aspect_ratios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3"
+      ],
+      "aspect_ratio_values": {
+        "1:1": "1:1",
+        "16:9": "16:9",
+        "9:16": "9:16",
+        "4:3": "4:3",
+        "3:4": "3:4",
+        "3:2": "3:2",
+        "2:3": "2:3"
+      },
+      "default_aspect_ratio": "16:9",
+      "quality_options": [
+        "auto"
+      ],
+      "default_quality": "auto",
+      "resolutions": [
+        "1k"
+      ],
+      "default_resolution": "1k",
+      "output_formats": [
+        "jpeg",
+        "png"
+      ],
+      "default_output_format": "jpeg",
+      "max_outputs": 1,
+      "reference_image_formats": [
+        "png",
+        "jpeg",
+        "webp"
+      ],
+      "max_image_size_bytes_exclusive": 52428800,
+      "max_prompt_length": 32000,
+      "max_images": 9,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 9,
+      "max_image_size_mb": 50,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 0.7,
+      "price_by_resolution_credits": {
+        "1k": 0.7
+      },
+      "web_price_by_resolution_credits": {
+        "1k": 0.7
+      },
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "image_2_5_sunburst",
+      "object": "model",
+      "name": "Image 2.5 Sunburst",
+      "description": "支持七种常用画幅、1K 输出和最多 9 张参考图，JPEG/PNG",
+      "type": "image",
+      "category": "image",
+      "model_type": "image",
+      "modalities": [
+        "image"
+      ],
+      "capabilities": {
+        "image": true,
+        "image_generation": true,
+        "video": false,
+        "video_generation": false,
+        "chat": false
+      },
+      "endpoint": "/v1/images",
+      "legacy_endpoint": "/openapi/v1/images",
+      "price_credits": 0.7,
+      "price_cny": 0.07,
+      "billing": "per_generation",
+      "aspect_ratio_field": "aspect_ratio",
+      "aspect_ratios": [
+        "1:1",
+        "16:9",
+        "9:16",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3"
+      ],
+      "aspect_ratio_values": {
+        "1:1": "1:1",
+        "16:9": "16:9",
+        "9:16": "9:16",
+        "4:3": "4:3",
+        "3:4": "3:4",
+        "3:2": "3:2",
+        "2:3": "2:3"
+      },
+      "default_aspect_ratio": "16:9",
+      "quality_options": [
+        "auto"
+      ],
+      "default_quality": "auto",
+      "resolutions": [
+        "1k"
+      ],
+      "default_resolution": "1k",
+      "output_formats": [
+        "jpeg",
+        "png"
+      ],
+      "default_output_format": "jpeg",
+      "max_outputs": 1,
+      "reference_image_formats": [
+        "png",
+        "jpeg",
+        "webp"
+      ],
+      "max_image_size_bytes_exclusive": 52428800,
+      "max_prompt_length": 32000,
+      "max_images": 9,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media_files": 9,
+      "max_image_size_mb": 50,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "web_price_credits": 0.7,
+      "price_by_resolution_credits": {
+        "1k": 0.7
+      },
+      "web_price_by_resolution_credits": {
+        "1k": 0.7
+      },
+      "enabled": true,
+      "display_group": "other",
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_0_mini_933",
+      "object": "model",
+      "name": "SD2.0-mini-933",
+      "description": "支持9图0视频3音频，过真人，480P",
+      "display_group": "sd2_fast",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "billing": "per_generation",
+      "resolutions": [
+        "480p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "max_images": 9,
+      "max_videos": 3,
+      "max_audios": 3,
+      "max_media": 12,
+      "max_media_files": 12,
+      "max_prompt_length": 10000,
+      "price_credits": 17,
+      "web_price_credits": 17,
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "price_by_resolution_credits": {
+        "480p": 17
+      },
+      "web_price_by_resolution_credits": {
+        "480p": 17
+      },
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd_2_5_once_720p",
+      "object": "model",
+      "name": "SD2.5-按次-720P",
+      "description": "全参30图10视频10音频，原生过人脸，满血，按次扣费",
+      "display_group": "sd25",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "billing": "per_generation",
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "max_images": 30,
+      "max_videos": 10,
+      "max_audios": 10,
+      "max_media": 50,
+      "max_media_files": 50,
+      "max_prompt_length": 10000,
+      "price_credits": 60,
+      "web_price_credits": 60,
+      "price_by_resolution_credits": {
+        "720p": 60
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 60
+      },
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "wan_3_0",
+      "object": "model",
+      "name": "wan3.0",
+      "description": "支持10视频5视频5音频，过真人，多分辨率",
+      "display_group": "sd2_fast",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "billing": "per_second",
+      "resolutions": [
+        "480p",
+        "720p",
+        "1080p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "max_images": 10,
+      "max_videos": 5,
+      "max_audios": 5,
+      "max_media": 15,
+      "max_media_files": 15,
+      "max_prompt_length": 10000,
+      "price_credits": 3,
+      "web_price_credits": 3,
+      "price_per_second_credits": 3,
+      "price_per_second_by_resolution_credits": {
+        "480p": 2.3,
+        "720p": 3,
+        "1080p": 3.7
+      },
+      "web_price_by_resolution_credits": {
+        "480p": 2.3,
+        "720p": 3,
+        "1080p": 3.7
+      },
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "price_per_second_by_resolution": {
+        "480p": 2.3,
+        "720p": 3,
+        "1080p": 3.7
+      },
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd2_5_line7",
+      "object": "model",
+      "name": "SD2.5-线路7",
+      "description": "支持30图10视频10音频，能过真人",
+      "display_group": "sd25",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "billing": "per_second",
+      "resolutions": [
+        "480p",
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "max_images": 30,
+      "max_videos": 10,
+      "max_audios": 10,
+      "max_media": 50,
+      "max_media_files": 50,
+      "max_prompt_length": 10000,
+      "price_credits": 8.3,
+      "web_price_credits": 8.3,
+      "price_per_second_credits": 8.3,
+      "price_per_second_by_resolution_credits": {
+        "480p": 5.1,
+        "720p": 8.3
+      },
+      "web_price_by_resolution_credits": {
+        "480p": 5.1,
+        "720p": 8.3
+      },
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "price_per_second_by_resolution": {
+        "480p": 5.1,
+        "720p": 8.3
+      },
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "sd_2_5_900_30s",
+      "object": "model",
+      "name": "SD2.5-9图-30秒",
+      "description": "支持9图0视频0音频，能过真人，720P。生成视频仅保存3个小时，生成后及时下载",
+      "display_group": "sd25",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "billing": "per_generation",
+      "resolutions": [
+        "720p"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3",
+        "21:9"
+      ],
+      "durations": [
+        30
+      ],
+      "max_images": 9,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media": 9,
+      "max_media_files": 9,
+      "max_prompt_length": 8000,
+      "price_credits": 30,
+      "web_price_credits": 30,
+      "price_by_resolution_credits": {
+        "720p": 30
+      },
+      "web_price_by_resolution_credits": {
+        "720p": 30
+      },
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "id": "hailuo_h3_2k_line3",
+      "object": "model",
+      "name": "Hailuo-H3-2K-线路3",
+      "description": "支持1-6张图片参考，不支持视频和音频，10-15秒可选",
+      "display_group": "sd2_fast",
+      "type": "video",
+      "category": "video",
+      "model_type": "video",
+      "modalities": [
+        "video"
+      ],
+      "capabilities": {
+        "video": true,
+        "video_generation": true,
+        "image": false,
+        "chat": false
+      },
+      "endpoint": "/v1/videos",
+      "legacy_endpoint": "/openapi/v1/videos",
+      "billing": "per_generation",
+      "resolutions": [
+        "2k"
+      ],
+      "ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "3:4",
+        "4:3"
+      ],
+      "durations": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "max_images": 6,
+      "max_videos": 0,
+      "max_audios": 0,
+      "max_media": 6,
+      "max_media_files": 6,
+      "max_prompt_length": 10000,
+      "price_credits": 15,
+      "web_price_credits": 15,
+      "price_by_resolution_credits": {
+        "2k": 15
+      },
+      "web_price_by_resolution_credits": {
+        "2k": 15
+      },
+      "media_inputs": [
+        "https_url",
+        "data_url",
+        "base64_object"
+      ],
+      "enabled": true,
+      "concurrency_options": [
+        1,
+        2,
+        4
+      ]
+    }
+  ],
+  "canseedream": {
+    "primaryVideoDomain": "tdown2.ximeiedu.org",
+    "primaryImageDomain": "tdown2.ximeiedu.org",
+    "backupVideoDomain": "tdown1.ximeiedu.org",
+    "backupImageDomain": "tdown1.ximeiedu.org",
+    "aspectRatio": "9:16",
+    "generateAudio": true,
+    "maxReferenceImages": 30,
+    "maxReferenceAudio": 10,
+    "maxReferenceVideos": 10,
+    "maxReferenceAssets": 50,
+    "maxReferenceAudioSeconds": 30,
+    "maxReferenceVideoSeconds": 30,
+    "videoProviders": [
+      {
+        "id": "juzi_pool",
+        "label": "桔子",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 3,
+          "maxVideos": 3,
+          "maxVisual": 0,
+          "maxAssets": 12,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 15,
+          "allowedRatios": [
+            "21:9",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ]
+        },
+        "pointsCost": 388,
+        "pricingMode": "fixed",
+        "pointsPerSecond": null,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": null,
+        "maxDurationSeconds": 15,
+        "allowedDurations": null,
+        "maxPromptCharacters": 5000
+      },
+      {
+        "id": "aggc",
+        "label": "芒果C",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 3,
+          "maxVideos": 0,
+          "maxVisual": 0,
+          "maxAssets": 12,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 0,
+          "minAudioVideoSeconds": 2,
+          "allowedRatios": [
+            "1:1",
+            "9:16",
+            "16:9"
+          ]
+        },
+        "pointsCost": 530,
+        "pricingMode": "fixed",
+        "pointsPerSecond": null,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": null,
+        "maxDurationSeconds": 15,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "maxPromptCharacters": null
+      },
+      {
+        "id": "donggua_pool",
+        "label": "官-SD2.5-480P",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 30,
+          "maxAudio": 10,
+          "maxVideos": 10,
+          "maxAudioVideo": 0,
+          "maxVisual": 0,
+          "maxAssets": 50,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 15,
+          "maxAudioVideoSeconds": 0,
+          "minAudioVideoSeconds": 1.8,
+          "unknownVideoSeconds": 5,
+          "allowedRatios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ]
+        },
+        "pointsCost": 1980,
+        "pricingMode": "per_second",
+        "pointsPerSecond": 66,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 580,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "480p",
+        "allowedResolutions": [
+          "480p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "30",
+        "durationSeconds": 30,
+        "durationMs": 30000,
+        "durationLabel": "30 秒",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 30,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "maxPromptCharacters": 30000
+      },
+      {
+        "id": "donggua2_pool",
+        "label": "官-SD2.5-720P",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 30,
+          "maxAudio": 10,
+          "maxVideos": 10,
+          "maxAudioVideo": 0,
+          "maxVisual": 0,
+          "maxAssets": 50,
+          "maxAudioSeconds": 30,
+          "maxVideoSeconds": 30,
+          "maxAudioVideoSeconds": 0,
+          "minAudioVideoSeconds": 2,
+          "unknownVideoSeconds": 5,
+          "allowedRatios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ]
+        },
+        "pointsCost": 4380,
+        "pricingMode": "per_second",
+        "pointsPerSecond": 146,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 2300,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "30",
+        "durationSeconds": 30,
+        "durationMs": 30000,
+        "durationLabel": "30 秒",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 30,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "maxPromptCharacters": 30000
+      },
+      {
+        "id": "ningmeng_pool",
+        "label": "柠檬-官",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 3,
+          "maxVideos": 3,
+          "maxVisual": 0,
+          "maxAssets": 15,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 15,
+          "minAudioVideoSeconds": 2,
+          "allowedRatios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9",
+            "adaptive"
+          ]
+        },
+        "pointsCost": 1350,
+        "pricingMode": "per_second",
+        "pointsPerSecond": 90,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 15,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "maxPromptCharacters": 30000
+      },
+      {
+        "id": "yadan_pool",
+        "label": "鸭蛋1",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 3,
+          "maxVideos": 3,
+          "maxVisual": 0,
+          "maxAssets": 15,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 15,
+          "allowedRatios": [
+            "16:9",
+            "9:16",
+            "21:9"
+          ]
+        },
+        "pointsCost": 650,
+        "pricingMode": "fixed",
+        "pointsPerSecond": 650,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 15,
+        "allowedDurations": [
+          15
+        ],
+        "maxPromptCharacters": 30000
+      },
+      {
+        "id": "xigua2_pool",
+        "label": "西瓜2-SD2",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 3,
+          "maxVideos": 3,
+          "maxVisual": 0,
+          "maxAssets": 15,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 15,
+          "allowedRatios": [
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ]
+        },
+        "pointsCost": 690,
+        "pricingMode": "per_second",
+        "pointsPerSecond": 46,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": null,
+        "maxDurationSeconds": 15,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "maxPromptCharacters": 30000
+      },
+      {
+        "id": "minih3_a_pool",
+        "label": "MiniH3-2K",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 3,
+          "maxVideos": 0,
+          "maxVisual": 0,
+          "maxAssets": 12,
+          "maxAudioSeconds": 15,
+          "maxVideoSeconds": 0,
+          "allowedRatios": [
+            "16:9",
+            "9:16",
+            "21:9"
+          ]
+        },
+        "pointsCost": 360,
+        "pricingMode": "fixed",
+        "pointsPerSecond": 360,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720p",
+        "allowedResolutions": [
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": null,
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 15,
+        "allowedDurations": [
+          15
+        ],
+        "maxPromptCharacters": 30000
+      },
+      {
+        "id": "ningmeng_c_pool",
+        "label": "Wan3-官",
+        "isDefault": false,
+        "limits": {
+          "maxImages": 10,
+          "maxAudio": 5,
+          "maxVideos": 5,
+          "maxVisual": 0,
+          "maxAssets": 20,
+          "maxAudioSeconds": 30,
+          "maxVideoSeconds": 30,
+          "referenceVideoDurationValidation": "upstream",
+          "allowedRatios": [
+            "adaptive",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ]
+        },
+        "pointsCost": 540,
+        "pricingMode": "per_second",
+        "pointsPerSecond": 36,
+        "videoReferenceSurchargeEnabled": false,
+        "videoReferenceSurchargePoints": 0,
+        "enhancePoints": 30,
+        "enhancePoints60Fps": 66,
+        "enhanceEnabled": false,
+        "resolution": "720P",
+        "allowedResolutions": [
+          "480p",
+          "720p"
+        ],
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": {
+          "480p": 19,
+          "720p": 36
+        },
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15 秒",
+        "defaultAspectRatio": "adaptive",
+        "maxDurationSeconds": 30,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "maxPromptCharacters": 20000
+      },
+      {
+        "id": "dami_c_pool",
+        "label": "大米C-Fast2.0",
+        "supportsAudioToggle": false,
+        "supportsSeed": false,
+        "useConfiguredDefaults": true,
+        "limits": {
+          "maxImages": 9,
+          "maxAudio": 0,
+          "maxVideos": 0,
+          "maxVisual": 9,
+          "maxAssets": 9,
+          "maxAudioSeconds": 0,
+          "maxVideoSeconds": 0,
+          "allowedRatios": [
+            "16:9",
+            "9:16"
+          ]
+        },
+        "pricingMode": "fixed",
+        "pointsCost": 168,
+        "pointsPerSecond": null,
+        "resolutionPoints": {
+          "720p": 168
+        },
+        "resolutionPointsPerSecond": null,
+        "allowedResolutions": [
+          "720p"
+        ],
+        "allowedDurations": [
+          5,
+          10,
+          15
+        ],
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15秒",
+        "resolution": "720p",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 15,
+        "maxPromptCharacters": 5000,
+        "isDefault": false
+      },
+      {
+        "id": "dami_e_pool",
+        "label": "大米E-SD2.5",
+        "supportsAudioToggle": false,
+        "supportsSeed": false,
+        "useConfiguredDefaults": true,
+        "limits": {
+          "maxImages": 30,
+          "maxAudio": 10,
+          "maxVideos": 10,
+          "maxVisual": 40,
+          "maxAssets": 50,
+          "maxAudioSeconds": 30,
+          "maxVideoSeconds": 30,
+          "allowedRatios": [
+            "16:9",
+            "9:16"
+          ]
+        },
+        "pricingMode": "fixed",
+        "pointsCost": 568,
+        "pointsPerSecond": null,
+        "resolutionPoints": {
+          "720p": 568
+        },
+        "resolutionPointsPerSecond": null,
+        "allowedResolutions": [
+          "720p"
+        ],
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "duration": "30",
+        "durationSeconds": 30,
+        "durationMs": 30000,
+        "durationLabel": "30秒",
+        "resolution": "720p",
+        "defaultAspectRatio": "16:9",
+        "maxDurationSeconds": 30,
+        "maxPromptCharacters": 20000,
+        "isDefault": false
+      },
+      {
+        "id": "caomeinewa",
+        "label": "草莓A-SD2.5",
+        "modelId": 515,
+        "useConfiguredDefaults": true,
+        "supportsAudioToggle": true,
+        "supportsSeed": false,
+        "supportsEnhance": false,
+        "maxRuns": 1,
+        "limits": {
+          "maxImages": 30,
+          "maxAudio": 10,
+          "maxVideos": 10,
+          "maxAssets": 50,
+          "maxVisual": 0,
+          "maxAudioSeconds": 30,
+          "maxVideoSeconds": 30,
+          "allowedRatios": [
+            "auto",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "1:1",
+            "21:9"
+          ],
+          "allowUnknownReferenceDuration": true
+        },
+        "pricingMode": "per_second",
+        "pointsCost": 585,
+        "pointsPerSecond": 39,
+        "resolutionPoints": null,
+        "resolutionPointsPerSecond": {
+          "480p": 39
+        },
+        "allowedResolutions": [
+          "480p"
+        ],
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "duration": "15",
+        "durationSeconds": 15,
+        "durationMs": 15000,
+        "durationLabel": "15s",
+        "resolution": "480p",
+        "defaultAspectRatio": "16:9",
+        "minDurationSeconds": 4,
+        "maxDurationSeconds": 30,
+        "maxPromptCharacters": 20000,
+        "isDefault": true
+      },
+      {
+        "id": "nanguar",
+        "label": "南瓜R-SD2.5",
+        "protocolLine": true,
+        "providerRoute": "provider_router",
+        "providerLine": "nanguar",
+        "isDefault": false,
+        "duration": 15,
+        "allowedDurations": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "durationLabel": "4 / 5 / 6 / 7 / 8 / 9 / 10 / 11 / 12 / 13 / 14 / 15 / 16 / 17 / 18 / 19 / 20 / 21 / 22 / 23 / 24 / 25 / 26 / 27 / 28 / 29 / 30 秒",
+        "resolution": "480p",
+        "allowedResolutions": [
+          "480p",
+          "720p"
+        ],
+        "pricingMode": "per_second",
+        "pointsCost": 810,
+        "pointsPerSecond": 54,
+        "resolutionPoints": {
+          "480p": 54,
+          "720p": 104
+        },
+        "apiBasePath": "/nanguar/api/v3",
+        "limits": {
+          "maxImages": 30,
+          "maxVideos": 10,
+          "maxAudio": 10,
+          "maxAssets": 50,
+          "maxVideoSeconds": 30,
+          "maxAudioSeconds": 30
+        }
+      }
+    ],
+    "protocolLines": [
+      {
+        "id": "nanguar",
+        "name": "南瓜R-SD2.5",
+        "version": 3,
+        "supportsSeed": true,
+        "profile": {
+          "limits": {
+            "audio": 10,
+            "image": 30,
+            "total": 50,
+            "video": 10,
+            "audioSeconds": 30,
+            "videoSeconds": 30,
+            "promptCharacters": 20000
+          },
+          "durations": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "ratios": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "resolutions": [
+            "480p",
+            "720p"
+          ],
+          "roles": {
+            "audio": [
+              "reference_audio"
+            ],
+            "image": [
+              "reference_image"
+            ],
+            "video": [
+              "reference_video"
+            ]
+          },
+          "allowTextOnly": false,
+          "allowAudioOnly": false
+        },
+        "defaults": {
+          "ratio": "16:9",
+          "duration": 15,
+          "resolution": "480p"
+        },
+        "resolutionMode": "selectable",
+        "pricing": {
+          "mode": "per_second",
+          "byResolution": {
+            "480p": 54,
+            "720p": 104
+          }
+        }
+      }
+    ],
+    "defaultVideoProvider": "caomeinewa",
+    "pointPricing": {
+      "pointsPerYuan": 100,
+      "image": {
+        "base": 6,
+        "mediumMultiplier": 2,
+        "highMultiplier": 11,
+        "mediumExtra": 6,
+        "highExtra": 60,
+        "fourKExtra": 6,
+        "manyReferencesExtra": 6,
+        "manyReferencesThreshold": 9
+      }
+    },
+    "maxRuns": 4,
+    "image": {
+      "maxReferenceImages": 16,
+      "maxRuns": 8,
+      "defaultSize": "1024x1024",
+      "defaultQuality": "auto",
+      "points": {
+        "base": 6,
+        "mediumMultiplier": 2,
+        "highMultiplier": 11,
+        "mediumExtra": 6,
+        "highExtra": 60,
+        "fourKExtra": 6,
+        "manyReferencesExtra": 6,
+        "manyReferencesThreshold": 9
+      },
+      "providers": [
+        {
+          "id": "default",
+          "route": "weavy_pool",
+          "label": "Gpt Img2",
+          "isDefault": true,
+          "kind": "default",
+          "maxImages": 16
+        },
+        {
+          "id": "nano2",
+          "route": "nano2",
+          "label": "Nano2",
+          "isDefault": false,
+          "kind": "nano",
+          "maxImages": 14,
+          "resolutions": [
+            {
+              "id": "1K",
+              "label": "1K",
+              "points": 15,
+              "estimatedCredits": 7
+            },
+            {
+              "id": "2K",
+              "label": "2K",
+              "points": 25,
+              "estimatedCredits": 10
+            },
+            {
+              "id": "4K",
+              "label": "4K",
+              "points": 40,
+              "estimatedCredits": 14
+            }
+          ],
+          "ratios": [
+            "Default",
+            "8:1",
+            "4:1",
+            "21:9",
+            "16:9",
+            "5:4",
+            "4:3",
+            "3:2",
+            "1:1",
+            "2:3",
+            "3:4",
+            "4:5",
+            "9:16",
+            "1:4",
+            "1:8"
+          ],
+          "defaultResolution": "1K",
+          "defaultRatio": "Default",
+          "supportsQuality": false,
+          "supportsBackground": false,
+          "supportsWebSearch": false
+        },
+        {
+          "id": "nano2pro",
+          "route": "nano2pro",
+          "label": "Nano2 Pro",
+          "isDefault": false,
+          "kind": "nano",
+          "maxImages": 14,
+          "resolutions": [
+            {
+              "id": "1K",
+              "label": "1K",
+              "points": 25,
+              "estimatedCredits": 12
+            },
+            {
+              "id": "2K",
+              "label": "2K",
+              "points": 35,
+              "estimatedCredits": 12
+            },
+            {
+              "id": "4K",
+              "label": "4K",
+              "points": 55,
+              "estimatedCredits": 24
+            }
+          ],
+          "ratios": [
+            "auto",
+            "1:1",
+            "21:9",
+            "16:9",
+            "3:2",
+            "4:3",
+            "5:4",
+            "4:5",
+            "3:4",
+            "2:3",
+            "9:16"
+          ],
+          "defaultResolution": "1K",
+          "defaultRatio": "auto",
+          "supportsQuality": false,
+          "supportsBackground": false,
+          "supportsWebSearch": false
+        },
+        {
+          "id": "gptimg_2_5",
+          "route": "gptimg_2_5",
+          "label": "GPT Img 2.5",
+          "kind": "gpt25",
+          "maxImages": 16,
+          "variants": [
+            "Flare",
+            "Sunburst"
+          ],
+          "qualities": [
+            "auto",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "sizes": [
+            "auto",
+            "square_hd",
+            "square",
+            "portrait_4_3",
+            "portrait_16_9",
+            "landscape_4_3",
+            "landscape_16_9"
+          ],
+          "backgrounds": [
+            "auto",
+            "transparent",
+            "opaque"
+          ],
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "defaults": {
+            "variant": "Flare",
+            "quality": "high",
+            "size": "auto",
+            "background": "auto",
+            "output_format": "png",
+            "model": "gptimg-2.5"
+          },
+          "pricing": {
+            "Flare": {
+              "auto": 10,
+              "low": 8,
+              "medium": 12,
+              "high": 16,
+              "xhigh": 24,
+              "max": 32
+            },
+            "Sunburst": {
+              "auto": 12,
+              "low": 10,
+              "medium": 15,
+              "high": 18,
+              "xhigh": 26,
+              "max": 40
+            }
+          },
+          "isDefault": false
+        },
+        {
+          "id": "gpt25_sunburst",
+          "route": "gpt25_sunburst",
+          "model": "gpt-image-2.5-sunburst",
+          "kind": "sunburst",
+          "label": "官-GPT Image 2.5",
+          "maxImages": 16,
+          "maxPromptCharacters": 20000,
+          "resolutions": [
+            {
+              "id": "1K",
+              "value": "1K",
+              "label": "1K",
+              "points": 13
+            },
+            {
+              "id": "2K",
+              "value": "2K",
+              "label": "2K",
+              "points": 37
+            },
+            {
+              "id": "4K",
+              "value": "4K",
+              "label": "4K",
+              "points": 58
+            }
+          ],
+          "ratios": [
+            "1:1",
+            "3:4",
+            "9:16",
+            "4:3",
+            "16:9"
+          ],
+          "defaultResolution": "1K",
+          "defaultRatio": "16:9",
+          "supportsMask": false,
+          "supportsQuality": false,
+          "supportsBackground": false,
+          "supportsWebSearch": false,
+          "supportsOutputFormat": false,
+          "isDefault": false
+        }
+      ]
+    },
+    "enhance": {
+      "maxVideoBytes": 188743680,
+      "maxDurationSeconds": 300,
+      "points": 120,
+      "points60Fps": 149,
+      "pricingTiers": [
+        {
+          "maxSeconds": 16,
+          "points": 120,
+          "points60Fps": 149
+        },
+        {
+          "maxSeconds": 61,
+          "points": 168,
+          "points60Fps": 309
+        },
+        {
+          "maxSeconds": 181,
+          "points": 275,
+          "points60Fps": 529
+        },
+        {
+          "maxSeconds": 301,
+          "points": 381,
+          "points60Fps": 749
+        }
+      ],
+      "targetResolutions": [
+        "source",
+        "720p",
+        "1080p",
+        "2k",
+        "4k"
+      ],
+      "targetFps": [
+        "source",
+        24,
+        30,
+        48,
+        60
+      ],
+      "advancedControlsEnabled": false
+    },
+    "videoEnhance": {
+      "enabled": false,
+      "mode": "off",
+      "points": 30,
+      "points60Fps": 66,
+      "defaultResolution": "720p",
+      "defaultFps": "source",
+      "targetResolutions": [
+        "source",
+        "720p",
+        "1080p",
+        "2k",
+        "4k"
+      ],
+      "targetFps": [
+        "source",
+        24,
+        30,
+        48,
+        60
+      ]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+FROM pikno-wallet7-test:latest
+WORKDIR /build
+COPY settlement15/pikno_settlement*.go ./model/
+RUN gofmt -w model/pikno_settlement*.go && go test ./model -run '^TestPiknoSettlement$' -count=1 -v
+RUN go test -c ./model -o /pikno-settlement-test
+ENTRYPOINT ["/pikno-settlement-test", "-test.run=^TestPiknoSettlement$", "-test.v"]

@@ -1,0 +1,6 @@
+**
+!Dockerfile.media
+!brand/
+!brand/pikno_media.go
+!brand/pikno_media_test.go
+!brand/pikno_media_routes.go

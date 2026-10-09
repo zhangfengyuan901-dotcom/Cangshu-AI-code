@@ -1,0 +1,12 @@
+'use strict';
+const { test } = require('node:test'), assert = require('node:assert/strict');
+const { decide } = require('./cansee14-settlement-policy.cjs');
+const fixture = (status='failed') => ({ status, taskId:'t1', accountRef:'a1', quotedQuota:1520000, receipt:{id:'r1',verified:true,final:true,taskId:'t1',accountRef:'a1',chargedPoints:76,refundedPoints:0,pointsPerYuan:100} });
+test('successful final cost x2',()=>{assert.equal(decide(fixture('succeeded')).targetQuota,1520000)});
+test('charged failure bills cost only and releases markup',()=>{const d=decide(fixture());assert.equal(d.targetQuota,760000);assert.equal(d.releaseQuota,760000)});
+test('full and partial upstream refunds reduce the failed charge',()=>{const f=fixture();f.receipt.refundedPoints=76;assert.equal(decide(f).targetQuota,0);f.receipt.refundedPoints=26;assert.equal(decide(f).targetQuota,500000)});
+test('usage points alone are not proof of debit',()=>{const f=fixture();f.receipt={points:76};assert.equal(decide(f).action,'review')});
+test('terminal error alone is not proof of debit',()=>{const f=fixture();delete f.receipt;assert.equal(decide(f).action,'review')});
+test('pending, unauthenticated and other account receipts cannot settle',()=>{const f=fixture('running');assert.equal(decide(f).action,'review');f.status='failed';f.receipt.verified=false;assert.equal(decide(f).action,'review');f.receipt.verified=true;f.receipt.accountRef='other';assert.equal(decide(f).action,'review')});
+test('unsupported units, precision, over-refunds and negative costs fail closed',()=>{for(const patch of [{pointsPerYuan:10},{chargedPoints:0.5},{chargedPoints:-1},{refundedPoints:100}]){const f=fixture();Object.assign(f.receipt,patch);assert.equal(decide(f).action,'review')}});
+test('quote cap and deterministic repeated receipt',()=>{const f=fixture();assert.deepEqual(decide(f),decide(f));f.receipt.chargedPoints=1000;assert.equal(decide(f).action,'review')});

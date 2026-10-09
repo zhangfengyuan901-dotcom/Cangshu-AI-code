@@ -1,0 +1,13 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { sealState, lanjingCreateSign } from '../lanjing-bridge/server.mjs';
+const secret = n => readFileSync(new URL(`./private/${n}`, import.meta.url), 'utf8').trim();
+const payId = `PIKNOTEST${Date.now()}${randomBytes(3).toString('hex')}`;
+const base = 'https://www.piknoai.com';
+const paymentMethod = process.argv[2] ?? 'alipay';
+if (!['alipay', 'wxpay'].includes(paymentMethod)) throw new Error('Unsupported payment method');
+const state = { v: 1, p: 'diagnostic', o: payId, m: '1.00', t: paymentMethod, r: `${base}/wallet`, exp: Math.floor(Date.now()/1000) + 86400 };
+const fields = { payId, type: paymentMethod === 'wxpay' ? '1' : '2', price: '1.00', param: sealState(state, secret('payment-state-key.txt')), isHtml: '1', notifyUrl: `${base}/pay/lanjing/diagnostic/notify`, returnUrl: `${base}/pay/lanjing/return` };
+fields.sign = lanjingCreateSign(fields, secret('lanjing-key.txt'));
+writeFileSync(new URL(`./private/${payId}.json`, import.meta.url), JSON.stringify({ action: 'https://2347637.pay.lanjingzf.com/createOrder', fields, diagnosticOnly: true }, null, 2), { flag: 'wx', mode: 0o600 });
+console.log(JSON.stringify({ payId, paymentMethod, amountCny: '1.00', diagnosticOnly: true, providerOrderCreated: false }));

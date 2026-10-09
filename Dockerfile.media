@@ -1,0 +1,14 @@
+# Local build bases are recorded by image ID in the deployment manifest.
+# Keep the existing wallet7 source/assets and change only media control routes.
+FROM pikno-wallet7-test:latest AS build
+WORKDIR /build
+COPY brand/pikno_media.go brand/pikno_media_test.go ./controller/
+COPY brand/pikno_media_routes.go ./router/
+RUN grep -q 'modelsRouter := router.Group("/v1/models")' router/relay-router.go \
+ && ! grep -q 'setPiknoMediaRoutes' router/relay-router.go \
+ && sed -i '/modelsRouter := router.Group("\/v1\/models")/i\	setPiknoMediaRoutes(router)' router/relay-router.go
+RUN gofmt -w controller/pikno_media.go controller/pikno_media_test.go router/pikno_media_routes.go router/relay-router.go
+RUN go test ./controller -run '^TestPikno(MediaControlPlane|FixedCNY)$' -count=1 && go test ./router -run '^$'
+RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.41-pikno.8'" -o /media-new-api
+FROM pikno-new-api:v1.0.0-rc.41-brand.7
+COPY --from=build /media-new-api /new-api

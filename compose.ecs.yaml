@@ -1,0 +1,25 @@
+# Target-only overlay. Do not apply to the existing local instance.
+# Start application/database first; attach a www-only tunnel after restore checks.
+services:
+  new-api:
+    environment:
+      NODE_NAME: piknoai-hk-1
+      SESSION_COOKIE_SECURE: "true"
+      SESSION_COOKIE_TRUSTED_URL: "https://www.piknoai.com"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  postgres:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  redis:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,14 @@
+FROM pikno-settlement15-test:local
+WORKDIR /build
+COPY settlement15/ ./model/
+COPY settlement16/model/ ./model/
+COPY settlement16/service/ ./service/
+COPY settlement16/controller/ ./controller/
+COPY settlement16/router/ ./router/
+COPY settlement16/relay/ ./relay/
+COPY settlement16/main.go ./main.go
+RUN gofmt -w model/pikno_settlement*.go service/pikno_settlement*.go service/security_verification.go service/billing.go service/image_billing.go service/task_billing.go service/task_polling.go controller/pikno_settlement*.go router/pikno_settlement*.go router/api-router.go relay/request_billing.go relay/image_handler.go relay/relay_task.go relay/common/relay_info.go main.go
+RUN go test ./model -run '^TestPiknoSettlement$' -count=1 && go test ./service ./controller ./router -run '^TestPiknoSettlement' -count=1
+RUN go test -c ./model -o /pikno-settlement-test
+RUN go test -c ./controller -o /pikno-settlement-controller-test
+RUN go build -o /pikno-candidate

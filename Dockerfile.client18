@@ -1,0 +1,58 @@
+FROM pikno-wallet7-test:latest AS source
+FROM source AS catalog-check
+WORKDIR /build
+COPY catalog12/ ./pkg/piknocatalog/
+COPY catalog12-bootstrap/ ./cmd/catalog-bootstrap/
+RUN gofmt -w pkg/piknocatalog cmd/catalog-bootstrap && go test ./pkg/piknocatalog -count=1
+RUN go build -o /catalog-bootstrap ./cmd/catalog-bootstrap
+
+FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS web
+WORKDIR /build/web
+COPY --from=source /build/web/package.json /build/web/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY --from=source /build/web ./
+COPY --from=source /build/pkg/billingexpr/testdata /build/pkg/billingexpr/testdata
+COPY client10/ ./
+COPY client11/ ./
+COPY client12/ ./
+COPY client16/ ./
+RUN DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION=v1.0.0-rc.41-pikno.18 bun run build
+RUN bun run typecheck
+RUN bunx oxlint -c .oxlintrc.json src/features/catalog src/features/pricing/index.tsx src/hooks/use-sidebar-data.ts src/routes/_authenticated/catalog-admin.tsx
+
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS checked-web
+WORKDIR /build/web
+COPY --from=web /build /build
+RUN node node_modules/vitest/vitest.mjs run src/features/catalog src/features/pricing src/features/usage-logs src/hooks/__tests__/customer-navigation.test.tsx src/features/dashboard/components/overview/__tests__/customer-overview.test.tsx src/features/wallet/__tests__/customer-wallet.test.tsx src/features/wallet/__tests__/fixed-cny.test.tsx
+RUN node node_modules/vitest/vitest.mjs run src/features/settlements src/features/auth/secure-verification
+
+FROM catalog-check AS build
+WORKDIR /build
+COPY settlement15/*.go ./model/
+COPY settlement16/model/ ./model/
+COPY settlement16/service/ ./service/
+COPY settlement16/controller/ ./controller/
+COPY settlement16/router/ ./router/
+COPY settlement16/relay/ ./relay/
+COPY settlement16/main.go ./main.go
+COPY --from=checked-web /build/web/dist ./web/dist
+COPY brand/pikno_media*.go ./controller/
+RUN rm controller/pikno_media_routes.go
+COPY brand/pikno_media_routes.go ./router/
+COPY brand/pikno_packy_edge.go ./relay/channel/openai/
+COPY brand/pikno_catalog.go ./controller/
+COPY brand/pikno_catalog_routes.go ./router/
+RUN grep -q 'modelsRouter := router.Group("/v1/models")' router/relay-router.go \
+ && ! grep -q 'setPiknoMediaRoutes' router/relay-router.go \
+ && sed -i '/modelsRouter := router.Group("\/v1\/models")/i\	setPiknoMediaRoutes(router)' router/relay-router.go \
+ && sed -i 's/middleware.TokenAuth(),/middleware.TokenAuth(), controller.PiknoMediaGuard,/g' router/task-plugin-protocol-router.go router/plugin-router.go
+RUN grep -q 'apiRouter.Use(middleware.GlobalAPIRateLimit())' router/api-router.go \
+ && ! grep -q 'setPiknoCatalogRoutes' router/api-router.go \
+ && sed -i '/apiRouter.Use(middleware.GlobalAPIRateLimit())/a\	setPiknoCatalogRoutes(apiRouter)' router/api-router.go
+RUN sed -i '/func (a \*Adaptor) DoRequest(c \*gin.Context, info \*relaycommon.RelayInfo, requestBody io.Reader) (any, error) {/a\	if info.ChannelBaseUrl == "https://cf.api.fan" \&\& (info.RelayMode == relayconstant.RelayModeImagesEdits || info.RelayMode == relayconstant.RelayModeImagesGenerations) { return piknoPackyEdge(c, info, requestBody) }' relay/channel/openai/adaptor.go
+RUN gofmt -w controller/pikno_media*.go controller/pikno_catalog.go router/pikno*.go router/relay-router.go router/task-plugin-protocol-router.go router/plugin-router.go router/api-router.go
+RUN go test ./controller -run '^TestPikno(MediaControlPlane|MediaGuard|FixedCNY)$' -count=1 && go test ./router -run '^$' && go test ./relay/channel/openai -run '^TestOpenaiImage' -count=1
+RUN go test ./model ./controller -run '^TestPiknoSettlement' -count=1
+RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.41-pikno.18'" -o /client-new-api
+FROM pikno-new-api:v1.0.0-rc.41-brand.11
+COPY --from=build /client-new-api /new-api

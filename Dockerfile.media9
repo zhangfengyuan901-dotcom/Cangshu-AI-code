@@ -1,0 +1,16 @@
+FROM pikno-wallet7-test:latest AS build
+WORKDIR /build
+COPY brand/pikno_media*.go ./controller/
+RUN rm controller/pikno_media_routes.go
+COPY brand/pikno_media_routes.go ./router/
+COPY brand/pikno_packy_edge.go ./relay/channel/openai/
+RUN grep -q 'modelsRouter := router.Group("/v1/models")' router/relay-router.go \
+ && ! grep -q 'setPiknoMediaRoutes' router/relay-router.go \
+ && sed -i '/modelsRouter := router.Group("\/v1\/models")/i\	setPiknoMediaRoutes(router)' router/relay-router.go \
+ && sed -i 's/middleware.TokenAuth(),/middleware.TokenAuth(), controller.PiknoMediaGuard,/g' router/task-plugin-protocol-router.go router/plugin-router.go
+RUN sed -i '/func (a \*Adaptor) DoRequest(c \*gin.Context, info \*relaycommon.RelayInfo, requestBody io.Reader) (any, error) {/a\	if info.ChannelBaseUrl == "https://cf.api.fan" \&\& (info.RelayMode == relayconstant.RelayModeImagesEdits || info.RelayMode == relayconstant.RelayModeImagesGenerations) { return piknoPackyEdge(c, info, requestBody) }' relay/channel/openai/adaptor.go
+RUN gofmt -w controller/pikno_media*.go router/pikno_media_routes.go router/relay-router.go router/task-plugin-protocol-router.go router/plugin-router.go
+RUN go test ./controller -run '^TestPikno(MediaControlPlane|MediaGuard|FixedCNY)$' -count=1 && go test ./router -run '^$' && go test ./relay/channel/openai -run '^TestOpenaiImage' -count=1
+RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=v1.0.0-rc.41-pikno.9'" -o /media-new-api
+FROM pikno-new-api:v1.0.0-rc.41-brand.8
+COPY --from=build /media-new-api /new-api

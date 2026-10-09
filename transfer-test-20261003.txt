@@ -1,0 +1,3 @@
+PIKNO ECS transfer test
+created: 2026-10-03 Asia/Shanghai
+purpose: harmless pre-migration upload verification

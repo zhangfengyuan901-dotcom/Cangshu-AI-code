@@ -1,0 +1,77 @@
+{
+  "version": "2026-10-04.1",
+  "status": "draft",
+  "currency": "CNY",
+  "defaultMarkupMultiplier": "2.000000",
+  "customerReleaseApproved": false,
+  "firstReleaseScope": [
+    "image-standard",
+    "video-standard"
+  ],
+  "firstReleaseScopeStatus": "confirmed",
+  "newApiAccounting": {
+    "quotaPerUsd": 7300000,
+    "cnyPerUsd": "7.300000",
+    "displayCurrency": "CNY",
+    "groupRatio": "1.000000",
+    "cnyPerQuota": "0.000001",
+    "status": "pending_isolated_test",
+    "note": "New API stores prices in USD units; confirmed CNY retail prices are divided by cnyPerUsd before saving and converted back only for display. quotaPerUsd is aligned to six-decimal CNY precision, so one quota equals one micro-CNY."
+  },
+  "upstreamConversions": {
+    "sanbao": {
+      "creditsPerCny": "10.000000",
+      "source": "https://sanbaobeauty.com/api/public/openapi-models",
+      "checkedAt": "2026-10-04T01:13:40.307Z"
+    }
+  },
+  "products": [
+    {
+      "id": "flare-text-1024-high",
+      "displayName": "PIKNO Flare 文生图",
+      "model": "gpt-image-2.5-flare",
+      "group": "image-standard",
+      "billingMode": "per_output_image",
+      "retailPriceCny": "0.100000",
+      "pricingSource": "explicit_retail_override",
+      "maxOutputs": 1,
+      "maxReferenceImages": 0,
+      "technicalAcceptance": "passed",
+      "firstReleaseDecision": "approved",
+      "published": false
+    },
+    {
+      "id": "flare-edit-1024-high",
+      "displayName": "PIKNO Flare 图生图",
+      "model": "gpt-image-2.5-flare",
+      "group": "image-standard",
+      "billingMode": "per_output_image",
+      "retailPriceCny": "0.100000",
+      "pricingSource": "explicit_retail_override",
+      "maxOutputs": 1,
+      "maxReferenceImages": 5,
+      "acceptedReferenceImages": 1,
+      "technicalAcceptance": "partial",
+      "firstReleaseDecision": "approved_after_reference_limit_acceptance",
+      "published": false
+    },
+    {
+      "id": "sanbao-sd2-480p-4s",
+      "displayName": "PIKNO 视频标准 480P",
+      "displayNameStatus": "confirmed",
+      "model": "sanbao/sd2_480p_real",
+      "group": "video-standard",
+      "durationSeconds": 4,
+      "resolution": "480p",
+      "billingMode": "per_generation",
+      "upstreamCredits": "30.000000",
+      "upstreamCostCny": "3.000000",
+      "markupMultiplier": "2.000000",
+      "retailPriceCny": "6.000000",
+      "pricingSource": "upstream_cost_times_multiplier",
+      "technicalAcceptance": "passed",
+      "firstReleaseDecision": "approved",
+      "published": false
+    }
+  ]
+}

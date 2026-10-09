@@ -1,0 +1,368 @@
+{
+  "source": "https://see.ximeiedu.org/health",
+  "multiplier": 2,
+  "pointsPerYuan": 100,
+  "currency": "CNY",
+  "draftOnly": true,
+  "imageGenerationIncluded": false,
+  "failureChargingPolicy": "confirmed nonrefunded upstream cost x1; unknown receipts require review; not deployed",
+  "routes": [
+    {
+      "model": "canseedream/video/juzi_pool",
+      "label": "桔子",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "720p",
+          "unit": "request",
+          "upstreamPoints": 388,
+          "upstreamCNY": 3.88,
+          "retailCNY": 7.76
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        15
+      ]
+    },
+    {
+      "model": "canseedream/video/aggc",
+      "label": "芒果C",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "720p",
+          "unit": "request",
+          "upstreamPoints": 530,
+          "upstreamCNY": 5.3,
+          "retailCNY": 10.6
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "model": "canseedream/video/donggua_pool",
+      "label": "官-SD2.5-480P",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "480p",
+          "unit": "second",
+          "upstreamPoints": 66,
+          "upstreamCNY": 0.66,
+          "retailCNY": 1.32
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "model": "canseedream/video/donggua2_pool",
+      "label": "官-SD2.5-720P",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "720p",
+          "unit": "second",
+          "upstreamPoints": 146,
+          "upstreamCNY": 1.46,
+          "retailCNY": 2.92
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "model": "canseedream/video/ningmeng_pool",
+      "label": "柠檬-官",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "720p",
+          "unit": "second",
+          "upstreamPoints": 90,
+          "upstreamCNY": 0.9,
+          "retailCNY": 1.8
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "model": "canseedream/video/xigua2_pool",
+      "label": "西瓜2-SD2",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "720p",
+          "unit": "second",
+          "upstreamPoints": 46,
+          "upstreamCNY": 0.46,
+          "retailCNY": 0.92
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    {
+      "model": "canseedream/video/ningmeng_c_pool",
+      "label": "Wan3-官",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "480p",
+          "unit": "second",
+          "upstreamPoints": 19,
+          "upstreamCNY": 0.19,
+          "retailCNY": 0.38
+        },
+        {
+          "resolution": "720p",
+          "unit": "second",
+          "upstreamPoints": 36,
+          "upstreamCNY": 0.36,
+          "retailCNY": 0.72
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "model": "canseedream/video/dami_c_pool",
+      "label": "大米C-Fast2.0",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "720p",
+          "unit": "request",
+          "upstreamPoints": 168,
+          "upstreamCNY": 1.68,
+          "retailCNY": 3.36
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        5,
+        10,
+        15
+      ]
+    },
+    {
+      "model": "canseedream/video/caomeinewa",
+      "label": "草莓A-SD2.5",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [
+        {
+          "resolution": "480p",
+          "unit": "second",
+          "upstreamPoints": 39,
+          "upstreamCNY": 0.39,
+          "retailCNY": 0.78
+        }
+      ],
+      "blockedReasons": [],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "model": "canseedream/video/nanguar",
+      "label": "南瓜R-SD2.5",
+      "enabled": false,
+      "acceptance": "not_tested",
+      "prices": [],
+      "blockedReasons": [
+        "ambiguous_resolution_price_unit"
+      ],
+      "durations": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    }
+  ],
+  "fetchedAt": "2026-10-08T17:57:22.133Z"
+}

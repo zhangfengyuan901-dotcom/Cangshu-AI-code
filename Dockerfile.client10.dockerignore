@@ -1,0 +1,7 @@
+**
+!Dockerfile.client10
+!brand/
+!brand/pikno_media*.go
+!brand/pikno_packy_edge.go
+!client10/
+!client10/**
