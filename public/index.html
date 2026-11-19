@@ -4,52 +4,83 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>仓鼠AI</title>
-    <link rel="icon" href="/hamster-logo.png" type="image/png" />
+    <link rel="icon" href="/studio-favicon.png" type="image/png" />
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/typography.css" />
+    <link rel="stylesheet" href="/material-preview.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/assets.css" />
+  <link rel="stylesheet" href="/account.css" />
+    <link rel="stylesheet" href="/hypit.css" />
+    <link rel="stylesheet" href="/codex-chat.css" />
+    <link rel="stylesheet" href="/studio-shell.css" />
+    <link rel="stylesheet" href="/reverse.css" />
+    <link rel="stylesheet" href="/glass.css" />
   </head>
-  <body>
+  <body class="studio-shell" data-startup-state="loading">
     <main class="app">
-      <aside class="rail">
-        <button class="logo" data-view="generate" aria-label="仓鼠AI">
+      <header class="browser-titlebar">
+        <div class="studio-brand">
+        <button class="logo inference-logo" id="inferenceLogo" type="button" data-state="idle" aria-label="仓鼠智能尚未检测；点击重新检测" aria-describedby="inferenceLogoHint" aria-busy="false">
           <span class="logo-pixels" aria-hidden="true">
             <i style="--px:-26px;--py:-18px;--delay:0s"></i><i style="--px:24px;--py:-22px;--delay:.45s"></i>
             <i style="--px:-30px;--py:6px;--delay:.9s"></i><i style="--px:29px;--py:11px;--delay:1.35s"></i>
             <i style="--px:-18px;--py:27px;--delay:1.8s"></i><i style="--px:17px;--py:30px;--delay:2.25s"></i>
           </span>
-          <img src="/hamster-logo.png" alt="" />
+          <img src="/hamster-mark.png" alt="" width="43" height="43" />
+          <span class="inference-logo-ring" aria-hidden="true"></span>
+          <span class="inference-logo-hint" id="inferenceLogoHint" role="status" aria-live="polite" aria-atomic="true">仓鼠智能尚未检测；点击重新检测</span>
         </button>
-        <nav class="rail-nav">
-          <button class="rail-item smart-video-launch" id="workbenchButton" type="button" aria-label="在浏览器打开工作台"><span class="rail-icon"><i data-lucide="panels-top-left"></i></span><span>工作台</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
-          <button class="rail-item active" data-view="generate"><span class="rail-icon"><i data-lucide="sparkles"></i></span><span>生成</span></button>
-          <button class="rail-item" data-view="digital"><span class="rail-icon"><i data-lucide="scan-face"></i></span><span>数字人</span></button>
-          <button class="rail-item" data-view="assets"><span class="rail-icon"><i data-lucide="library"></i></span><span>达人资产</span></button>
-          <div class="rail-section-label">工具箱</div>
-          <button class="rail-item" data-view="depth"><span class="rail-icon"><i data-lucide="scan-line"></i></span><span>黑白深度</span></button>
-
-        </nav>
-        <div class="rail-utility">
-          <button class="rail-item" data-view="history"><span class="rail-icon"><i data-lucide="history"></i></span><span>历史</span></button>
-          <button class="rail-item" data-view="account"><span class="rail-icon"><i data-lucide="settings-2"></i></span><span>账户</span></button>
+          <span class="studio-brand-copy">仓鼠AI</span>
         </div>
-      </aside>
+        <nav class="rail-nav browser-tabs" id="browserTabs" role="tablist" aria-label="功能页面" aria-orientation="horizontal">
+          <button class="rail-item browser-tab" id="workbenchButton" data-view="chat" type="button" role="tab" aria-controls="browser-panel-chat" aria-selected="false" tabindex="0" title="对话" aria-describedby="workbenchProgressText"><span class="rail-icon" aria-hidden="true"><i data-lucide="messages-square"></i></span><span>对话</span></button>
+          <button class="rail-item browser-tab" id="browser-tab-generate" data-view="generate" type="button" role="tab" aria-controls="browser-panel-generate" aria-selected="false" tabindex="-1" title="生成"><span class="rail-icon" aria-hidden="true"><i data-lucide="sparkles"></i></span><span>生成</span></button>
+          <button class="rail-item browser-tab" id="browser-tab-digital" data-view="digital" type="button" role="tab" aria-controls="browser-panel-digital" aria-selected="false" tabindex="-1" title="数字人"><span class="rail-icon" aria-hidden="true"><i data-lucide="scan-face"></i></span><span>数字人</span></button>
+          <button class="rail-item browser-tab" id="browser-tab-assets" data-view="assets" type="button" role="tab" aria-controls="browser-panel-assets" aria-selected="false" tabindex="-1" title="素材"><span class="rail-icon" aria-hidden="true"><i data-lucide="library"></i></span><span>素材</span></button>
+          <button class="rail-item browser-tab" id="browser-tab-reverse" data-view="reverse" type="button" role="tab" aria-controls="reverseWorkspace" aria-selected="false" tabindex="-1" title="视频反推"><span class="rail-icon" aria-hidden="true"><i data-lucide="scan-line"></i></span><span>视频反推</span></button>
+          <button class="rail-item browser-tab" id="canvasButton" data-view="canvas" type="button" role="tab" aria-controls="browser-panel-canvas" aria-selected="false" tabindex="-1" title="画布"><span class="rail-icon" aria-hidden="true"><i data-lucide="workflow"></i></span><span>画布</span></button>
+          <button class="rail-item browser-tab" id="browser-tab-depth" data-view="depth" type="button" role="tab" aria-controls="browser-panel-depth" aria-selected="false" tabindex="-1" title="深度视频"><span class="rail-icon" aria-hidden="true"><i data-lucide="scan-line"></i></span><span>深度视频</span></button>
+          <button class="rail-item browser-tab" id="hypitButton" data-view="hypit" type="button" role="tab" aria-controls="browser-panel-hypit" aria-selected="false" tabindex="-1" title="Hypit" hidden><span class="rail-icon" aria-hidden="true"><i data-lucide="clapperboard"></i></span><span>Hypit</span></button>
+        </nav>
+        <div class="browser-titlebar-space" aria-hidden="true"></div>
+      </header>
+      <header class="studio-topbar">
+        <div class="studio-breadcrumb"><strong id="studioPageTitle">个人中心</strong><span class="studio-local-label">本地工作区</span></div>
+        <div class="workbench-preparation">
+          <progress id="workbenchProgress" max="100" value="0" aria-label="对话服务准备进度"></progress>
+          <span id="workbenchProgressText" role="status">点击后准备</span>
+          <button id="retryWorkbench" type="button" hidden>重试准备</button>
+          <button id="workbenchDiagnostic" type="button" hidden>查看问题</button>
+        </div>
+        <div class="studio-topbar-actions">
+          <nav class="workspace-links" aria-label="个人工具">
+            <button class="workspace-link" id="studioHistoryShortcut" type="button" data-view="history" aria-controls="browser-panel-history" aria-label="历史" title="历史"><i data-lucide="history" aria-hidden="true"></i><span>历史</span></button>
+            <button class="workspace-link" id="studioAccountShortcut" type="button" data-view="account" aria-controls="browser-panel-account" aria-current="page" aria-label="个人中心" title="个人中心"><i data-lucide="user-round" aria-hidden="true"></i><span>个人中心</span></button>
+          </nav>
+          <button class="storage-status" id="storageStatus" type="button" aria-label="素材权限待检测" aria-live="polite"><span class="storage-status-dot" aria-hidden="true"></span></button>
+        </div>
+      </header>
 
-      <section class="view active" data-panel="generate">
-        <div class="view-heading">
-          <span class="eyebrow">HAMSTER CREATIVE STUDIO</span>
-          <h1 class="stage-title">每一个好创意都让人惊喜</h1>
-          <p>把灵感和素材放进来，剩下的交给仓鼠。</p>
+      <section class="view" data-panel="generate" id="browser-panel-generate" role="tabpanel" aria-labelledby="browser-tab-generate" tabindex="0">
+        <div class="view-heading studio-page-heading">
+          <div><span class="eyebrow">A LITTLE HAMSTER, BIG IDEAS</span>
+          <h1 class="stage-title">今天，让灵感成为作品</h1>
+          <p>从一句想法开始，和仓鼠一起把创意变成画面。</p></div>
+          <span class="studio-page-tag"><i data-lucide="sparkles"></i>图片与视频创作</span>
         </div>
         <form id="generationForm" class="composer">
+          <div class="studio-compose-header"><div><span class="studio-step-number">01</span><h2 id="promptLabel">描述你的创意</h2></div><span>好作品，从一个想法开始</span></div>
           <div class="prompt-wrap">
             <div class="media-tray">
+              <div class="studio-media-label"><strong>参考素材</strong><span>按需添加，让表达更准确</span></div>
               <label class="media-tile" data-kind="image"><input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple /><span class="tile-icon"><i data-lucide="image-plus"></i></span><small>图片</small></label>
               <label class="media-tile" data-kind="video"><input id="videoFile" type="file" accept="video/mp4,video/webm" multiple /><span class="tile-icon"><i data-lucide="video"></i></span><small>视频</small></label>
               <label class="media-tile" data-kind="audio"><input id="audioFile" type="file" accept="audio/*" multiple /><span class="tile-icon"><i data-lucide="audio-lines"></i></span><small>音频</small></label>
               <button class="media-tile url-tile" id="urlTile" type="button"><span class="tile-icon"><i data-lucide="link-2"></i></span><small>链接</small></button>
               <button class="media-tile asset-tile" id="assetTile" type="button" aria-label="从达人资产库选择素材"><span class="tile-icon"><i data-lucide="library"></i></span><small>达人资产</small></button>
               <div id="urlForm" class="url-form" hidden>
-                <input id="urlInput" type="text" placeholder="粘贴图片/视频/音频 URL" />
+                <input id="urlInput" type="text" placeholder="粘贴图片、视频或音频链接" />
                 <select id="urlKind">
                   <option value="image">图片</option>
                   <option value="video">视频</option>
@@ -60,31 +91,36 @@
               <div id="mediaList" class="media-list" hidden></div>
             </div>
             <div class="prompt-editor">
-              <textarea id="prompt" maxlength="6000" placeholder="今天我们要创作什么，输入 @ 引用素材" role="combobox" aria-autocomplete="list" aria-controls="mentionMenu" aria-expanded="false"></textarea>
+              <textarea id="prompt" maxlength="6000" placeholder="描述你想呈现的主体、场景和氛围，输入 @ 引用素材…" aria-labelledby="promptLabel" role="combobox" aria-autocomplete="list" aria-controls="mentionMenu" aria-expanded="false"></textarea>
               <div id="mentionMenu" class="mention-menu" role="listbox" aria-label="引用素材" hidden></div>
             </div>
             <div class="drop-hint"><span></span><span id="mediaLimitHint" role="status">请先选择线路</span></div>
           </div>
           <div class="composer-tools">
             <div class="tool-group">
-              <button type="button" class="tool-pill" data-menu="type"><i data-lucide="wand-sparkles"></i><span id="typeLabel">视频生成</span><span class="chevron">▾</span></button>
-              <button type="button" class="tool-pill" data-menu="model"><img class="route-logo" src="/hamster-logo.png" alt="" /><span id="modelLabel">暂无模型</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="type"><i data-lucide="wand-sparkles"></i><span id="typeLabel">视频生成（主线路）</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="model"><img class="route-logo" src="/hamster-mark.png" alt="" width="24" height="24" /><span id="modelLabel">暂无模型</span><span class="chevron">▾</span></button>
               <button type="button" class="tool-pill" data-menu="reference" id="referencePill"><i data-lucide="scan"></i><span id="referenceLabel">全能参考</span><span class="chevron">▾</span></button>
               <button type="button" class="tool-pill setting-pill" data-menu="ratio" id="ratioPill"><i data-lucide="proportions"></i><span class="setting-copy"><small>比例</small><span id="ratioLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="size" id="sizePill" style="display:none"><i data-lucide="maximize"></i><span class="setting-copy"><small>尺寸</small><span id="sizeLabel">--</span></span><span class="chevron">▾</span></button>
               <button type="button" class="tool-pill setting-pill" data-menu="quality" id="qualityPill"><i data-lucide="hd"></i><span class="setting-copy"><small>画质</small><span id="qualityLabel">--</span></span><span class="chevron">▾</span></button>
               <button type="button" class="tool-pill setting-pill" data-menu="duration" id="durationPill"><i data-lucide="timer"></i><span class="setting-copy"><small>时长</small><span id="durationLabel">--</span></span><span class="chevron">▾</span></button>
-              <button type="button" class="tool-pill" data-menu="concurrency"><i data-lucide="layers-3"></i><span id="concurrencyLabel">1x</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="concurrency" id="concurrencyPill"><i data-lucide="layers-3"></i><span id="concurrencyLabel">1x</span><span class="chevron">▾</span></button>
             </div>
             <div class="submit-group">
-              <button class="send-button" type="submit" aria-label="发送"><i data-lucide="arrow-up"></i></button>
+              <button class="send-button" type="submit" aria-label="发送"><i data-lucide="arrow-up"></i><span>开始生成</span></button>
+              <div id="generationQuote" class="generation-estimate" aria-live="polite" hidden><button data-quote-refresh="generate" type="button" aria-label="刷新预估费用">预估￥？元</button></div>
             </div>
           </div>
         </form>
-        <p id="taskPersistenceNote" class="hint" role="status">正在读取本地任务记录…</p>
+        <p id="taskPersistenceNote" class="hint" role="status" hidden></p>
+        <section id="relayBatchControls" class="relay-batch-controls" aria-label="批量提交进度" aria-live="polite" hidden></section>
+        <div class="studio-results-heading"><div><span class="eyebrow">YOUR CREATIONS</span><h2>最近创作</h2></div><button id="studioHistoryShortcut" type="button">查看全部历史<span aria-hidden="true"> →</span></button></div>
+        <div id="studioResultsEmpty" class="studio-results-empty"><span class="studio-empty-icon"><i data-lucide="clapperboard"></i></span><div><strong>下一个好作品，从这里开始</strong><p>提交后可在这里查看进度，已完成的作品也会保留在历史中。</p></div></div>
         <div id="taskFeed" class="task-feed"></div>
       </section>
 
-      <section class="view" data-panel="digital">
+      <section class="view" data-panel="digital" id="browser-panel-digital" role="tabpanel" aria-labelledby="browser-tab-digital" tabindex="0">
         <div class="view-heading compact">
           <span class="eyebrow">DIGITAL HUMAN</span>
           <h1 class="view-title">数字人</h1>
@@ -99,6 +135,7 @@
                 <span class="upload-placeholder" id="dhImagePlaceholder"><b><i data-lucide="user-round-plus"></i></b><strong>拖入人物图片</strong><small>或点击选择 · PNG / JPG / WEBP</small></span>
               </label>
               <div id="dhImageInfo" class="upload-info"></div>
+              <button id="dhImageAsset" class="image-edit-inline" type="button"><i data-lucide="library"></i>从素材库选择</button>
             </div>
             <div class="upload-slot">
               <span class="upload-label">音频（≤30 秒）</span>
@@ -107,8 +144,10 @@
                 <span class="upload-placeholder" id="dhAudioPlaceholder"><b><i data-lucide="audio-lines"></i></b><strong>拖入声音文件</strong><small>或点击选择 · 最长 30 秒</small></span>
               </label>
               <div id="dhAudioInfo" class="upload-info"></div>
+              <button id="dhAudioAsset" class="image-edit-inline" type="button"><i data-lucide="library"></i>从素材库选择</button>
             </div>
           </div>
+          <section id="digitalQuote" class="line-quote" aria-live="polite" hidden><div><strong data-quote-title>数字人</strong><p data-quote-description>请先准备素材</p></div><button data-quote-refresh="digital" type="button">重新报价</button></section>
           <div class="digital-actions">
             <span class="cost" id="dhHint">请先上传人物参考图与音频</span>
             <div class="digital-submit">
@@ -119,11 +158,13 @@
         <div id="dhResults" class="task-feed"></div>
       </section>
 
-      <section class="view" data-panel="depth">
+      <section class="view" data-panel="reverse" id="reverseWorkspace" role="tabpanel" aria-labelledby="browser-tab-reverse" tabindex="0"></section>
+
+      <section class="view" data-panel="depth" id="browser-panel-depth" role="tabpanel" aria-labelledby="browser-tab-depth" tabindex="0">
         <div class="view-heading compact">
           <span class="eyebrow">TOOLBOX · DEPTH VIDEO</span>
-          <h1 class="view-title">黑白深度视频</h1>
-          <p>上传普通视频，生成便于后续特效与三维处理的黑白深度视频。</p>
+          <h1 class="view-title">深度视频</h1>
+          <p>上传普通视频，生成便于后续特效与三维处理的深度视频。</p>
         </div>
         <div class="digital-form depth-form">
           <div class="upload-slot">
@@ -133,11 +174,13 @@
               <span class="upload-placeholder" id="depthVideoPlaceholder"><b><i data-lucide="scan-line"></i></b><strong>拖入需要转换的视频</strong><small>或点击选择 · MP4 / WEBM / MOV</small></span>
             </label>
             <div id="depthVideoInfo" class="upload-info"></div>
+            <button id="depthVideoAsset" class="image-edit-inline" type="button"><i data-lucide="library"></i>从素材库选择</button>
           </div>
+          <section id="depthQuote" class="line-quote" aria-live="polite" hidden><div><strong data-quote-title>深度视频</strong><p data-quote-description>请先准备素材</p></div><button data-quote-refresh="depth" type="button">重新报价</button></section>
           <div class="digital-actions">
             <span class="cost" id="depthHint">请先上传源视频</span>
             <div class="digital-submit">
-              <button class="plain-button" id="depthSubmit" type="button" disabled><i data-lucide="scan-line"></i>生成黑白深度视频</button>
+              <button class="plain-button" id="depthSubmit" type="button" disabled><i data-lucide="scan-line"></i>生成深度视频</button>
             </div>
           </div>
         </div>
@@ -146,7 +189,7 @@
           <header class="guide-header">
             <div>
               <span class="guide-kicker">快速教程</span>
-              <h2 id="depthGuideTitle">什么是黑白深度视频？</h2>
+              <h2 id="depthGuideTitle">什么是深度视频？</h2>
               <p>它是逐帧记录空间远近的 Depth Map：通常亮色代表近、暗色代表远。它弱化人物外观、服装颜色和场景风格，主要保留动作与空间信息。</p>
             </div>
             <span class="guide-badge">DEPTH MAP</span>
@@ -170,81 +213,84 @@
             <li><b>3</b><div><strong>限定参考范围</strong><span>明确写出“仅参考什么”和“不参考什么”，减少原人物、衣服及场景污染。</span></div></li>
           </ol>
           <div class="guide-prompt">
-            <div class="guide-prompt-head"><span>Seedance 2.0 提示词模板</span><button id="depthPromptCopy" type="button"><i data-lucide="copy"></i>复制模板</button></div>
+            <div class="guide-prompt-head"><span>深度视频提示词模板</span><button id="depthPromptCopy" type="button"><i data-lucide="copy"></i>复制模板</button></div>
             <pre id="depthPromptTemplate">@图片1作为全程人物形象参考，保持人物一致。
 @图片2作为唯一服装参考。
 @视频1仅参考人物动作、身体姿态、空间深度、构图变化和镜头运动。
 不参考@视频1中的人物外观、颜色、材质和画面风格。
 严格按照@视频1的动作节奏和镜头轨迹生成真人自拍视频。</pre>
           </div>
-          <p class="guide-note"><i data-lucide="info"></i>Seedance 2.0 没有单独的 Depth 控制通道；请把深度视频作为“全能参考”的视频素材使用，并通过提示词限定它只负责动作、空间和运镜。</p>
+          <p class="guide-note"><i data-lucide="info"></i>将深度视频加入“全能参考”，并在提示词中说明：仅参考动作、空间和运镜。</p>
         </section>
       </section>
 
 
-      <section class="view" data-panel="history">
+      <section class="view local-workspace-view" data-panel="chat" id="browser-panel-chat" role="tabpanel" aria-labelledby="workbenchButton" tabindex="0"><div class="chat-mode-switch" role="group" aria-label="对话模式"><button id="piknoChatMode" type="button" aria-pressed="true">PIKNO 对话</button><button id="codexChatMode" type="button" aria-pressed="false">本机 Codex · 只读</button></div><div class="local-workspace" id="chatWorkspace"></div><div id="codexWorkspace" hidden></div></section>
+      <section class="view local-workspace-view" data-panel="canvas" id="browser-panel-canvas" role="tabpanel" aria-labelledby="canvasButton" tabindex="0"><div class="local-workspace" id="canvasWorkspace"></div></section>
+      <section class="view hypit-view" data-panel="hypit" id="browser-panel-hypit" role="tabpanel" aria-labelledby="hypitButton" tabindex="0"><div id="hypitWorkspace"></div></section>
+      <section class="view" data-panel="history" id="browser-panel-history" role="region" aria-labelledby="studioHistoryShortcut" tabindex="0">
         <h1 class="view-title">历史</h1>
-        <p class="hint">任务从提交起保存在本机，重开应用自动恢复查询。完全退出期间暂停本地轮询；已保存的结果可离线预览。</p>
+        <p class="hint">重新打开应用可继续查看进度，已下载的作品支持离线预览。</p>
         <div class="history-toolbar">
           <div class="chip-group" id="historyFilter">
             <button class="chip active" data-hfilter="all" type="button">全部</button>
             <button class="chip" data-hfilter="image" type="button">图片</button>
             <button class="chip" data-hfilter="video" type="button">视频</button>
           </div>
-          <button class="plain-button subtle" id="clearHistory" type="button"><i data-lucide="trash-2"></i>清除已结束记录</button>
+          <div class="history-actions">
+            <button class="plain-button subtle" id="clearFailedTasks" type="button"><i data-lucide="list-x"></i>清除失败任务</button>
+            <button class="plain-button subtle" id="clearHistory" type="button"><i data-lucide="trash-2"></i>清除已结束记录</button>
+          </div>
         </div>
         <div id="historyList" class="history-list"></div>
       </section>
 
-      <section class="view" data-panel="assets">
-        <div class="view-heading compact"><span class="eyebrow">LOCAL ASSET LIBRARY</span><h1 class="view-title">达人资产库</h1><p>达人、产品与场景共用本地资产；选择后可用于当前生成，智能成片也可直接调用。</p></div>
+      <section class="view" data-panel="assets" id="browser-panel-assets" role="tabpanel" aria-labelledby="browser-tab-assets" tabindex="0">
+        <div class="view-heading compact"><span class="eyebrow">LOCAL ASSET LIBRARY</span><h1 class="view-title">达人资产库</h1><p>达人、产品与场景共用本地资产，可用于生成、对话附件和创作画布。</p></div>
         <div id="assetLibrary"></div>
       </section>
-      <section class="view" data-panel="account">
-        <h1 class="view-title">账户</h1>
-        <div class="account-card">
-          <label>API Key（图片 / 视频）<input id="apiKeyInput" type="password" placeholder="请输入 API Key" autocomplete="off" /></label>
-          <button id="saveKeyButton" class="plain-button" type="button"><i data-lucide="save"></i>保存配置</button>
-          <p id="accountStatus" class="hint"></p>
+      <section class="view active" data-panel="account" id="browser-panel-account" role="region" aria-labelledby="studioAccountShortcut" tabindex="0">
+        <div class="account-heading"><div><span class="eyebrow">YOUR HAMSTER ACCOUNT</span><h1>个人中心</h1></div><span id="billingConnection" class="account-status" role="status">未登录</span></div>
+        <div class="account-dashboard">
+        <section class="account-card registration-card" id="billingAccount">
+          <span class="eyebrow">欢迎来到仓鼠AI</span><h2>邮箱注册 / 登录</h2>
+          <form id="billingLoginForm"><label>邮箱地址<input id="billingLoginEmail" type="email" autocomplete="email" maxlength="254" placeholder="请输入常用邮箱" required></label><div class="email-code-row"><label>邮箱验证码<input id="billingLoginCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="6 位验证码" required></label><button id="requestBillingCode" class="plain-button" type="button">获取验证码</button></div><button id="loginBilling" class="plain-button" type="submit">验证并进入账户</button></form>
+          <p class="hint">验证码 10 分钟内有效，请勿向他人提供。</p>
+        </section>
+        <div class="wallet-card" id="billingWallet" hidden>
+          <div class="wallet-topline"><span>我的钱包</span><span id="billingEmail">连接账户后显示注册邮箱</span></div>
+          <div class="wallet-main"><div><span class="wallet-label">可用余额（元）</span><strong id="billingAvailable">—</strong></div><div class="wallet-actions"><button id="openRecharge" class="plain-button" type="button"><i data-lucide="wallet"></i>支付宝充值</button><button id="refreshWallet" class="wallet-refresh" type="button"><i data-lucide="refresh-cw"></i>刷新余额</button></div></div>
+          <div class="wallet-breakdown"><span>账户总额 <strong id="billingBalance">—</strong></span><span>任务冻结 <strong id="billingHeld">—</strong></span></div>
+          <p id="walletHint">邮箱验证后即可充值。</p><button id="logoutBilling" class="wallet-refresh" type="button">退出当前账户</button>
         </div>
-        <div class="account-card">
-          <label>仓鼠工具 API Key（数字人 / 工具箱共用）<input id="rhKeyInput" type="password" placeholder="请输入 32 位 API Key" autocomplete="off" /></label>
-          <button id="saveRhKeyButton" class="plain-button" type="button"><i data-lucide="save"></i>保存</button>
-          <p id="rhStatus" class="hint"></p>
-        </div>
-        <div class="account-card">
-          <label>仓鼠智能 API Key<input id="llmKeyInput" type="password" placeholder="请输入智能服务 API Key；已配置可留空保留" autocomplete="off" /></label>
-          <label>统一推理接入点 ID（可选）<input id="llmEndpointInput" type="text" placeholder="ep-…，留空使用默认配置" autocomplete="off" /></label>
-          <button id="saveLlmKeyButton" class="plain-button" type="button"><i data-lucide="brain-circuit"></i>保存智能服务配置</button>
-          <p id="llmStatus" class="hint"></p>
-          <p class="hint">仓鼠智能体、智能成片与创意工作台共用，保存后新请求生效，无需重启。接入点须支持图片、视频与文本理解，智能成片还需支持工具调用；不使用音频输入。此配置不改变图片 / 视频生成线路。</p>
-        </div>
-        <div class="account-card diagnostic-card">
-          <h2>启动诊断</h2>
-          <p class="hint">检测本地工作台端口、运行环境和最近的启动错误。导出文件保存在桌面「仓鼠AI诊断」，不会自动上传。</p>
-          <p id="diagnosticStatus" class="hint" role="status">点击检测查看启动状态</p>
-          <div class="diagnostic-actions">
-            <button id="checkDiagnostics" class="plain-button" type="button"><i data-lucide="activity"></i>检测启动环境</button>
-            <button class="plain-button" type="button" data-export-diagnostics><i data-lucide="download"></i>导出诊断信息</button>
-          </div>
-          <p class="hint diagnostic-result" data-diagnostic-result role="status"></p>
-          <small class="hint">仅包含脱敏后的启动日志与基础环境信息，不包含密钥、任务提示词和用户素材。</small>
+        <p id="billingStatus" class="account-feedback" role="status" aria-live="polite">请先验证邮箱，再进入钱包与充值。</p>
+        <div class="account-records" id="billingRecords" hidden><section class="account-card"><h2><i data-lucide="receipt"></i>充值记录</h2><p class="record-caption">创建申请 → 付款 → 确认已付款 → 人工核对 → 入账通知</p><div id="rechargeRecords" class="record-list">登录后查看充值记录</div></section><section class="account-card"><h2><i data-lucide="list-checks"></i>消费流水</h2><p class="record-caption">查看冻结、扣费与退回钱包的明细</p><div id="billingLedger" class="record-list">登录后查看消费流水</div></section></div>
         </div>
       </section>
     </main>
 
     <dialog id="startupErrorDialog" class="asset-dialog compact">
-      <h2>本地工作台未能启动</h2>
+      <h2>本地对话服务未能启动</h2>
       <p id="startupErrorMessage"></p>
-      <p class="hint">请导出诊断信息，将桌面「仓鼠AI诊断」中的文件发送给支持人员。不要发送账户密钥或个人配置文件。</p>
+      <p class="hint">请稍后重试或联系支持。故障信息会在后台脱敏反馈，网络恢复后自动补报。</p>
       <div class="diagnostic-actions">
-        <button class="plain-button" type="button" data-export-diagnostics><i data-lucide="download"></i>导出诊断信息</button>
         <button class="plain-button subtle" id="closeStartupError" type="button">关闭</button>
       </div>
-      <p class="hint diagnostic-result" data-diagnostic-result role="status"></p>
+    </dialog>
+    <dialog id="generationBalanceDialog" class="generation-balance-dialog" aria-labelledby="generationBalanceTitle" aria-describedby="generationBalanceMessage">
+      <h2 id="generationBalanceTitle">余额不足</h2>
+      <p id="generationBalanceMessage"></p>
+      <form method="dialog" class="generation-balance-actions">
+        <button class="plain-button subtle" autofocus>暂不充值</button>
+        <button id="generationRecharge" class="plain-button" type="button">前往充值</button>
+      </form>
     </dialog>
     <div id="toast" class="toast"></div>
-    <script src="/vendor/lucide.min.js"></script>
+    <dialog id="rechargeGate" class="account-gate" aria-labelledby="rechargeGateTitle"><h2 id="rechargeGateTitle">先验证邮箱，再充值</h2><p>验证后，充值订单会自动关联您的账户。</p><button id="goActivate" class="plain-button" type="button">去验证邮箱</button><button id="closeRechargeGate" type="button">关闭</button></dialog>
+    <dialog id="rechargeDialog" aria-labelledby="rechargeTitle"><form id="rechargeForm"><h2 id="rechargeTitle">支付宝充值</h2><p id="rechargeAccountLabel"></p><label>充值金额（元）<input name="amount" type="number" min="1" max="100000" step="0.01" required></label><div id="rechargePayment" class="recharge-layout" hidden><div class="recharge-code"><p>收款方：<strong>鹿鸣一方传媒</strong></p><img src="/api/billing/qr" alt="支付宝收款码：鹿鸣一方传媒" width="300" loading="lazy"></div><div class="recharge-fields"><p class="billing-important">按申请金额付款即可，无需填写付款订单号或备注，邮箱自动关联。</p><label class="recharge-confirm"><input name="confirmed" type="checkbox"><span>我已按上述金额完成付款</span></label><p>点击「我已确认付款」后才提交人工审核。管理员核实真实到账后入账并发送通知，请勿重复付款。未付款可直接关闭，不会进入审核。</p></div></div><p id="rechargeStatus" role="status" aria-live="polite"></p><button id="submitRecharge" type="submit">创建充值申请</button><button id="closeRecharge" type="button">关闭</button></form></dialog>
+    <script src="/vendor/lucide-subset.js"></script>
     <script type="module" src="/app.js"></script>
+    <script type="module" src="/account.mjs"></script>
+    <script type="module" src="/hypit-launch.mjs"></script>
   </body>
 </html>
