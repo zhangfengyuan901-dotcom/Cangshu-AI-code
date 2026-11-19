@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>智能成片 · 仓鼠AI工作台</title>
+    <link rel="icon" href="hamster-logo.png" type="image/png">
+    <link rel="stylesheet" href="studio.css" />
+    <link rel="stylesheet" href="/shared/assets.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+  </head>
+  <body>
+    <aside class="rail">
+      <a class="brand" href="/" aria-label="智能成片首页"
+        ><img src="hamster-logo.png" alt="仓鼠"
+      /></a>
+      <div class="rail-label">仓鼠AI<br />工作台</div>
+      <span class="rail-bottom">LOCAL<br />STUDIO</span>
+    </aside>
+    <main>
+      <nav class="workbench-nav" aria-label="工作台功能">
+        <span>仓鼠AI工作台</span>
+        <a href="/chat/">仓鼠智能体</a>
+        <a href="/" aria-current="page">智能成片</a>
+        <a href="/creative/">创意工作台</a>
+      </nav>
+      <header>
+        <div class="wordmark">
+          HAMSTER CREATIVE STUDIO <span>/</span> SMART VIDEO
+        </div>
+        <button class="quiet" id="refreshConfig">
+          <i data-lucide="refresh-cw"></i>连接状态
+        </button>
+      </header>
+      <section class="intro">
+        <div>
+          <div class="eyebrow">从一个商品，到一支好视频</div>
+          <h1>好创意，自动成片<span>。</span></h1>
+          <p>放进商品与灵感，让仓鼠完成策划、分镜与视频制作。</p>
+        </div>
+        <div class="intro-note">
+          <i data-lucide="workflow"></i
+          ><span>7 个制作阶段<br /><small>每一步，都看得见</small></span>
+        </div>
+      </section>
+      <div id="configNotice" class="notice" hidden></div>
+      <div class="workspace">
+        <section class="brief panel">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">01 / CREATIVE BRIEF</span>
+              <h2>这次，想拍什么？</h2>
+            </div>
+            <span class="tag">创作需求</span>
+          </div>
+          <form id="briefForm">
+            <label
+              >商品名称 <em>*</em
+              ><input
+                name="product"
+                maxlength="120"
+                required
+                placeholder="例如：轻盈通勤针织开衫"
+            /></label>
+            <label
+              >商品卖点 <em>*</em
+              ><textarea
+                name="selling_points"
+                maxlength="3000"
+                required
+                rows="3"
+                placeholder="面料、版型、使用场景……告诉仓鼠，你的商品特别在哪里。"
+              ></textarea>
+            </label>
+            <div class="label-row">
+              <span>补充产品参考图</span><small>选填 · 1 张 · 最大 10 MB</small>
+            </div>
+            <div class="upload" id="uploadZone">
+              <input
+                id="fileInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                hidden
+              /><button type="button" id="uploadButton">
+                <span class="upload-icon"><i data-lucide="image-plus"></i></span
+                ><b id="uploadTitle">拖一张商品图到这里</b
+                ><small id="uploadHelp">或点击选择 · JPG / PNG / WebP</small>
+              </button>
+              <div id="imagePreview" hidden>
+                <img id="previewImage" alt="商品参考图" />
+                <div>
+                  <b id="imageName">商品参考图</b
+                  ><small>已上传，可用于生成</small>
+                </div>
+                <button
+                  type="button"
+                  class="icon-button"
+                  id="removeImage"
+                  aria-label="移除参考图"
+                >
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-row">
+              <label
+                >投放平台<select name="platform">
+                  <option>TikTok Shop</option>
+                  <option>抖音</option>
+                  <option>小红书</option>
+                  <option>淘宝 / 天猫</option>
+                </select></label
+              ><label
+                >视频风格<select name="style">
+                  <option>自然种草</option>
+                  <option>质感广告</option>
+                  <option>产品展示</option>
+                  <option>生活方式</option>
+                </select></label
+              >
+            </div>
+            <label
+              >目标人群<input
+                name="audience"
+                maxlength="500"
+                placeholder="例如：喜欢简约穿搭的年轻上班族"
+            /></label>
+            <label class="route-select-label">
+              <span><img src="hamster-logo.png" alt="" class="route-logo" />视频线路</span>
+              <select name="video_model">
+                <option value="sd_2_5_once_720p" selected>SD2.5-按次-720P · 15元/次</option>
+                <option value="sd_2_5_once_line3">SD2.5-按次-线路3 · 15元/次</option>
+                <option value="sd_2_5_900_30s">SD2.5-9图-30秒 · 6元/次</option>
+              </select>
+            </label>
+            <div class="form-row three">
+              <label
+                >画面比例<select name="ratio">
+                  <option>9:16</option>
+                  <option>16:9</option>
+                  <option>1:1</option>
+                </select></label
+              ><label
+                >画质<select name="resolution">
+                  <option>720p</option>
+                </select></label
+              ><label
+                >目标时长<select name="seconds">
+                  <option value="5">约 20 秒</option>
+                  <option value="10">约 40 秒</option>
+                </select></label
+              >
+            </div>
+            <details class="advanced">
+              <summary>更多创作设置<i data-lucide="chevron-down"></i></summary>
+              <label
+                >每个分镜的候选数量<select name="candidates">
+                  <option value="1">1 组 · 快速制作</option>
+                  <option value="2">2 组 · 更多候选供评选</option>
+                </select></label
+              ><label
+                >补充要求<textarea
+                  name="notes"
+                  maxlength="3000"
+                  rows="3"
+                  placeholder="镜头偏好、字幕语言、需要保留或避免的内容"
+                ></textarea>
+              </label>
+            </details>
+            <div class="estimate">
+              <i data-lucide="layers"></i
+              ><span id="estimate">4 个分镜 · 4 张候选图 · 4 段候选视频</span>
+            </div>
+            <p class="cost-note">
+              制作素材将由云端处理，按用量计费；候选越多，费用越高。
+            </p>
+            <button type="submit" class="primary" id="startButton">
+              <span>开始制作</span><i data-lucide="arrow-up-right"></i>
+            </button>
+          </form>
+        </section>
+        <section class="production">
+          <div class="panel workflow-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">02 / PRODUCTION</span>
+                <h2 id="jobTitle">你的创意，正在这里发生</h2>
+              </div>
+              <span id="jobStatus" class="tag">准备就绪</span>
+            </div>
+            <div class="progress-meta">
+              <span id="stageLabel">从营销策划到最终成片，全流程可追踪</span
+              ><span id="stageCount">0 / 7</span>
+            </div>
+            <div class="progress-track"><div id="progressFill"></div></div>
+            <ol class="steps" id="steps"></ol>
+            <div class="job-actions">
+              <button class="quiet" id="reuseButton" hidden>
+                <i data-lucide="copy"></i>复用需求</button
+              ><button class="quiet" id="cancelButton" hidden>
+                <i data-lucide="square"></i>停止制作</button
+              ><span id="updatedAt"></span>
+            </div>
+            <div class="notice error" id="jobError" role="status" hidden></div>
+          </div>
+          <div class="panel output-panel">
+            <div class="output-head">
+              <h2>制作内容</h2>
+              <span class="muted">脚本 · 分镜 · 成片</span>
+            </div>
+            <div id="emptyOutput" class="empty-output">
+              <div class="storyboard-art">
+                <span><i data-lucide="image"></i></span
+                ><span><i data-lucide="play"></i></span
+                ><span><i data-lucide="sparkles"></i></span>
+              </div>
+              <h3>下一支好视频，从这里开始</h3>
+              <p>
+                完成左侧创作需求，仓鼠会为你设计 4 个分镜，<br />生成候选素材、评选并合成视频。
+              </p>
+              <div class="ideas">
+                <button class="idea" data-template="fashion">
+                  女装穿搭<i data-lucide="arrow-up-right"></i></button
+                ><button class="idea" data-template="beauty">
+                  护肤好物<i data-lucide="arrow-up-right"></i></button
+                ><button class="idea" data-template="drink">
+                  饮品上新<i data-lucide="arrow-up-right"></i>
+                </button>
+              </div>
+            </div>
+            <p id="waitingOutput" class="muted" role="status" hidden>正在处理创作需求，阶段内容会在这里陆续出现。</p>
+            <div id="finalResult" hidden></div>
+            <div id="stageOutputs"></div>
+          </div>
+        </section>
+      </div>
+      <section class="history panel">
+        <div class="output-head">
+          <div>
+            <span class="eyebrow">RECENT PROJECTS</span>
+            <h2>最近的创作</h2>
+          </div>
+          <button class="quiet" id="refreshHistory">
+            <i data-lucide="refresh-cw"></i>刷新
+          </button>
+        </div>
+        <div id="historyList" class="history-list">
+          <p class="muted">还没有制作记录。完成第一个创意后，会保存在这里。</p>
+        </div>
+      </section>
+      <footer>
+        <span>仓鼠智能成片 · 让灵感有迹可循</span
+        ><span id="outputPath">成片自动保存到本地桌面文件夹</span>
+      </footer>
+    </main>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <script src="lucide.min.js"></script>
+    <script type="module" src="studio.js"></script>
+  </body>
+</html>

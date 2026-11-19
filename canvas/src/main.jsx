@@ -1,0 +1,317 @@
+import React,{useState,useEffect,useRef,useMemo,createContext,useContext,memo} from 'react';
+import {createRoot} from 'react-dom/client';
+import {ReactFlow,ReactFlowProvider,Background,Controls,MiniMap,Handle,Position,applyNodeChanges,applyEdgeChanges,useReactFlow} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import './style.css';
+import {buildReferenceEdgeId,reconcileViewNodes} from './projection.mjs';
+import {pricingQuote,quoteValid,formatMoney,priceUnit,catalogPriceText} from '../../public/canvas-pricing.mjs';
+import {defaultImageOptions,defaultVideoOptions,imageSizesForRatio,modelMediaSummary} from '../../public/core.mjs';
+import {referenceInputs,combinedPrompt,missingReferenceError,referenceChangeError,validConnection,nodeAssetId,outputRun,mergeOutputBindings,modelOptionsError,executionKind,canvasQuoteSignature,canvasMediaError} from '../../public/canvas-core.mjs';
+import {toolAvailability} from '../../public/relay-ui-state.mjs';
+import {StorageStatus,PromptInput,UploadContent,SyncControls,uploadLocal,mediaDuration} from './widgets.jsx';
+
+const UI=createContext(null);
+const labels={image:'图片生成',backup:'官方备选视频',main:'主线路视频',digital:'数字人',depth:'黑白深度视频'};
+const visibleLabels={image:'图片生成',main:'视频生成',digital:'数字人',depth:'黑白深度视频'};
+const states={preparing:'准备素材',submitting:'提交中',submitted:'已提交',queued:'排队中',processing:'处理中',succeeded:'已完成',failed:'失败',unknown:'结果待确认'};
+async function api(path,options={}){const r=await fetch('/api'+path,{...(!options.method||options.method==='GET'?{signal:AbortSignal.timeout(30000)}:{}),...options,headers:{...(options.body instanceof Blob?{}:{'Content-Type':'application/json'}),...options.headers}});const data=await r.json();if(!r.ok)throw Error(r.status===402?'PIKNO 账户余额不足，请到 PIKNO 充值后重新获取报价':data.error||'本地服务请求失败');return data;}
+const post=(path,data={})=>api(path,{method:'POST',body:JSON.stringify(data)});
+function Ports({input=true,output=true,result=false,locked=false}){return <>{input&&<Handle type="target" position={Position.Left} isConnectable={!locked} title={result?'连接一个生成节点，接收其输出结果':'连接输入素材'}/>} {output&&<Handle type="source" position={Position.Right} title={result?'连接到下一步生成节点':'连接节点'}/>}</>;}
+function Card({id,data,children,kind,input=true,title}){
+  const ui=useContext(UI),run=kind==='output'?outputRun(ui.doc,{id,type:kind,data}):null;
+  const resultName=run?'Output · 第 '+(ui.doc.runs.filter(r=>r.nodeId===run.nodeId).findIndex(r=>r.requestId===run.requestId)+1)+' 次结果':'Output · 生成结果';
+  const name=title||(kind==='generation'?labels[data.channel]:kind==='output'?resultName:kind==='asset'?'素材':data.label||'提示词');
+  return <article className={'card '+kind} onFocusCapture={()=>{if(kind==='generation')ui.activateQuote(id);}} onPointerDown={()=>{if(kind==='generation')ui.activateQuote(id);}}><Ports input={input} result={kind==='output'} locked={kind==='output'&&(id.startsWith('output:')||Boolean(data.requestId))}/><header className="node-drag-handle" title={name+(run?.created?' · '+new Date(run.created).toLocaleString():'')+' · 拖动标题栏移动卡片'}><span className="node-grip" aria-hidden="true">⠿</span><strong className="node-title">{name}</strong><button aria-label="删除节点" className="nodrag icon" onClick={()=>ui.remove(id)}>×</button></header>{children}</article>;
+}
+function TextNode({id,data}){const ui=useContext(UI);return <Card id={id} data={data} kind="text" input={false}><textarea className="nodrag nowheel" aria-label="提示词文本" placeholder="写下项目说明、锚点或镜头提示词…" value={data.text} onChange={e=>ui.edit(id,{text:e.target.value})}/><footer>提示词 · 拖动右侧圆点连接执行节点</footer></Card>;}
+function Media({asset}){const ui=useContext(UI);if(!asset)return <p>素材暂不可用</p>;const src='/api/assets/'+asset.id+'/file';const duration=e=>{if(!asset.durationSeconds&&Number.isFinite(e.target.duration)&&e.target.duration>0)ui.setDuration(asset.id,e.target.duration);};return asset.kind==='image'?<img src={src} alt={asset.name} draggable={false}/>:asset.kind==='audio'?<audio src={src} onLoadedMetadata={duration} controls className="nodrag"/>:<video src={src} onLoadedMetadata={duration} controls preload="metadata" className="nodrag"/>;}
+function AssetNode({id,data}){const ui=useContext(UI),asset=ui.assets.find(a=>a.id===data.assetId);return <Card id={id} data={data} kind="asset"><Media asset={asset}/><footer>{asset?.name||'素材已删除'}{asset?.durationSeconds?' · '+asset.durationSeconds.toFixed(1)+'s':''}</footer></Card>;}
+function UploadNode({id,data}){const ui=useContext(UI),asset=ui.assets.find(a=>a.id===data.assetId),job=ui.uploadJobs[id];return <Card id={id} data={data} kind="asset" title="素材上传" input={false}><UploadContent asset={asset} job={job} onUpload={file=>ui.uploadFile(id,file)} onRetry={()=>ui.retryUpload(id)}><Media asset={asset}/><footer>{asset?.name}</footer>{ui.relayMode&&asset&&<SyncControls kind={ui.syncKind(id,asset)} onKindChange={kind=>ui.setSyncKind(id,kind)} onSync={()=>ui.retryUpload(id)} busy={job?.stage==='syncing'}/>}</UploadContent></Card>;}
+function OutputNode({id,data}){
+  const ui=useContext(UI),node={id,type:'output',data},asset=ui.assets.find(a=>a.id===nodeAssetId(ui.doc,node)),run=outputRun(ui.doc,node),job=ui.uploadJobs[id],busy=job?.stage==='syncing';
+  const source=ui.doc.nodes.find(n=>n.id===(run?.nodeId||ui.doc.edges.find(e=>e.target===id)?.source)),synced=job?.stage==='done'&&job.uploaded&&job.assetId===asset?.id||!ui.relayMode&&run?.storageSynced;
+  if(!asset)return <Card id={id} data={data} kind="output"><div className="output-empty nodrag"><span>OUTPUT</span><strong>{source?'等待上游生成结果':'等待连接生成节点'}</strong><p>将图片、视频或 工具生成节点的右侧圆点连接到本卡片左侧。执行上游任务后，结果会在这里展示。</p><small>右侧可继续连接下游生成节点；所有任务仍需手动执行。</small></div></Card>;
+  return <Card id={id} data={data} kind="output"><div className="output-preview nodrag nowheel"><Media asset={asset}/></div><div className="output-info nodrag nowheel"><span className="output-badge">OUTPUT · {asset?.kind==='video'?'视频':asset?.kind==='audio'?'音频':'图片'}</span><p title={asset?.name}>{asset?.name||'素材暂不可用'}</p>{source&&<small>来自 {labels[source.data.channel]||source.data.label}</small>}<small className={synced?'output-synced':'output-pending'}>{busy?'正在同步 素材通道…':synced?(ui.relayMode?'✓ 本次素材上传通过 · 下游执行时重新授权':'✓ 已转存 素材通道'):run?.storageError||(ui.relayMode?'本地结果已保存 · 下游执行时按用途上传':'本地结果已保存 · 执行下游任务前转存 素材通道')}</small><div className="output-actions">{asset&&<a href={'/api/assets/'+asset.id+'/file'} target="_blank" rel="noreferrer">查看结果 ↗</a>}</div>{ui.relayMode?<SyncControls kind={ui.syncKind(id,asset)} onKindChange={kind=>ui.setSyncKind(id,kind)} onSync={()=>ui.retryUpload(id)} busy={busy}/>:<button disabled={!asset||busy} onClick={()=>ui.retryUpload(id)}>{busy?'同步中…':'转存 素材通道'}</button>}{job?.stage==='error'&&<small className="reference-error">{job.message}</small>}<small>从右侧圆点连接下游生成节点，使用 @ 引用；下游仍需手动执行。</small></div></Card>;
+}
+function Field({label,value,values,change}){return <label className="field">{label}<select className="nodrag" value={value??''} onChange={e=>change(e.target.value)}>{!values.some(v=>String(v)===String(value))&&<option value={value??''} disabled>{value?'原值 '+value+' 已不可用':'请选择'}</option>}{values.map(v=><option key={v} value={v}>{v}</option>)}</select></label>;}
+function GenerationNode({id,data}){
+  const ui=useContext(UI),rh=['digital','depth'].includes(data.channel),models=ui.models[data.channel]||[],model=models.find(m=>m.id===(rh?'tool-'+data.channel:data.model)),opts=data.options||{},run=[...(ui.doc?.runs||[])].reverse().find(r=>r.nodeId===id);
+  const option=(key,value)=>ui.edit(id,{options:{...opts,[key]:value}});
+  const imageRatio=opts.aspect_ratio??'',imageSizes=imageSizesForRatio(model,imageRatio);
+  const imageRatioChanged=value=>{const sizes=imageSizesForRatio(model,value);ui.edit(id,{options:{...opts,aspect_ratio:value,...(model?.size_options?.length?{size:sizes.includes(opts.size)?opts.size:sizes[0]}:{})}});};
+  const refs=referenceInputs(ui.doc,id,ui.assets),referenceError=missingReferenceError(combinedPrompt(ui.doc,id),refs);
+  const optionError=model?.billing_mode==='relay'?modelOptionsError(model,opts,data.channel):'';
+  const mediaError=model?canvasMediaError(model,refs):'',availability=rh&&ui.relayMode?ui.toolStatus(data.channel):null;
+  const busy=ui.executing===id||run&&!run.inactiveAccount&&['preparing','submitted','submitting','queued','processing','unknown'].includes(run.status);
+  const pendingInputs=ui.doc.edges.some(e=>e.target===id&&(ui.uploadJobs[e.source]&&['reading','uploading','syncing'].includes(ui.uploadJobs[e.source].stage)||ui.doc.nodes.some(n=>n.id===e.source&&['upload','output'].includes(n.type)&&!nodeAssetId(ui.doc,n))));
+  const currentQuote=ui.nodeQuote(id),quote=pricingQuote(model,{...opts,quote:currentQuote?.quote}),requesting=currentQuote?.loading;
+  return <Card id={id} data={data} kind="generation"><div className="node-body nodrag nowheel"><div className="badge">{labels[data.channel]}</div>
+    {!rh&&<><label className="field">线路<select value={data.model||''} onChange={e=>ui.chooseModel(id,data.channel,e.target.value)}><option value="">选择线路</option>{models.map(m=><option key={m.id} value={m.id}>{m.name||'已发布线路'}{m.billing_mode==='relay'?' · '+catalogPriceText(m,m.id===data.model?opts:{}):''}</option>)}</select></label>
+    <PromptInput value={data.prompt||''} onChange={prompt=>ui.edit(id,{prompt})} references={refs} enabled={data.channel!=='image'}/>
+    {referenceError&&<p className="reference-error" role="alert">{referenceError}</p>}
+    {optionError&&<p className="reference-error" role="alert">{optionError}<button onClick={()=>ui.chooseModel(id,data.channel,data.model)}>重新选择当前规格</button></p>}
+    {model&&<div className="fields">{data.channel==='image'?<><Field label="比例" value={imageRatio} values={model.aspect_ratios||['auto','1:1','16:9','9:16']} change={imageRatioChanged}/>{imageSizes.length>0&&<Field label="尺寸" value={opts.size} values={imageSizes} change={v=>option('size',v)}/>}<Field label="质量" value={opts.quality} values={model.quality_options||['high','medium','low']} change={v=>option('quality',v)}/></>:<><Field label="比例" value={opts.ratio} values={model.ratios||['16:9','9:16','1:1']} change={v=>option('ratio',v)}/><Field label="清晰度" value={opts.resolution} values={model.resolutions||['720p']} change={v=>option('resolution',v)}/><Field label="秒数" value={opts.duration} values={model.durations||[5]} change={v=>option('duration',Number(v))}/>{data.channel==='backup'&&<Field label="参考模式" value={opts.reference} values={model.billing_mode==='relay'?['all']:['all','startEnd']} change={v=>option('reference',v)}/>}</>}</div>}
+    </>}
+    {mediaError&&<p className="reference-error" role="alert">{mediaError}</p>}
+    {model&&!rh&&<p className="hint">{modelMediaSummary(model)}</p>}
+    {rh&&availability?.state!=='ready'&&<p className="reference-error" role="status">{availability?.message}</p>}
+    {rh&&<p className="hint">{data.channel==='digital'?'连接 1 张人物图片 + 1 段 30 秒以内音频':'连接 1 个源视频，输出黑白深度视频'}</p>}
+    {!model&&<p className="hint">{rh?'此工具线路尚未开放，请确认工具 Key 权限后重新检测线路':'请选择已开放线路；管理员更改后可重新检测线路'}</p>}
+    {['main','backup'].includes(data.channel)&&<p className="hint">此节点使用 PIKNO 视频 Key，线路与规格以当前目录为准。</p>}
+    <div className="references">{ui.doc.edges.filter(e=>e.target===id).map((e,index)=>{const n=ui.doc.nodes.find(n=>n.id===e.source),ref=refs.find(r=>r.source===e.source);return <div key={e.id}><span>{ref?.tag||index+1+'.'} {n?.data.label||'输入素材'}</span><button title="上移输入顺序" onClick={()=>ui.moveEdge(e.id)}>↑</button><button title="移除连线" onClick={()=>ui.removeEdge(e.id)}>×</button></div>;})}</div>
+    {model&&<div className="node-price" aria-live="polite"><strong>{currentQuote?.quote?.name||model.name}</strong><small>{quote.external?catalogPriceText(model,opts):quote.text}</small><p>{requesting?'正在获取本节点报价…':currentQuote?.error||quote.text}</p>{quote.external&&<small>报价只读，不创建任务；确认后才提交生成。</small>}</div>}
+    {run&&<div className={'run '+(run.status==='failed'?'error':'')}>{run.inactiveAccount?'原账户任务 · 配置原账户 Key 后恢复查询':states[run.status]||run.status}{run.progress?' · '+run.progress+'%':''}<small>{run.modelName}</small>{run.priceSnapshot&&<small>原报价：{formatMoney(run.priceSnapshot.total_cny)}</small>}<small>{run.error||run.storageError}</small>{run.taskKey&&<a href={'/api/tasks/'+run.taskKey+'/file'} target="_blank" rel="noreferrer" hidden={run.status!=='succeeded'||run.inactiveAccount}>查看已保存结果</a>}</div>}
+    <button className="primary execute" disabled={Boolean(busy)||pendingInputs||Boolean(referenceError)||Boolean(optionError)||Boolean(mediaError)||rh&&ui.relayMode&&availability?.state!=='ready'||!model||requesting} onClick={()=>ui.execute(id)}>{busy?'任务处理中':pendingInputs?'等待输入素材 / 上游结果':quote.external?(quote.known?'确认执行':'获取报价并确认'):'确认执行'}</button>
+    <small>每次执行一个任务 · 连线不会自动执行</small>
+  </div></Card>;
+}
+const nodeTypes={text:memo(TextNode),asset:memo(AssetNode),upload:memo(UploadNode),output:memo(OutputNode),generation:memo(GenerationNode)};
+function DeleteProjectDialog({project,busy,error,onCancel,onConfirm}){
+  const dialog=useRef(null);useEffect(()=>{dialog.current.showModal();},[]);
+  return <dialog ref={dialog} className="delete-project-dialog" aria-labelledby="delete-project-title" onCancel={e=>{e.preventDefault();if(!busy)onCancel();}}><h2 id="delete-project-title">删除画布项目？</h2><p className="delete-project-name">{project.title}</p><p>该画布的节点、连线及项目内记录将从列表移除。共享素材、生成结果、任务记录和账户配置不会删除。</p><p className="hint">本地保留画布备份。若有未完成的生成任务，需要等待任务结束后再删除。</p>{error&&<p className="reference-error" role="alert">{error}</p>}<div className="dialog-actions"><button autoFocus disabled={busy} onClick={onCancel}>取消</button><button className="danger" disabled={busy} onClick={onConfirm}>{busy?'正在删除…':'确认删除画布'}</button></div></dialog>;
+}
+function QuoteDialog({confirmation,busy,valid,onCancel,onConfirm}){
+  const dialog=useRef(null);useEffect(()=>{dialog.current.showModal();},[]);
+  const q=confirmation.quote;
+  return <dialog ref={dialog} className="delete-project-dialog quote-dialog" aria-labelledby="quote-title" onCancel={e=>{e.preventDefault();if(!busy)onCancel();}}><h2 id="quote-title">确认本节点生成费用</h2><p className="delete-project-name">{q.name}</p><p>{confirmation.spec||'当前线路默认规格'} · 本次 {q.quantity} 份</p><dl><div><dt>客户单价</dt><dd>{formatMoney(q.unit_price_cny)}/{priceUnit(q.unit)}</dd></div><div><dt>计费数量</dt><dd>{q.units} {priceUnit(q.unit)}/份</dd></div><div><dt>参考素材附加费</dt><dd>{formatMoney(q.reference_surcharge_cny)}/份</dd></div><div><dt>预计费用</dt><dd><strong>{formatMoney(q.total_cny)}</strong></dd></div></dl><p className="hint">仅执行当前节点。报价有效至 {new Date(q.expires_at*1000).toLocaleTimeString()}。</p>{!valid&&<p className="reference-error" role="alert">报价已过期或内容已变更，请关闭后重新获取报价。</p>}<div className="dialog-actions"><button autoFocus disabled={busy} onClick={onCancel}>取消</button><button className="primary" disabled={busy||!valid} onClick={onConfirm}>{busy?'正在提交…':'确认费用并提交'}</button></div></dialog>;
+}
+function App(){
+  const [doc,setDoc]=useState(null),[projects,setProjects]=useState([]),[assets,setAssets]=useState([]),[models,setModels]=useState({}),[modelsLoading,setModelsLoading]=useState(false),[status,setStatus]=useState('正在连接…'),[message,setMessage]=useState(''),[picker,setPicker]=useState(false),[executing,setExecuting]=useState(''),[uploading,setUploading]=useState(false);
+  const [liveNodes,setLiveNodes]=useState([]),[uploadJobs,setUploadJobs]=useState({}),[contextMenu,setContextMenu]=useState(null);
+  const [connection,setConnection]=useState({relayMode:true,revision:null}),[syncKinds,setSyncKinds]=useState({});
+  const [nodeQuotes,setNodeQuotes]=useState({}),[activeQuoteNode,setActiveQuoteNode]=useState(''),[confirmation,setConfirmation]=useState(null),[quoteClock,setQuoteClock]=useState(Date.now());
+  const quoteRequests=useRef(new Map()),quoteStates=useRef({}),confirming=useRef(false);
+  const viewNodes=useRef([]),menuRef=useRef(null);
+  const [deleteTarget,setDeleteTarget]=useState(null),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState('');
+  const current=useRef(null),dirty=useRef(0),saved=useRef(0),queue=useRef(Promise.resolve()),timer=useRef(),flow=useReactFlow(),undo=useRef([]),redo=useRef([]),durationWrites=useRef(new Set()),dragging=useRef(false),activeUploads=useRef(new Set()),assetRef=useRef([]);
+  const [toolCheck,setToolCheck]=useState({ready:false,connection:null});
+  const modelsRequest=useRef(null);
+  const relayState=useRef({relayMode:true,revision:null});
+  const relayStateRequest=useRef({next:0,applied:0});
+  assetRef.current=assets;
+  function notify(e){setMessage(e instanceof Error?e.message:String(e));}
+  function enqueue(fn,reportError=true){const next=queue.current.then(fn);queue.current=next.catch(e=>{if(reportError)notify(e);});return next;}
+  function showNodes(nodes){viewNodes.current=nodes;setLiveNodes(nodes);}
+  function replace(value){current.current=value;setDoc(value);showNodes(reconcileViewNodes(value.nodes,viewNodes.current,dragging.current));}
+  function remember(){undo.current.push({nodes:current.current.nodes,edges:current.current.edges,title:current.current.title});if(undo.current.length>60)undo.current.shift();redo.current=[];}
+  function update(fn,record=true){if(!current.current)return;const next=fn(current.current),error=referenceChangeError(current.current,next,assetRef.current);if(error){notify(error);return false;}if(record)remember();replace(next);dirty.current++;setStatus('未保存');clearTimeout(timer.current);timer.current=setTimeout(()=>enqueue(flush).catch(()=>{}),650);return true;}
+  function travel(from,to){if(!from.current.length)return;const d=current.current,snapshot=from.current.at(-1);if(update(doc=>({...doc,...snapshot}),false)){from.current.pop();to.current.push({nodes:d.nodes,edges:d.edges,title:d.title});}}
+  async function flush(){
+    if(dragging.current)return;
+    while(current.current&&!dragging.current&&saved.current<dirty.current){
+      const snapshot=current.current,version=dirty.current;setStatus('保存中…');
+      try{const result=await api('/canvas/projects/'+snapshot.id,{method:'PUT',body:JSON.stringify(snapshot)});saved.current=version;replace({...current.current,nodes:mergeOutputBindings(current.current.nodes,result),revision:result.revision,runs:result.runs});setProjects(list=>list.map(p=>p.id===result.id?{...p,title:result.title}:p));setStatus('已保存');}
+      catch(e){setStatus('保存失败，请保留此页面');throw e;}
+    }
+  }
+  const refreshAssets=async()=>{const a=await api('/assets');setAssets(old=>JSON.stringify(old)===JSON.stringify(a.items)?old:a.items);};
+  async function refreshProjects(){setProjects((await api('/canvas/projects')).projects);}
+  async function checkRelayState(){
+    const request=++relayStateRequest.current.next;
+    const next=await api('/relay/state');
+    if(!Number.isSafeInteger(next.revision))throw Error('账户连接状态暂不可用');
+    if(request<relayStateRequest.current.applied)throw Error('账户检测响应已失效');
+    relayStateRequest.current.applied=request;
+    const previous=relayState.current;
+    relayState.current=next;
+    if(previous.revision!==next.revision){
+      setConnection(next);setToolCheck({ready:false,connection:null});
+      quoteRequests.current.clear();quoteStates.current={};setNodeQuotes({});setConfirmation(null);
+      if(previous.revision!==null){setModels({});setUploadJobs({});modelsRequest.current=null;setModelsLoading(false);}
+    }
+    return next;
+  }
+  function refreshModels({reportError=false}={}){
+    if(modelsRequest.current)return modelsRequest.current;
+    setModelsLoading(true);
+    const request=(async()=>{
+      const before=await checkRelayState(),[r,health]=await Promise.all([api('/canvas/models'),before.relayMode&&before.toolConfigured?api('/relay/connection').catch(()=>null):Promise.resolve(null)]),after=await checkRelayState();
+      if(before.revision!==after.revision||r.revision!==undefined&&r.revision!==after.revision)throw Error('账户配置已变更');
+      if(modelsRequest.current!==request)return;
+      if(!Array.isArray(r.data))throw Error('线路目录暂不可用');
+      setToolCheck({ready:true,connection:health?.tool||null,states:health?.toolStates||{}});
+      setModels({image:r.data.filter(m=>m.type==='image'),main:r.data.filter(m=>m.type==='video'&&m.provider==='generate'),backup:r.data.filter(m=>m.provider==='official'||m.type==='video'&&m.provider==='generate'&&m.billing_mode==='relay'),digital:r.data.filter(m=>m.id==='tool-digital'),depth:r.data.filter(m=>m.id==='tool-depth')});
+    })().catch(()=>{if(modelsRequest.current!==request)return;setModels({});setToolCheck({ready:true,connection:null});if(reportError)notify('线路检测未完成，请检查 PIKNO Key 后重试；画布内容仍可编辑。');}).finally(()=>{if(modelsRequest.current===request){modelsRequest.current=null;setModelsLoading(false);}});
+    modelsRequest.current=request;return request;
+  }
+  async function open(id){await flush();const result=await api('/canvas/projects/'+id);undo.current=[];redo.current=[];dirty.current=0;saved.current=0;replace(result);history.replaceState(null,'','?project='+id);setStatus('已保存');requestAnimationFrame(()=>flow.setViewport(result.viewport));}
+  async function create(){await flush();const result=await post('/canvas/projects',{title:'未命名画布',nodes:[],edges:[]});replace(result);undo.current=[];redo.current=[];dirty.current=saved.current=0;history.replaceState(null,'','?project='+result.id);setStatus('已保存');await refreshProjects();flow.setViewport({x:0,y:0,zoom:1});}
+  function clearProject(){clearTimeout(timer.current);current.current=null;setDoc(null);showNodes([]);undo.current=[];redo.current=[];dirty.current=saved.current=0;setUploadJobs({});setPicker(false);setContextMenu(null);history.replaceState(null,'','/');setStatus('未打开画布');}
+  async function deleteProject(){
+    if(!deleteTarget||deleting)return;setDeleting(true);setDeleteError('');
+    try{await enqueue(async()=>{
+      if(activeUploads.current.size||dragging.current)throw Error('请等待上传或拖拽结束后删除');
+      await flush();const target=await api('/canvas/projects/'+deleteTarget.id);
+      await api('/canvas/projects/'+target.id,{method:'DELETE',body:JSON.stringify({revision:target.revision})});
+      const wasCurrent=current.current?.id===target.id;if(wasCurrent)clearProject();
+      setProjects(list=>list.filter(p=>p.id!==target.id));setDeleteTarget(null);notify('画布已删除，已保留本地备份；共享素材和生成结果未删除。');
+      const remaining=(await api('/canvas/projects')).projects;setProjects(remaining);
+      if(wasCurrent&&remaining.length)await open(remaining[0].id);
+    });}catch(e){setDeleteError(e.message);}finally{setDeleting(false);}
+  }
+  useEffect(()=>{
+    Promise.all([refreshAssets(),api('/canvas/projects')]).then(([,result])=>{setProjects(result.projects);const id=new URLSearchParams(location.search).get('project');return enqueue(async()=>{if(id&&result.projects.some(p=>p.id===id))await open(id);else if(result.projects.length)await open(result.projects[0].id);else clearProject();});}).catch(notify);
+    void refreshModels({reportError:true});
+    const focus=()=>{void refreshModels();};
+    window.addEventListener('focus',focus);
+    const interval=setInterval(()=>enqueue(async()=>{
+      const before=relayState.current.revision;await checkRelayState();if(before!==relayState.current.revision)void refreshModels();
+      if(!current.current||dragging.current)return;await flush();if(dragging.current)return;const version=dirty.current,id=current.current.id,connectionRevision=relayState.current.revision;
+      const result=await post('/canvas/projects/'+id+'/sync');
+      await checkRelayState();if(relayState.current.revision!==connectionRevision)return;
+      if(dragging.current){const now=current.current;current.current={...now,revision:result.revision,runs:result.runs,nodes:[...mergeOutputBindings(now.nodes,result),...result.nodes.filter(n=>n.id.startsWith('output:')&&!now.nodes.some(x=>x.id===n.id))],edges:[...now.edges,...result.edges.filter(e=>!now.edges.some(x=>x.id===e.id)&&e.target.startsWith('output:'))]};return;}
+      if(version===dirty.current){if(JSON.stringify(current.current)!==JSON.stringify(result))replace(result);}else{const now=current.current;replace({...now,revision:result.revision,runs:result.runs,nodes:[...mergeOutputBindings(now.nodes,result),...result.nodes.filter(n=>n.id.startsWith('output:')&&!now.nodes.some(x=>x.id===n.id))],edges:[...now.edges,...result.edges.filter(e=>!now.edges.some(x=>x.id===e.id)&&e.target.startsWith('output:'))]});}
+      await refreshAssets();
+    }).catch(()=>{}),4000);
+    const unload=e=>{if(dirty.current>saved.current||dragging.current||activeUploads.current.size){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',unload);
+    return()=>{clearInterval(interval);clearTimeout(timer.current);window.removeEventListener('focus',focus);window.removeEventListener('beforeunload',unload);};
+  },[]);
+  useEffect(()=>{
+    if(!contextMenu)return;
+    menuRef.current?.querySelector('button')?.focus();
+    const close=e=>{if(!menuRef.current?.contains(e.target))setContextMenu(null);};
+    const escape=e=>{if(e.key==='Escape')setContextMenu(null);};
+    document.addEventListener('pointerdown',close);document.addEventListener('keydown',escape);window.addEventListener('resize',escapeClose);
+    function escapeClose(){setContextMenu(null);}
+    return()=>{document.removeEventListener('pointerdown',close);document.removeEventListener('keydown',escape);window.removeEventListener('resize',escapeClose);};
+  },[contextMenu]);
+  function paneMenu(event){event.preventDefault();if(!current.current)return;setContextMenu({x:Math.max(8,Math.min(event.clientX,window.innerWidth-238)),y:Math.max(8,Math.min(event.clientY,window.innerHeight-400)),at:flow.screenToFlowPosition({x:event.clientX,y:event.clientY})});}
+  function menuAdd(type,data){add(type,data,contextMenu.at);setContextMenu(null);}
+  function add(type,data,at){if(!current.current)return;const bounds=document.querySelector('.canvas').getBoundingClientRect();const center=flow.screenToFlowPosition({x:bounds.left+50,y:bounds.top+40}),right=flow.screenToFlowPosition({x:bounds.right-30,y:bounds.top}).x;let position=at||center;if(!at)while(current.current.nodes.some(n=>Math.abs(n.position.x-position.x)<350&&Math.abs(n.position.y-position.y)<500)){position={x:position.x+370,y:position.y};if(position.x+320>right)position={x:center.x,y:position.y+520};}const id=crypto.randomUUID();update(d=>({...d,nodes:[...d.nodes,{id,type,dragHandle:'.node-drag-handle',position,data}]}));return id;}
+  function edit(id,data){return update(d=>({...d,nodes:d.nodes.map(n=>n.id===id?{...n,data:{...n.data,...data}}:n)}));}
+  function remove(id){if(activeUploads.current.has(id)){notify('请等待此素材上传完成后删除');return;}update(d=>({...d,nodes:d.nodes.filter(n=>n.id!==id),edges:d.edges.filter(e=>e.source!==id&&e.target!==id)}));}
+  function chooseModel(id,channel,value){const m=models[channel]?.find(m=>m.id===value);const options=channel==='image'?defaultImageOptions(m):defaultVideoOptions(m);if(m?.price_version!==undefined)options.price_version=m.price_version;edit(id,{model:value,options});}
+  function nodeQuote(id){
+    const value=quoteStates.current[id];if(!value||!current.current||value.projectId!==current.current.id||value.revision!==relayState.current.revision||value.signature!==canvasQuoteSignature(current.current,id,assetRef.current))return null;
+    const node=current.current.nodes.find(n=>n.id===id),model=models[node?.data.channel]?.find(m=>m.id===(['digital','depth'].includes(node?.data.channel)?'tool-'+node.data.channel:node?.data.model));
+    if(value.quote&&!model)return {...value,quote:null,error:'当前线路不可用，请重新检测后获取报价'};
+    if(value.quote&&model&&((model.line_revision??model.price_version)!==undefined&&(model.line_revision??model.price_version)!==value.quote.price_version||model.name!==value.quote.name))return {...value,quote:null,error:'线路或价格已更新，请重新获取报价'};
+    if(value.quote&&!quoteValid(value.quote,{quantity:1}))return {...value,quote:null,error:'报价已过期，请重新获取报价'};
+    return value;
+  }
+  function toolStatus(channel){return toolAvailability({configured:connection.toolConfigured,checking:modelsLoading,connection:toolCheck.connection,lineState:toolCheck.states?.[channel],catalogReady:toolCheck.ready,model:models[channel]?.find(m=>m.id==='tool-'+channel)});}
+  function nodeInputError(id){const node=current.current?.nodes.find(n=>n.id===id);if(!node)return '生成节点已变化';const channel=node.data.channel,model=models[channel]?.find(m=>m.id===(['digital','depth'].includes(channel)?'tool-'+channel:node.data.model));if(['digital','depth'].includes(channel)){const availability=toolStatus(channel);if(availability.state!=='ready')return availability.message;}return canvasMediaError(model,referenceInputs(current.current,id,assetRef.current));}
+  function storeQuote(id,value){quoteStates.current={...quoteStates.current,[id]:value};setNodeQuotes(quoteStates.current);}
+  async function requestQuote(id){
+    const doc=current.current,revision=relayState.current.revision;if(!doc||revision===null)throw Error('请先重新检测线路');
+    const inputError=nodeInputError(id);if(inputError)throw Error(inputError);
+    const projectId=doc.id,signature=canvasQuoteSignature(doc,id,assetRef.current),key=JSON.stringify([projectId,id,revision,signature]);
+    const existing=nodeQuote(id);if(existing?.quote)return existing;
+    if(quoteRequests.current.has(key))return quoteRequests.current.get(key);
+    const marker={},base={projectId,revision,signature,marker};storeQuote(id,{...base,loading:true});
+    const validRequest=()=>current.current?.id===projectId&&relayState.current.revision===revision&&canvasQuoteSignature(current.current,id,assetRef.current)===signature&&quoteStates.current[id]?.marker===marker;
+    const pending=enqueue(async()=>{
+      const state=await checkRelayState();if(state.revision!==revision||!validRequest())throw Error('节点内容或账户配置已变更，请重新获取报价');
+      await flush();if(!validRequest())throw Error('节点内容已变更，请重新获取报价');
+      const result=await post('/canvas/projects/'+projectId+'/quote',{nodeId:id,revision});
+      await checkRelayState();if(!validRequest()||result.revision!==revision)throw Error('报价响应已失效，请重新获取报价');
+      const node=current.current.nodes.find(n=>n.id===id),model=['digital','depth'].includes(node.data.channel)?'tool-'+node.data.channel:node.data.model;
+      if(!quoteValid(result.quote,{quantity:1,model}))throw Error('暂时无法确认本次费用，请重新获取报价');
+      const value={...base,loading:false,quote:result.quote};storeQuote(id,value);return value;
+    },false).catch(e=>{if(validRequest())storeQuote(id,{...base,loading:false,error:e.message});throw e;}).finally(()=>{if(quoteRequests.current.get(key)===pending)quoteRequests.current.delete(key);});
+    quoteRequests.current.set(key,pending);return pending;
+  }
+  const activeSignature=doc&&activeQuoteNode?canvasQuoteSignature(doc,activeQuoteNode,assets):'';
+  const activeNode=doc?.nodes.find(n=>n.id===activeQuoteNode),activeModel=models[activeNode?.data.channel]?.find(m=>m.id===(['digital','depth'].includes(activeNode?.data.channel)?'tool-'+activeNode.data.channel:activeNode?.data.model)),activeCatalog=activeModel?JSON.stringify([activeModel.name,activeModel.line_revision,activeModel.price_version,activeModel.prices]):'';
+  useEffect(()=>{
+    if(!connection.relayMode||!activeQuoteNode||!activeSignature||connection.revision===null)return;
+    const debounce=setTimeout(()=>{void requestQuote(activeQuoteNode).catch(()=>{});},450);return()=>clearTimeout(debounce);
+  },[activeQuoteNode,activeSignature,activeCatalog,doc?.id,connection.revision]);
+  useEffect(()=>{const clock=setInterval(()=>setQuoteClock(Date.now()),1000);return()=>clearInterval(clock);},[]);
+  function confirmationValid(value=confirmation){return Boolean(value&&current.current?.id===value.projectId&&relayState.current.revision===value.revision&&value.signature===canvasQuoteSignature(current.current,value.nodeId,assetRef.current)&&nodeQuote(value.nodeId)?.quote?.id===value.quote.id&&quoteValid(value.quote,{now:quoteClock,quantity:1}));}
+  async function execute(id){
+    setActiveQuoteNode(id);
+    if(!relayState.current.relayMode){setExecuting(id);try{await enqueue(async()=>{await flush();const projectId=current.current.id;await post('/canvas/projects/'+projectId+'/execute',{nodeId:id,requestId:crypto.randomUUID(),revision:relayState.current.revision});const result=await api('/canvas/projects/'+projectId);if(current.current?.id===projectId)replace({...current.current,runs:result.runs});});}catch(e){notify(e);}finally{setExecuting('');}return;}
+    try{const value=await requestQuote(id);if(value!==nodeQuote(id)||!quoteValid(value.quote,{quantity:1}))throw Error('报价已失效，请重新获取报价');const node=current.current.nodes.find(n=>n.id===id),o=node.data.options||{};setConfirmation({...value,nodeId:id,requestId:crypto.randomUUID(),spec:[o.size,o.quality,o.aspect_ratio||o.ratio,o.resolution,o.duration?o.duration+'秒':''].filter(Boolean).join(' · ')});}catch(e){notify(e);}
+  }
+  async function submitConfirmation(){
+    if(confirming.current||!confirmationValid())return;const value=confirmation;confirming.current=true;setExecuting(value.nodeId);
+    try{await enqueue(async()=>{
+      const state=await checkRelayState();if(state.revision!==value.revision||!confirmationValid(value))throw Error('报价已失效，请重新获取并确认');
+      await flush();if(!confirmationValid(value)||!quoteValid(value.quote,{quantity:1}))throw Error('报价已过期或内容已变更，请重新获取并确认');
+      await post('/canvas/projects/'+value.projectId+'/execute',{nodeId:value.nodeId,requestId:value.requestId,revision:value.revision,quote_id:value.quote.id,confirmed:true});
+      const result=await api('/canvas/projects/'+value.projectId);await checkRelayState();if(relayState.current.revision!==value.revision||current.current?.id!==value.projectId)return;replace({...current.current,runs:result.runs});
+    });}catch(e){notify(e);}finally{confirming.current=false;setExecuting('');setConfirmation(null);storeQuote(value.nodeId,{...value,quote:null,error:'请重新获取下一次任务报价'});}
+  }
+  function job(id,value){setUploadJobs(j=>({...j,[id]:value}));}
+  function syncKind(id,asset){
+    if(syncKinds[id])return syncKinds[id];
+    const targets=current.current.edges.filter(e=>e.source===id).map(e=>current.current.nodes.find(n=>n.id===e.target)).filter(n=>n?.type==='generation');
+    const kinds=[...new Set(targets.map(n=>executionKind(n.data.channel)))];
+    return kinds.length===1?kinds[0]:asset?.kind==='image'?'image':'video';
+  }
+  async function syncAsset(id,assetId){
+    const revision=relayState.current.revision,state=await checkRelayState();if(revision===null||revision!==state.revision)throw Error('账户配置已变更，请重新检测后同步');
+    const asset=assetRef.current.find(a=>a.id===assetId),kind=syncKind(id,asset);
+    if(state.relayMode){
+      const targets=current.current.edges.filter(edge=>edge.source===id).map(edge=>current.current.nodes.find(node=>node.id===edge.target)).filter(node=>node?.type==='generation');
+      for(const target of targets){const error=nodeInputError(target.id);if(error)throw Error(error);}
+      if(kind==='tool'){const health=await api('/relay/connection'),channel=asset?.kind==='video'?'depth':'digital',availability=toolAvailability({configured:state.toolConfigured,catalogReady:true,connection:health?.tool,lineState:health?.toolStates?.[channel],model:models[channel]?.find(m=>m.id==='tool-'+channel)});if(availability.state!=='ready')throw Error(availability.message);}
+    }
+    job(id,{stage:'syncing',message:'已保存到本机 · 正在同步 素材通道…'});
+    await post('/canvas/assets/'+assetId+'/upload',state.relayMode?{kind,revision}:{});
+    await checkRelayState();if(revision!==relayState.current.revision)return;
+    job(id,{stage:'done',assetId,uploaded:true,message:state.relayMode?'✓ 本次素材上传通过 · 执行时重新授权上传':'✓ 素材已同步 素材通道'});
+  }
+  async function retryUpload(id){
+    if(activeUploads.current.has(id))return;
+    const assetId=nodeAssetId(current.current,current.current.nodes.find(n=>n.id===id));if(!assetId)return;
+    const revision=relayState.current.revision;activeUploads.current.add(id);setUploading(true);
+    try{await syncAsset(id,assetId);}catch(e){if(revision===relayState.current.revision)job(id,{stage:'error',message:'素材通道 同步失败：'+e.message});}
+    finally{activeUploads.current.delete(id);setUploading(activeUploads.current.size>0);}
+  }
+  async function uploadFile(id,file){
+    if(activeUploads.current.has(id))return;
+    if(file.size>50*1024*1024||(!file.size)){job(id,{stage:'error',message:'请选择非空且 50MB 以内的素材'});return;}
+    activeUploads.current.add(id);setUploading(true);
+    try{
+      job(id,{stage:'reading',message:'正在读取素材信息…'});
+      const duration=await mediaDuration(file);
+      job(id,{stage:'uploading',progress:0,message:'传输到本地服务…'});
+      const asset=await uploadLocal(file,duration,progress=>job(id,{stage:'uploading',progress,message:progress<100?'传输到本地服务 '+progress+'%':'正在保存本地素材…'}));
+      assetRef.current=[asset,...assetRef.current.filter(a=>a.id!==asset.id)];
+      setAssets(list=>[asset,...list.filter(a=>a.id!==asset.id)]);
+      if(!edit(id,{label:file.name,assetId:asset.id}))throw Error('素材已保留在素材库；请先修改旧素材引用，再重新选择');
+      await enqueue(flush);
+      if(relayState.current.relayMode)job(id,{stage:'done',assetId:asset.id,uploaded:false,message:'✓ 素材已保存到本机 · 执行时按目标功能上传'});
+      else await syncAsset(id,asset.id);
+    }catch(e){job(id,{stage:'error',message:e.message});}
+    finally{activeUploads.current.delete(id);setUploading(activeUploads.current.size>0);}
+  }
+  function dropFiles(event){
+    event.preventDefault();if(!current.current)return;
+    const at=flow.screenToFlowPosition({x:event.clientX,y:event.clientY});
+    Array.from(event.dataTransfer.files).forEach((file,index)=>{const id=add('upload',{label:file.name},{x:at.x+index*350,y:at.y});void uploadFile(id,file);});
+  }
+  function nodesChanged(changes){
+    if(!current.current)return;
+    const useful=changes.filter(c=>c.type!=='dimensions');
+    if(!useful.length){showNodes(applyNodeChanges(changes,viewNodes.current));return;}
+    const removed=useful.filter(c=>c.type==='remove');
+    if(removed.some(c=>activeUploads.current.has(c.id))){notify('请等待素材上传完成后删除');return;}
+    const previousView=viewNodes.current;showNodes(applyNodeChanges(changes,previousView));
+    const nodes=applyNodeChanges(useful,current.current.nodes);
+    const next={...current.current,nodes,edges:current.current.edges.filter(e=>nodes.some(n=>n.id===e.source)&&nodes.some(n=>n.id===e.target))};
+    const transient=useful.every(c=>c.type==='select'||c.type==='position'&&(!c.position||current.current.nodes.some(n=>n.id===c.id&&n.position.x===c.position.x&&n.position.y===c.position.y)));
+    if(dragging.current||transient){
+      current.current=next;
+    }else if(update(()=>next)===false)showNodes(previousView);
+  }
+  function dragStart(){setContextMenu(null);dragging.current=true;clearTimeout(timer.current);remember();}
+  function dragStop(){dragging.current=false;update(d=>d,false);}
+  const motion=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:220;
+  // React Flow can render the previous nodes once before consuming an empty list.
+  const ui=useMemo(()=>({doc:doc||{nodes:[],edges:[],runs:[]},assets,models,nodeQuote,toolStatus,activateQuote:setActiveQuoteNode,relayMode:connection.relayMode,syncKind,setSyncKind:(id,kind)=>setSyncKinds(value=>({...value,[id]:kind})),edit,remove,executing,execute,chooseModel,uploadJobs,uploadFile,retryUpload,setDuration:(id,seconds)=>{if(durationWrites.current.has(id))return;durationWrites.current.add(id);post('/canvas/assets/'+id+'/duration',{seconds}).then(a=>setAssets(list=>list.map(old=>old.id===id?a:old))).catch(()=>durationWrites.current.delete(id));},moveEdge:id=>update(d=>{const edges=[...d.edges],i=edges.findIndex(e=>e.id===id),previous=edges.slice(0,i).findLastIndex(e=>e.target===edges[i]?.target);if(previous>=0)[edges[i],edges[previous]]=[edges[previous],edges[i]];return {...d,edges};}),removeEdge:id=>update(d=>({...d,edges:d.edges.filter(e=>e.id!==id)}))}),[doc,assets,models,executing,uploadJobs,connection,modelsLoading,toolCheck,syncKinds,nodeQuotes,quoteClock]);
+  return <UI.Provider value={ui}><div className="workspace"><aside className="sidebar"><div className="brand">仓鼠AI<span>CREATIVE CANVAS</span></div><button className="primary" disabled={uploading||deleting} onClick={()=>enqueue(create).catch(()=>{})}>＋ 新建画布</button><nav aria-label="画布项目">{projects.map(p=><div key={p.id} className={'project-row '+(doc?.id===p.id?'active':'')}><button className="project-open" disabled={uploading||deleting} title={p.title} aria-current={doc?.id===p.id?'page':undefined} onClick={()=>enqueue(()=>open(p.id)).catch(()=>{})}>{doc?.id===p.id?doc.title:p.title}</button><button className="project-delete" disabled={uploading||deleting} aria-label={'删除画布：'+(doc?.id===p.id?doc.title:p.title)} title="删除此画布" onClick={()=>{setDeleteError('');setContextMenu(null);setDeleteTarget({...p,title:doc?.id===p.id?doc.title:p.title});}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button></div>)}</nav><div className="sidebar-note">素材与任务由仓鼠AI 统一管理<br/>所有生成节点均需手动执行</div><a className="license" href="/NOTICE.txt" target="_blank">开源声明</a></aside>
+    <main><div className="topbar"><input aria-label="画布名称" disabled={!doc} value={doc?.title||''} onChange={e=>update(d=>({...d,title:e.target.value}))}/><span role="status">{status}</span><StorageStatus revision={connection.revision}/><button disabled={modelsLoading} onClick={()=>{void refreshModels({reportError:true});}}>{modelsLoading?'检测线路中…':'重新检测线路'}</button><button disabled={uploading||!undo.current.length} onClick={()=>travel(undo,redo)}>撤销</button><button disabled={uploading||!redo.current.length} onClick={()=>travel(redo,undo)}>重做</button><button disabled={!doc} onClick={()=>enqueue(async()=>{await flush();await refreshProjects();}).catch(()=>{})}>保存</button><button disabled={!doc} onClick={()=>flow.fitView({padding:.2,duration:motion()})}>适应画布</button></div>
+      <div className="toolbar"><button disabled={!doc} onClick={()=>add('text',{label:'提示词',text:''})}>＋ 文本</button><button disabled={!doc} onClick={()=>{setPicker(true);refreshAssets().catch(notify);}}>素材库</button><button disabled={!doc} onClick={()=>add('upload',{label:'素材上传'})}>＋ 素材上传卡片</button><button disabled={!doc} onClick={()=>add('output',{label:'Output · 生成结果'})}>＋ Output</button><span className="divider"/>{Object.entries(visibleLabels).map(([key,label])=><button disabled={!doc} key={key} onClick={()=>add('generation',{label,channel:key,prompt:'',model:'',options:{}})}>{label}</button>)}</div>
+      <div className="canvas" onDragOver={e=>e.preventDefault()} onDrop={dropFiles}>
+      <ReactFlow nodes={liveNodes} edges={doc?.edges||[]} nodeTypes={nodeTypes} colorMode="dark" minZoom={.15} maxZoom={2} nodeDragThreshold={3} deleteKeyCode={['Backspace','Delete']} onPaneContextMenu={paneMenu} onPaneClick={()=>setContextMenu(null)} onMoveStart={()=>setContextMenu(null)} onNodesChange={nodesChanged} onNodeDragStart={dragStart} onNodeDragStop={dragStop} onSelectionDragStart={dragStart} onSelectionDragStop={dragStop} onEdgesChange={changes=>{if(!current.current)return;const next={...current.current,edges:applyEdgeChanges(changes,current.current.edges)};if(changes.some(c=>c.type!=='select'))update(()=>next);else replace(next);}} onMoveEnd={(_,viewport)=>update(d=>({...d,viewport}),false)} isValidConnection={c=>validConnection(c,current.current?.nodes||[],current.current?.edges||[])} onConnect={c=>{if(!validConnection(c,current.current.nodes,current.current.edges))return;const id=buildReferenceEdgeId(c.source,c.target);update(d=>({...d,edges:d.edges.some(e=>e.id===id)?d.edges:[...d.edges,{...c,id}]}));}}><Background gap={24} size={1}/><Controls/><MiniMap pannable zoomable nodeColor={n=>n.type==='generation'?'#90a9cf':n.type==='text'?'#b9b4aa':'#777'} /></ReactFlow>
+      {!doc?.nodes.length&&<div className="empty"><h1>{doc?'让想法在画布上展开':'暂无打开的画布'}</h1><p>{doc?'添加提示词和素材，再连接到生成节点。':'点击左侧「＋ 新建画布」开始创作。'}</p></div>}</div>
+    </main>{contextMenu&&<div ref={menuRef} className="node-context-menu" role="menu" aria-label="添加节点" style={{left:contextMenu.x,top:contextMenu.y}} onContextMenu={e=>e.preventDefault()} onKeyDown={e=>{if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;e.preventDefault();const items=[...menuRef.current.querySelectorAll('button')],i=items.indexOf(document.activeElement);items[e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();}}><div className="context-menu-title">添加节点 <small>Esc 关闭</small></div><button role="menuitem" onClick={()=>menuAdd('text',{label:'提示词',text:''})}>文本 / 提示词</button><button role="menuitem" onClick={()=>menuAdd('upload',{label:'素材上传'})}>素材上传</button><button role="menuitem" onClick={()=>menuAdd('output',{label:'Output · 生成结果'})}>Output · 输出结果</button><hr/>{Object.entries(visibleLabels).map(([key,label])=><button role="menuitem" key={key} onClick={()=>menuAdd('generation',{label,channel:key,prompt:'',model:'',options:{}})}>{label}</button>)}</div>}{message&&<div role="alert" className="toast">{message}<button onClick={()=>setMessage('')}>×</button></div>}
+    {confirmation&&<QuoteDialog confirmation={confirmation} busy={executing===confirmation.nodeId} valid={confirmationValid()} onCancel={()=>setConfirmation(null)} onConfirm={submitConfirmation}/>}
+    {deleteTarget&&<DeleteProjectDialog project={deleteTarget} busy={deleting} error={deleteError} onCancel={()=>setDeleteTarget(null)} onConfirm={deleteProject}/>}
+    {picker&&<div className="overlay"><section className="asset-picker"><header><h2>仓鼠AI 素材库</h2><button onClick={()=>setPicker(false)}>关闭</button></header><div className="asset-grid">{assets.map(a=><button key={a.id} onClick={()=>{add('asset',{label:a.name,assetId:a.id});setPicker(false);}}><Media asset={a}/><span>{a.name}</span></button>)}</div>{!assets.length&&<p>素材库为空，可以先上传图片、音频或视频。</p>}</section></div>}
+  </div></UI.Provider>;
+}
+createRoot(document.getElementById('root')).render(<ReactFlowProvider><App/></ReactFlowProvider>);

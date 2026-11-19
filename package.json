@@ -1,0 +1,147 @@
+{
+  "name": "hamster-ai",
+  "version": "1.7.49",
+  "description": "仓鼠AI本地版",
+  "author": "仓鼠AI",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node server.js",
+    "electron": "electron .",
+    "runtime:build": "node scripts/build-python-runtime.cjs",
+    "canvas:build": "node scripts/build-canvas.cjs",
+    "dist": "node scripts/check-runtime.cjs && electron-builder",
+    "test": "node --test tests/*.test.js tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "build": {
+    "appId": "com.hamster.ai",
+    "productName": "仓鼠AI",
+    "files": [
+      "server.js",
+      "assets.cjs",
+      "canvas.cjs",
+      "canvas-launcher.cjs",
+      "billing-client.cjs",
+      "wallet.cjs",
+      "pikno.cjs",
+      "pikno-client.cjs",
+      "pikno-key-store.cjs",
+      "legacy-routes.mjs",
+      "tasks.cjs",
+      "inference.cjs",
+      "media.cjs",
+      "diagnostics.cjs",
+      "reporter.cjs",
+      "report-schema.cjs",
+      "runtime.cjs",
+      "installed-runtime.cjs",
+      "public/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "canvas/dist",
+        "to": "hamster-canvas/dist"
+      },
+      {
+        "from": "canvas/server.mjs",
+        "to": "hamster-canvas/server.mjs"
+      },
+      {
+        "from": "build/node-runtime",
+        "to": "node-runtime"
+      },
+      {
+        "from": "electron/installed-runtime-check.py",
+        "to": "installed-runtime-check.py"
+      },
+      {
+        "from": "build/python-runtime.zip",
+        "to": "python-runtime.zip"
+      },
+      {
+        "from": "build/python-runtime.json",
+        "to": "python-runtime.json"
+      },
+      {
+        "from": "public",
+        "to": "smart-video-agent/studio-ui/shared",
+        "filter": [
+          "asset-library.mjs",
+          "fault-events.mjs",
+          "assets.css"
+        ]
+      },
+      {
+        "from": "smart-video-agent",
+        "to": "smart-video-agent",
+        "filter": [
+          "**/*",
+          "!.venv/**/*",
+          "!bin/**/*",
+          "!merged_videos/**/*",
+          "!**/__pycache__/**/*",
+          "!**/.adk/**/*",
+          "!studio-data/**/*",
+          "!creative-data/**/*",
+          "!chat-data/**/*",
+          "!agents/**/*",
+          "!app/**/*",
+          "!main.py",
+          "!debug.py",
+          "!test_*.py",
+          "!creative.py",
+          "!creative_prompt.py",
+          "!creative_result.py",
+          "!creative-ui/**/*",
+          "!studio-ui/index.html",
+          "!studio-ui/studio.css",
+          "!studio-ui/studio.js",
+          "!studio-ui/lucide-LICENSE.txt",
+          "!studio-ui/lucide.min.js",
+          "!README.md",
+          "!README_en.md",
+          "!CREATIVE.md",
+          "!.env",
+          "!config.yaml"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "electron/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "仓鼠AI-${version}-便携版.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.63.0"
+  },
+  "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
+    "lucide": "^1.45.0",
+    "yauzl": "3.4.0"
+  }
+}

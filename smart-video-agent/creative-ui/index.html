@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>创意工作台 · 仓鼠AI工作台</title><link rel="icon" href="/hamster-logo.png"><link rel="stylesheet" href="creative.css"><link rel="stylesheet" href="/shared/assets.css"><link rel="stylesheet" href="/workbench.css"><style>.segment-prompts{display:grid;gap:14px;margin:18px 0}.segment-prompt{border:1px solid var(--line);border-radius:16px;padding:15px;background:#f7f9f4}.segment-prompt strong{display:block;margin-bottom:10px;color:var(--accent)}.segment-prompt textarea{height:220px;font-size:12px;margin-bottom:10px}</style></head>
+<body>
+<aside class="rail"><a href="/chat/" class="brand"><img src="/hamster-logo.png" alt="仓鼠AI工作台"></a><span>LOCAL<br>WORKBENCH</span></aside>
+<main>
+<nav class="workbench-nav" aria-label="工作台功能"><span>仓鼠AI工作台</span><a href="/chat/">仓鼠智能体</a><a href="/creative/" aria-current="page">创意工作台</a></nav>
+<header><span class="eyebrow">HAMSTER CREATIVE STUDIO / REMIX</span><button id="refresh">检查连接</button></header>
+<section class="intro"><h1>看懂好创意，<br>拍出你的故事<span>。</span></h1><p>从对标视频出发，拆解脚本、替换资产，让每个镜头都有明确参考。</p></section>
+<p id="connection" class="notice" role="status">正在连接…</p>
+<nav class="steps" aria-label="工作流程"><span>01　拆解原片</span><span>02　检查与替换</span><span>03　生成提示词</span></nav>
+<div class="workspace">
+<section class="panel source-panel"><span class="eyebrow">01 / REFERENCE</span><h2>放入一条参考视频</h2>
+<div class="upload" id="dropZone"><input id="sourceInput" type="file" accept="video/mp4,video/quicktime" hidden><button id="pickSource"><span class="upload-symbol">＋</span><b>拖入视频，开始理解</b><small>MP4 / MOV · 最大50MB · 1分钟以内</small></button></div>
+<video id="sourcePreview" controls preload="metadata" hidden></video><p id="sourceName" class="muted"></p>
+<p class="privacy">视频将上传云端分析，按用量计费。请使用有权处理的素材。</p>
+<button id="analyze" class="primary" disabled>自动拆解视频 ↗</button>
+<div id="progress" class="notice" role="status" hidden></div>
+<details id="failureDetails" hidden><summary>查看错误详情</summary><pre id="failureText" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><button id="copyFailure" type="button">复制诊断信息</button></details>
+<button id="cancel" hidden>停止本次任务</button>
+<details class="help"><summary>它会为你分析什么？</summary><p>完整原片为主、时间联系表辅助定位，深度分析角色、场景、动作路径、商品状态、景别运镜、构图焦点、光线色调、转场、节奏、字幕和前后连续性。</p><p>不独立核验音轨；时间点和低置信内容请对照原片核实，画面字幕不等于实际语音。</p></details>
+</section>
+<section class="panel script-panel"><span class="eyebrow">02 / SCRIPT & ASSETS</span><h2>让故事，换上你的素材</h2>
+<div id="empty" class="empty"><span>◎</span><h3>先理解，再创作</h3><p>完成拆解后，创意概要和分镜会出现在这里。<br>可直接用文字改写，也可以添加自己的图片素材。</p></div>
+<div id="scriptArea" hidden><p id="summary"></p><div id="warnings" class="notice"></div><h3>角色 · 场景 · 产品</h3><p class="muted">素材完全可选。未上传时按文字要求改写；上传后可锁定人物、产品或场景。最多9张图片。</p><div id="bindings" class="bindings"></div><h3>人物关系</h3><div id="relationships"></div><h3>分镜时间轴</h3><div id="shots" class="timeline"></div>
+<label>改编要求<textarea id="notes" rows="3" maxlength="3000" placeholder="无需上传素材也可以改写，例如：改成咖啡店女生，保留走位，改为中文自然种草。"></textarea></label>
+<button id="adapt" class="primary">生成全能参考提示词 ↗</button><p class="muted">生成提示词后，可前往视频生成使用。图片决定对应主体的外观，原片默认用于动作与运镜参考；需调整的内容直接填写在改编要求中。</p></div>
+</section></div>
+<section class="panel output" id="resultPanel" hidden><span class="eyebrow">03 / READY TO CREATE</span><h2>你的生成方案</h2><p class="muted">每段最多15秒，分别提交生成；时长和素材清单不混入提示词正文。请按下方编号顺序加入图片与原片，编号必须与生成界面一致。</p><div id="manifest" class="manifest"></div><div id="segmentPrompts" class="segment-prompts"></div><details><summary>查看全部提示词</summary><textarea id="prompt" readonly aria-label="全部提示词正文"></textarea></details><div class="actions"><button id="copyPrompt" class="primary">复制全部提示词</button><a id="download" class="button">下载 TXT</a></div></section>
+<section class="panel history"><div class="section-head"><h2>最近的创作</h2><button id="refreshHistory">刷新</button></div><div id="history"></div></section>
+<footer><span>仓鼠创意工作台 · 保留创作脉络</span><span id="outputPath"></span></footer>
+</main><div id="toast" role="alert" hidden></div><script type="module" src="creative.js"></script>
+</body></html>

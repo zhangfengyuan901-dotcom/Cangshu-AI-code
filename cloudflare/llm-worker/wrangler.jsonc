@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "hamster-ai-inference",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "services": [{"binding":"BILLING","service":"hamster-billing"}],
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "inference.hamsterai.cc", "custom_domain": true }
+  ],
+  "secrets": {
+    "required": ["ARK_API_KEY", "LLM_ENDPOINTS", "TOKEN_SIGNING_KEY"]
+  },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

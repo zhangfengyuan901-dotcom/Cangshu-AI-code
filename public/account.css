@@ -1,0 +1,81 @@
+/* Customer account surface. Actual upstream credentials remain in the service. */
+#legacyProviderSettings[hidden]{display:none!important}
+#billingAccount[hidden],#billingWallet[hidden],#billingRecords[hidden],#rechargePayment[hidden]{display:none!important}
+.account-dashboard .registration-card{max-width:660px;padding:32px;margin:0 auto}
+.registration-card h2{font-size:24px;margin:14px 0}.registration-card p{font-size:13px;color:#737981;line-height:1.8}
+#billingLoginForm{display:grid;gap:18px;margin-top:24px}#billingLoginForm input{width:100%;box-sizing:border-box}
+.email-code-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+.email-code-row .plain-button{margin:0;min-height:44px}#loginBilling{margin:0;width:100%}
+#logoutBilling{margin-top:12px}#rechargeAccountLabel{overflow-wrap:anywhere;color:#66717b}
+#rechargeForm input[readonly]{font-variant-numeric:tabular-nums}
+#rechargeForm{font-size:13px;line-height:1.7}#rechargeForm h2{margin-top:0;font-size:22px}
+#rechargeForm .recharge-code img{display:block;width:200px;max-width:100%;height:auto;margin:0 auto}
+[data-panel="account"]{max-width:1160px;margin:auto}
+.account-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:26px}
+.account-heading h1{font-size:30px;font-weight:600;letter-spacing:-1px;margin:10px 0}
+.account-heading p{color:#737981;font-size:13px;margin:0;line-height:1.7}
+.account-status{flex-shrink:0;border:1px solid #e2e6ea;border-radius:30px;padding:8px 13px;color:#737981;background:#fff;font-size:12px}
+.account-status[data-state="connected"]{background:#edf6f1;color:#28634a;border-color:#d4e8dd}
+.account-status[data-state="error"]{background:#fff3ed;color:#9b4c2e;border-color:#f0dacc}
+.account-dashboard .account-card,.account-extras .account-card{max-width:none;margin:0;transform:none;box-shadow:none}
+.wallet-card{border-radius:22px;padding:28px 32px;background:linear-gradient(115deg,#191e26,#29343c);color:#fff;box-shadow:0 15px 36px #1d26321a}
+.wallet-topline{display:flex;justify-content:space-between;align-items:center;gap:15px;font-size:13px;color:#c8d1d8}
+#billingEmail{font-size:12px;overflow-wrap:anywhere}
+.wallet-main{display:flex;justify-content:space-between;align-items:center;gap:24px;margin:28px 0 22px}
+.wallet-label{display:block;color:#b4c1cd;font-size:12px;margin-bottom:10px}
+#billingAvailable{font-size:44px;line-height:1.15;font-weight:550;letter-spacing:-1.6px;font-variant-numeric:tabular-nums}
+.wallet-actions{display:flex;flex-direction:column;align-items:center;gap:12px}
+.wallet-actions #openRecharge{margin:0;background:#cce8d7;color:#193b2b;padding:13px 24px;border-radius:11px;font-size:14px;white-space:nowrap}
+.wallet-actions #openRecharge:hover{background:#e2f3e8}
+.wallet-refresh{display:flex;align-items:center;gap:6px;background:none;border:0;color:#c8d1d8;font:inherit;font-size:12px;cursor:pointer;padding:5px}
+.wallet-refresh svg{width:14px;height:14px}.wallet-refresh:disabled{opacity:.5;cursor:wait}
+.wallet-breakdown{display:flex;gap:32px;border-top:1px solid #ffffff24;padding-top:17px;font-size:12px;color:#b4c1cd}
+.wallet-breakdown strong{color:#f3f6f8;font-weight:500;margin-left:10px;font-variant-numeric:tabular-nums}
+#walletHint{font-size:11px;color:#a8b6c2;line-height:1.7;margin:14px 0 0}
+.account-dashboard .activation-card{margin-top:18px;padding:20px 24px}
+.activation-card summary,.account-extras>summary{display:flex;justify-content:space-between;gap:12px;align-items:center;cursor:pointer;list-style:none;font-size:14px;font-weight:550}
+.activation-card summary::-webkit-details-marker,.account-extras>summary::-webkit-details-marker{display:none}
+.activation-card summary span{display:flex;align-items:center;gap:9px}
+.activation-card summary small,.account-extras>summary small{font-weight:400;font-size:11px;color:#858c94}
+.activation-card summary::after,.account-extras>summary::after{content:'＋';color:#858c94;font-size:16px}
+.activation-card[open] summary::after,.account-extras[open]>summary::after{content:'−'}
+.activation-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;margin-top:20px}
+.activation-form .plain-button{margin:0;min-height:43px}.activation-form input{min-width:0;width:100%}
+.activation-card .hint{line-height:1.8;margin-bottom:0}
+.account-feedback{font-size:12px;color:#707b85;line-height:1.7;margin:10px 4px 22px;overflow-wrap:anywhere}
+.account-feedback.error{color:#a0482a}
+.account-records{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.account-records .account-card{padding:22px}.account-records h2{margin-bottom:9px}
+.record-caption{font-size:11px;color:#858c94;margin:0 0 20px;line-height:1.7}
+.record-list{font-size:12px;color:#66717b;line-height:1.8;min-height:48px;max-height:240px;overflow:auto;overflow-wrap:anywhere}
+.record-list p{border-top:1px solid #eef0f2;padding:10px 0;margin:0}
+.account-payment-note{display:flex;align-items:flex-start;gap:9px;margin:18px 4px 28px;font-size:11px;color:#7b858e;line-height:1.8}
+.account-payment-note svg{flex-shrink:0;width:16px;height:16px;margin-top:2px}
+.account-extras{border-top:1px solid #e0e5e9;padding:20px 0}.account-extras>summary small{margin-left:auto}
+.account-extra-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.account-extras>.account-card{margin-top:18px}
+.account-extras .hint{line-height:1.8}.account-extras label+label{margin-top:14px}
+.account-gate{width:min(480px,calc(100vw - 32px));border:1px solid #e0e5e9;border-radius:20px;padding:28px;color:#202830;background:#fff}
+.account-gate::backdrop{background:#10182080}.account-gate h2{font-size:20px;line-height:1.5;margin:14px 0}.account-gate p{font-size:13px;line-height:1.9;color:#707b85}
+.account-gate>div{display:flex;gap:12px}
+.relay-steps{display:grid;gap:24px;margin:24px 0;padding-left:24px}
+.relay-steps>li{padding-left:6px}.relay-steps>li>strong{font-size:15px;color:#26333d}
+#relayKeyForm{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:16px}
+#relayKeyForm label{display:grid;gap:8px;font-size:13px;color:#52606b}
+#relayKeyForm input{width:100%;min-width:0;box-sizing:border-box}
+#relayKeyForm button{grid-column:1/-1;justify-self:start;margin:0}
+.relay-connection-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:16px}
+.relay-account .relay-connection{border:1px solid #e2e6ea;border-radius:12px;background:#f7f9fa;padding:14px;margin:0;color:#64717a;overflow-wrap:anywhere}
+.relay-account .relay-connection[data-state="ready"]{background:#edf6f1;color:#28634a;border-color:#d4e8dd}
+.relay-account .relay-connection[data-state="error"]{background:#fff3ed;color:#9b4c2e;border-color:#f0dacc}
+.relay-account .relay-storage-warning{border:1px solid #f0dacc;border-radius:10px;padding:12px;color:#9b4c2e;background:#fff3ed}
+.relay-storage-warning[hidden]{display:none!important}.relay-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+.relay-actions .plain-button{margin:0}.relay-account button:disabled{opacity:.5;cursor:not-allowed}
+#rechargeDialog{background:#fff;color:#202830;border-color:#e0e5e9;border-radius:20px}
+#rechargeForm .billing-important{color:#a35b1b}#rechargeForm input:not([type=checkbox]){background:#f6f8fa;color:#202830;border-color:#d8dfe5}
+#rechargeForm button{background:#edf1f4;color:#26333d;border-color:#d8dfe5}#rechargeForm #submitRecharge{background:#203d31;border-color:#203d31;color:#fff}
+#rechargeForm button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:850px){.wallet-card{padding:24px}.account-records,.account-extra-grid{grid-template-columns:1fr}.account-heading h1{font-size:26px}}
+@media(max-width:540px){.account-heading{align-items:flex-start;gap:10px}.account-heading .account-status{margin-right:30px}.account-heading h1{font-size:24px}.wallet-topline{align-items:flex-start;flex-direction:column;gap:8px}.wallet-main{align-items:flex-start;flex-direction:column;gap:20px;margin-top:22px}.wallet-actions{flex-direction:row;flex-wrap:wrap;width:100%;gap:16px}#billingAvailable{font-size:36px}.wallet-breakdown{gap:10px;flex-direction:column}.activation-form{grid-template-columns:1fr}.activation-card summary{flex-wrap:wrap}.activation-card summary small{display:none}.account-dashboard .activation-card{padding:20px}.account-extras>summary{flex-wrap:wrap}.account-extras>summary small{margin-left:0}.account-gate{padding:22px}}
+@media(max-width:540px){#relayKeyForm,.relay-connection-grid{grid-template-columns:1fr}.relay-steps{padding-left:18px}.relay-steps>li{padding-left:2px}.relay-actions .plain-button{flex:1}.account-dashboard .relay-account{padding:22px}}
+
+.relay-account #relayKeyForm .relay-key-remove{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:12px;font-weight:400;margin-top:-6px}.relay-key-remove input{width:auto!important;min-height:0!important}

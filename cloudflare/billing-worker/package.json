@@ -1,0 +1,8 @@
+{
+  "name": "hamster-billing",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.mjs", "dev": "wrangler dev", "check": "wrangler deploy --dry-run", "deploy": "wrangler deploy" },
+  "devDependencies": { "wrangler": "^4.142.0", "@cloudflare/workers-types": "latest", "miniflare": "latest" }
+}
+

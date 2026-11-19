@@ -1,0 +1,24 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "hamster-ai-official",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-16",
+  "cache": { "enabled": true, "cross_version_cache": false },
+  "exports": {
+    "default": { "type": "worker", "cache": { "enabled": false } },
+    "Download": { "type": "worker", "cache": { "enabled": true } }
+  },
+  "routes": [
+    { "pattern": "hamsterai.cc", "custom_domain": true },
+    { "pattern": "www.hamsterai.cc", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "r2_buckets": [
+    { "binding": "DOWNLOADS", "bucket_name": "hamster-ai-downloads" }
+  ],
+  "observability": { "enabled": true }
+}

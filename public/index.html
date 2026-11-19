@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>仓鼠AI</title>
+    <link rel="icon" href="/hamster-logo.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/assets.css" />
+  <link rel="stylesheet" href="/account.css" />
+  </head>
+  <body>
+    <main class="app">
+      <button class="storage-status is-checking" id="storageStatus" type="button" aria-label="正在检测对象存储" aria-live="polite">
+        <span class="storage-status-dot" aria-hidden="true"></span>
+      </button>
+      <aside class="rail">
+        <button class="logo inference-logo" id="inferenceLogo" type="button" data-state="idle" aria-label="仓鼠智能尚未检测；点击重新检测" aria-describedby="inferenceLogoHint" aria-busy="false">
+          <span class="logo-pixels" aria-hidden="true">
+            <i style="--px:-26px;--py:-18px;--delay:0s"></i><i style="--px:24px;--py:-22px;--delay:.45s"></i>
+            <i style="--px:-30px;--py:6px;--delay:.9s"></i><i style="--px:29px;--py:11px;--delay:1.35s"></i>
+            <i style="--px:-18px;--py:27px;--delay:1.8s"></i><i style="--px:17px;--py:30px;--delay:2.25s"></i>
+          </span>
+          <img src="/hamster-logo.png" alt="" />
+          <span class="inference-logo-ring" aria-hidden="true"></span>
+          <span class="inference-logo-hint" id="inferenceLogoHint" role="status" aria-live="polite" aria-atomic="true">仓鼠智能尚未检测；点击重新检测</span>
+        </button>
+        <nav class="rail-nav">
+          <button class="rail-item smart-video-launch" id="workbenchButton" type="button" aria-describedby="workbenchProgressText" aria-label="在浏览器打开对话"><span class="rail-icon"><i data-lucide="messages-square"></i></span><span>对话</span><i class="launch-mark" data-lucide="external-link" aria-hidden="true"></i></button>
+          <div class="workbench-preparation">
+            <progress id="workbenchProgress" max="100" value="0" aria-label="对话服务准备进度"></progress>
+            <span id="workbenchProgressText" role="status">等待准备</span>
+            <button id="retryWorkbench" type="button" hidden>重试准备</button>
+            <button id="workbenchDiagnostic" type="button" hidden>查看问题</button>
+          </div>
+          <button class="rail-item active" data-view="generate"><span class="rail-icon"><i data-lucide="sparkles"></i></span><span>生成</span></button>
+          <button class="rail-item" data-view="digital"><span class="rail-icon"><i data-lucide="scan-face"></i></span><span>数字人</span></button>
+          <button class="rail-item" data-view="assets"><span class="rail-icon"><i data-lucide="library"></i></span><span>达人资产</span></button>
+          <div class="rail-section-label">工具箱</div>
+          <button class="rail-item" id="canvasButton" type="button"><span class="rail-icon"><i data-lucide="workflow"></i></span><span>创作画布</span></button>
+          <button class="rail-item" id="globalImageEdit" type="button"><span class="rail-icon"><i data-lucide="pencil-line"></i></span><span>图片编辑</span></button>
+          <button class="rail-item" data-view="depth"><span class="rail-icon"><i data-lucide="scan-line"></i></span><span>黑白深度</span></button>
+
+        </nav>
+        <div class="rail-utility">
+          <button class="rail-item" data-view="history"><span class="rail-icon"><i data-lucide="history"></i></span><span>历史</span></button>
+          <button class="rail-item" data-view="account"><span class="rail-icon"><i data-lucide="settings-2"></i></span><span>账户</span></button>
+        </div>
+      </aside>
+
+      <section class="view active" data-panel="generate">
+        <div class="view-heading">
+          <span class="eyebrow">HAMSTER CREATIVE STUDIO</span>
+          <h1 class="stage-title">每一个好创意都让人惊喜</h1>
+          <p>把灵感和素材放进来，剩下的交给仓鼠。</p>
+        </div>
+        <form id="generationForm" class="composer">
+          <div class="prompt-wrap">
+            <div class="media-tray">
+              <label class="media-tile" data-kind="image"><input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple /><span class="tile-icon"><i data-lucide="image-plus"></i></span><small>图片</small></label>
+              <label class="media-tile" data-kind="video"><input id="videoFile" type="file" accept="video/mp4,video/webm" multiple /><span class="tile-icon"><i data-lucide="video"></i></span><small>视频</small></label>
+              <label class="media-tile" data-kind="audio"><input id="audioFile" type="file" accept="audio/*" multiple /><span class="tile-icon"><i data-lucide="audio-lines"></i></span><small>音频</small></label>
+              <button class="media-tile url-tile" id="urlTile" type="button"><span class="tile-icon"><i data-lucide="link-2"></i></span><small>链接</small></button>
+              <button class="media-tile asset-tile" id="assetTile" type="button" aria-label="从达人资产库选择素材"><span class="tile-icon"><i data-lucide="library"></i></span><small>达人资产</small></button>
+              <div id="urlForm" class="url-form" hidden>
+                <input id="urlInput" type="text" placeholder="粘贴图片、视频或音频链接" />
+                <select id="urlKind">
+                  <option value="image">图片</option>
+                  <option value="video">视频</option>
+                  <option value="audio">音频</option>
+                </select>
+                <button id="urlAdd" type="button"><i data-lucide="plus"></i>添加</button>
+              </div>
+              <div id="mediaList" class="media-list" hidden></div>
+            </div>
+            <div class="prompt-editor">
+              <textarea id="prompt" maxlength="6000" placeholder="今天我们要创作什么，输入 @ 引用素材" role="combobox" aria-autocomplete="list" aria-controls="mentionMenu" aria-expanded="false"></textarea>
+              <div id="mentionMenu" class="mention-menu" role="listbox" aria-label="引用素材" hidden></div>
+            </div>
+            <div class="drop-hint"><span></span><span id="mediaLimitHint" role="status">请先选择线路</span></div>
+          </div>
+          <div class="composer-tools">
+            <div class="tool-group">
+              <button type="button" class="tool-pill" data-menu="type"><i data-lucide="wand-sparkles"></i><span id="typeLabel">视频生成（主线路）</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="model"><img class="route-logo" src="/hamster-logo.png" alt="" /><span id="modelLabel">暂无模型</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="reference" id="referencePill"><i data-lucide="scan"></i><span id="referenceLabel">全能参考</span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="ratio" id="ratioPill"><i data-lucide="proportions"></i><span class="setting-copy"><small>比例</small><span id="ratioLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="size" id="sizePill" style="display:none"><i data-lucide="maximize"></i><span class="setting-copy"><small>尺寸</small><span id="sizeLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="quality" id="qualityPill"><i data-lucide="hd"></i><span class="setting-copy"><small>画质</small><span id="qualityLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill setting-pill" data-menu="duration" id="durationPill"><i data-lucide="timer"></i><span class="setting-copy"><small>时长</small><span id="durationLabel">--</span></span><span class="chevron">▾</span></button>
+              <button type="button" class="tool-pill" data-menu="concurrency" id="concurrencyPill"><i data-lucide="layers-3"></i><span id="concurrencyLabel">1x</span><span class="chevron">▾</span></button>
+            </div>
+            <div class="submit-group">
+              <button class="send-button" type="submit" aria-label="发送"><i data-lucide="arrow-up"></i></button>
+            </div>
+          </div>
+          <section id="generationQuote" class="line-quote" aria-live="polite" hidden><div><strong data-quote-title>请选择线路</strong><p data-quote-description>暂时无法确认费用</p></div><button data-quote-refresh="generate" type="button">重新报价</button></section>
+        </form>
+        <p id="taskPersistenceNote" class="hint" role="status" hidden></p>
+        <section id="relayBatchControls" class="relay-batch-controls" aria-label="批量提交进度" aria-live="polite" hidden></section>
+        <div id="taskFeed" class="task-feed"></div>
+      </section>
+
+      <section class="view" data-panel="digital">
+        <div class="view-heading compact">
+          <span class="eyebrow">DIGITAL HUMAN</span>
+          <h1 class="view-title">数字人</h1>
+          <p>一张清晰人像，一段自然声音，生成口型同步视频。</p>
+        </div>
+        <div class="digital-form">
+          <div class="upload-row">
+            <div class="upload-slot">
+              <span class="upload-label">人物参考图</span>
+              <label class="upload-box" id="dhImageBox">
+                <input id="dhImageFile" type="file" accept="image/png,image/jpeg,image/webp" />
+                <span class="upload-placeholder" id="dhImagePlaceholder"><b><i data-lucide="user-round-plus"></i></b><strong>拖入人物图片</strong><small>或点击选择 · PNG / JPG / WEBP</small></span>
+              </label>
+              <div id="dhImageInfo" class="upload-info"></div>
+              <button id="dhImageAsset" class="image-edit-inline" type="button"><i data-lucide="library"></i>从素材库选择</button>
+              <button id="editDhImage" class="image-edit-inline" type="button" hidden><i data-lucide="pencil-line"></i>编辑人物图</button>
+            </div>
+            <div class="upload-slot">
+              <span class="upload-label">音频（≤30 秒）</span>
+              <label class="upload-box audio-box" id="dhAudioBox">
+                <input id="dhAudioFile" type="file" accept="audio/*" />
+                <span class="upload-placeholder" id="dhAudioPlaceholder"><b><i data-lucide="audio-lines"></i></b><strong>拖入声音文件</strong><small>或点击选择 · 最长 30 秒</small></span>
+              </label>
+              <div id="dhAudioInfo" class="upload-info"></div>
+              <button id="dhAudioAsset" class="image-edit-inline" type="button"><i data-lucide="library"></i>从素材库选择</button>
+            </div>
+          </div>
+          <section id="digitalQuote" class="line-quote" aria-live="polite" hidden><div><strong data-quote-title>数字人</strong><p data-quote-description>请先准备素材</p></div><button data-quote-refresh="digital" type="button">重新报价</button></section>
+          <div class="digital-actions">
+            <span class="cost" id="dhHint">请先上传人物参考图与音频</span>
+            <div class="digital-submit">
+              <button class="plain-button" id="dhSubmit" type="button" disabled><i data-lucide="scan-face"></i>生成数字人视频</button>
+            </div>
+          </div>
+        </div>
+        <div id="dhResults" class="task-feed"></div>
+      </section>
+
+      <section class="view" data-panel="depth">
+        <div class="view-heading compact">
+          <span class="eyebrow">TOOLBOX · DEPTH VIDEO</span>
+          <h1 class="view-title">黑白深度视频</h1>
+          <p>上传普通视频，生成便于后续特效与三维处理的黑白深度视频。</p>
+        </div>
+        <div class="digital-form depth-form">
+          <div class="upload-slot">
+            <span class="upload-label">源视频</span>
+            <label class="upload-box depth-video-box" id="depthVideoBox">
+              <input id="depthVideoFile" type="file" accept="video/mp4,video/webm,video/quicktime" />
+              <span class="upload-placeholder" id="depthVideoPlaceholder"><b><i data-lucide="scan-line"></i></b><strong>拖入需要转换的视频</strong><small>或点击选择 · MP4 / WEBM / MOV</small></span>
+            </label>
+            <div id="depthVideoInfo" class="upload-info"></div>
+            <button id="depthVideoAsset" class="image-edit-inline" type="button"><i data-lucide="library"></i>从素材库选择</button>
+          </div>
+          <section id="depthQuote" class="line-quote" aria-live="polite" hidden><div><strong data-quote-title>黑白深度视频</strong><p data-quote-description>请先准备素材</p></div><button data-quote-refresh="depth" type="button">重新报价</button></section>
+          <div class="digital-actions">
+            <span class="cost" id="depthHint">请先上传源视频</span>
+            <div class="digital-submit">
+              <button class="plain-button" id="depthSubmit" type="button" disabled><i data-lucide="scan-line"></i>生成黑白深度视频</button>
+            </div>
+          </div>
+        </div>
+        <div id="depthResults" class="task-feed"></div>
+        <section class="tool-guide" aria-labelledby="depthGuideTitle">
+          <header class="guide-header">
+            <div>
+              <span class="guide-kicker">快速教程</span>
+              <h2 id="depthGuideTitle">什么是黑白深度视频？</h2>
+              <p>它是逐帧记录空间远近的 Depth Map：通常亮色代表近、暗色代表远。它弱化人物外观、服装颜色和场景风格，主要保留动作与空间信息。</p>
+            </div>
+            <span class="guide-badge">DEPTH MAP</span>
+          </header>
+          <div class="guide-points">
+            <span><i data-lucide="person-standing"></i>人物轮廓与动作</span>
+            <span><i data-lucide="move-3d"></i>前后空间关系</span>
+            <span><i data-lucide="camera"></i>镜头推拉与轨迹</span>
+            <span><i data-lucide="scan"></i>构图变化</span>
+          </div>
+          <div class="guide-formula" aria-label="参考素材分工">
+            <div><strong>Who</strong><span>人物图片</span><small>谁来演</small></div>
+            <i data-lucide="plus"></i>
+            <div><strong>What</strong><span>商品图片</span><small>穿什么</small></div>
+            <i data-lucide="plus"></i>
+            <div><strong>How / Where</strong><span>深度视频</span><small>怎么动、在哪里</small></div>
+          </div>
+          <ol class="guide-steps">
+            <li><b>1</b><div><strong>生成深度视频</strong><span>将原参考视频上传到上方工具，提取动作、姿态、空间和运镜。</span></div></li>
+            <li><b>2</b><div><strong>加入全能参考</strong><span><code>@图片1</code> 放模特，<code>@图片2</code> 放商品，<code>@视频1</code> 放生成的深度视频。</span></div></li>
+            <li><b>3</b><div><strong>限定参考范围</strong><span>明确写出“仅参考什么”和“不参考什么”，减少原人物、衣服及场景污染。</span></div></li>
+          </ol>
+          <div class="guide-prompt">
+            <div class="guide-prompt-head"><span>深度视频提示词模板</span><button id="depthPromptCopy" type="button"><i data-lucide="copy"></i>复制模板</button></div>
+            <pre id="depthPromptTemplate">@图片1作为全程人物形象参考，保持人物一致。
+@图片2作为唯一服装参考。
+@视频1仅参考人物动作、身体姿态、空间深度、构图变化和镜头运动。
+不参考@视频1中的人物外观、颜色、材质和画面风格。
+严格按照@视频1的动作节奏和镜头轨迹生成真人自拍视频。</pre>
+          </div>
+          <p class="guide-note"><i data-lucide="info"></i>将深度视频加入“全能参考”，并在提示词中说明：仅参考动作、空间和运镜。</p>
+        </section>
+      </section>
+
+
+      <section class="view" data-panel="history">
+        <h1 class="view-title">历史</h1>
+        <p class="hint">重新打开应用可继续查看进度，已下载的作品支持离线预览。</p>
+        <div class="history-toolbar">
+          <div class="chip-group" id="historyFilter">
+            <button class="chip active" data-hfilter="all" type="button">全部</button>
+            <button class="chip" data-hfilter="image" type="button">图片</button>
+            <button class="chip" data-hfilter="video" type="button">视频</button>
+          </div>
+          <div class="history-actions">
+            <button class="plain-button subtle" id="clearFailedTasks" type="button"><i data-lucide="list-x"></i>清除失败任务</button>
+            <button class="plain-button subtle" id="clearHistory" type="button"><i data-lucide="trash-2"></i>清除已结束记录</button>
+          </div>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section class="view" data-panel="assets">
+        <div class="view-heading compact"><span class="eyebrow">LOCAL ASSET LIBRARY</span><h1 class="view-title">达人资产库</h1><p>达人、产品与场景共用本地资产，可用于生成、对话附件和创作画布。</p></div>
+        <div id="assetLibrary"></div>
+      </section>
+      <section class="view" data-panel="account">
+        <div class="account-heading"><div><span class="eyebrow">YOUR HAMSTER ACCOUNT</span><h1>账户中心</h1></div><span id="billingConnection" class="account-status" role="status">未登录</span></div>
+        <div class="account-dashboard">
+        <section class="account-card registration-card" id="billingAccount">
+          <span class="eyebrow">欢迎来到仓鼠AI</span><h2>邮箱注册 / 登录</h2>
+          <form id="billingLoginForm"><label>邮箱地址<input id="billingLoginEmail" type="email" autocomplete="email" maxlength="254" placeholder="请输入常用邮箱" required></label><div class="email-code-row"><label>邮箱验证码<input id="billingLoginCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="6 位验证码" required></label><button id="requestBillingCode" class="plain-button" type="button">获取验证码</button></div><button id="loginBilling" class="plain-button" type="submit">验证并进入账户</button></form>
+          <p class="hint">验证码 10 分钟内有效，请勿向他人提供。</p>
+        </section>
+        <div class="wallet-card" id="billingWallet" hidden>
+          <div class="wallet-topline"><span>我的钱包</span><span id="billingEmail">连接账户后显示注册邮箱</span></div>
+          <div class="wallet-main"><div><span class="wallet-label">可用余额（元）</span><strong id="billingAvailable">—</strong></div><div class="wallet-actions"><button id="openRecharge" class="plain-button" type="button"><i data-lucide="wallet"></i>支付宝充值</button><button id="refreshWallet" class="wallet-refresh" type="button"><i data-lucide="refresh-cw"></i>刷新余额</button></div></div>
+          <div class="wallet-breakdown"><span>账户总额 <strong id="billingBalance">—</strong></span><span>任务冻结 <strong id="billingHeld">—</strong></span></div>
+          <p id="walletHint">邮箱验证后即可充值。</p><button id="logoutBilling" class="wallet-refresh" type="button">退出当前账户</button>
+        </div>
+        <p id="billingStatus" class="account-feedback" role="status" aria-live="polite">请先验证邮箱，再进入钱包与充值。</p>
+        <div class="account-records" id="billingRecords" hidden><section class="account-card"><h2><i data-lucide="receipt"></i>充值记录</h2><p class="record-caption">创建申请 → 付款 → 确认已付款 → 人工核对 → 入账通知</p><div id="rechargeRecords" class="record-list">登录后查看充值记录</div></section><section class="account-card"><h2><i data-lucide="list-checks"></i>消费流水</h2><p class="record-caption">查看冻结、扣费与退回钱包的明细</p><div id="billingLedger" class="record-list">登录后查看消费流水</div></section></div>
+        </div>
+        <details class="hint fault-privacy"><summary>故障反馈与隐私说明</summary>
+          <p>应用遇到异常时会在后台自动反馈脱敏故障信息，用于定位和修复问题。仅包含应用版本、系统类型、故障类别、状态码和程序代码位置，不包含密钥、提示词、聊天内容、素材、个人路径或原始报错文本。断网时暂存，恢复后补报；同类问题合并反馈，按30天保留策略自动清理。</p>
+        </details>
+      </section>
+    </main>
+
+    <dialog id="startupErrorDialog" class="asset-dialog compact">
+      <h2>本地对话服务未能启动</h2>
+      <p id="startupErrorMessage"></p>
+      <p class="hint">请稍后重试或联系支持。故障信息会在后台脱敏反馈，网络恢复后自动补报。</p>
+      <div class="diagnostic-actions">
+        <button class="plain-button subtle" id="closeStartupError" type="button">关闭</button>
+      </div>
+    </dialog>
+    <dialog id="taskPreviewDialog" class="task-preview-dialog" aria-label="作品预览">
+      <button id="closeTaskPreview" class="task-preview-close" type="button" aria-label="关闭预览"><i data-lucide="x"></i></button>
+      <div id="taskPreviewBody" class="task-preview-body"></div>
+    </dialog>
+    <dialog id="imageEditDialog" class="image-edit-dialog" aria-labelledby="imageEditTitle">
+      <div class="image-edit-header">
+        <div><span class="image-edit-eyebrow">IMAGE EDIT</span><h2 id="imageEditTitle">图片编辑</h2><p>选择图片和线路，再写清楚希望怎么改。圈选是否可用以线路能力为准。</p></div>
+        <button id="closeImageEdit" class="image-edit-close" type="button" aria-label="关闭图片编辑"><i data-lucide="x"></i></button>
+      </div>
+      <div class="image-edit-layout">
+        <div class="image-edit-board">
+          <div class="image-edit-source-tools">
+            <label class="image-edit-source-button" for="imageEditUpload"><i data-lucide="image-plus"></i>上传图片</label>
+            <input id="imageEditUpload" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            <button id="imageEditPickAsset" type="button"><i data-lucide="library"></i>从资产库选择</button>
+          </div>
+          <div class="image-edit-toolbar" aria-label="标注工具">
+            <span id="imageEditMarkBadge" class="image-edit-tool-label">文字编辑</span>
+            <label>粗细 <input id="imageEditBrush" type="range" min="2" max="20" value="7" aria-label="画笔粗细"></label>
+            <button id="imageEditUndo" type="button" disabled><i data-lucide="undo-2"></i>撤销</button>
+            <button id="imageEditClear" type="button" disabled><i data-lucide="eraser"></i>清空</button>
+          </div>
+          <p id="imageEditCapability" class="hint" role="status"></p>
+          <div class="image-edit-canvas-wrap"><p id="imageEditEmpty" class="image-edit-empty">上传图片或从资产库选择，开始编辑</p><div class="image-edit-stage" hidden><img id="imageEditSource" alt="待修改原图"><canvas id="imageEditCanvas" aria-label="在原图上手绘标注"></canvas></div></div>
+          <p id="imageEditHelp" class="image-edit-note">在右侧明确描述修改内容。原图保留，修改结果另存为新任务。</p>
+        </div>
+        <form id="imageEditForm" class="image-edit-form">
+          <label for="imageEditInstruction">修改要求</label>
+          <textarea id="imageEditInstruction" rows="7" placeholder="例如：将人物手中的包改成棕色皮革手提包，其余人物、服装和背景保持不变。" required></textarea>
+          <label for="imageEditModel">生成线路</label><select id="imageEditModel"></select>
+          <div class="image-edit-options"><div><label for="imageEditRatio">画面比例</label><select id="imageEditRatio"></select></div><div id="imageEditSizeField" hidden><label for="imageEditSize">图片尺寸</label><select id="imageEditSize"></select></div><div><label for="imageEditQuality">画质</label><select id="imageEditQuality"></select></div></div>
+          <section id="imageEditQuote" class="line-quote" aria-live="polite" hidden><div><strong data-quote-title>图片编辑</strong><p data-quote-description>请先准备原图</p></div><button data-quote-refresh="imageEdit" type="button">重新报价</button></section>
+          <p id="imageEditStatus" class="image-edit-status" role="status">原图保留，修改结果将成为一条新任务。</p>
+          <button id="imageEditSubmit" class="plain-button" type="submit"><i data-lucide="sparkles"></i>生成修改版</button>
+        </form>
+      </div>
+    </dialog>
+    <dialog id="quoteConfirmDialog" class="quote-confirm-dialog" aria-labelledby="quoteConfirmTitle"><h2 id="quoteConfirmTitle">确认本次生成费用</h2><p class="quote-confirm-name" data-quote-name></p><p class="quote-confirm-spec" data-quote-spec></p><dl data-quote-rows></dl><div class="quote-confirm-total"><span>本次预计总费用</span><strong data-quote-total></strong></div><p data-quote-status role="status" aria-live="polite"></p><div class="quote-confirm-actions"><button class="plain-button subtle" data-quote-cancel type="button">取消</button><button class="plain-button" data-quote-accept type="button">确认费用并生成</button></div></dialog>
+    <div id="toast" class="toast"></div>
+    <dialog id="rechargeGate" class="account-gate" aria-labelledby="rechargeGateTitle"><h2 id="rechargeGateTitle">先验证邮箱，再充值</h2><p>验证后，充值订单会自动关联您的账户。</p><button id="goActivate" class="plain-button" type="button">去验证邮箱</button><button id="closeRechargeGate" type="button">关闭</button></dialog>
+    <dialog id="rechargeDialog" aria-labelledby="rechargeTitle"><form id="rechargeForm"><h2 id="rechargeTitle">支付宝充值</h2><p id="rechargeAccountLabel"></p><label>充值金额（元）<input name="amount" type="number" min="1" max="100000" step="0.01" required></label><div id="rechargePayment" class="recharge-layout" hidden><div class="recharge-code"><p>收款方：<strong>鹿鸣一方传媒</strong></p><img src="/api/billing/qr" alt="支付宝收款码：鹿鸣一方传媒" width="300" loading="lazy"></div><div class="recharge-fields"><p class="billing-important">按申请金额付款即可，无需填写付款订单号或备注，邮箱自动关联。</p><label class="recharge-confirm"><input name="confirmed" type="checkbox"><span>我已按上述金额完成付款</span></label><p>点击「我已确认付款」后才提交人工审核。管理员核实真实到账后入账并发送通知，请勿重复付款。未付款可直接关闭，不会进入审核。</p></div></div><p id="rechargeStatus" role="status" aria-live="polite"></p><button id="submitRecharge" type="submit">创建充值申请</button><button id="closeRecharge" type="button">关闭</button></form></dialog>
+    <script src="/vendor/lucide.min.js"></script>
+    <script type="module" src="/app.js"></script>
+    <script type="module" src="/account.mjs"></script>
+    <script type="module" src="/canvas-launch.mjs"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "hamster-ai-media",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "media.hamsterai.cc", "custom_domain": true }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "hamster-ai-media" }
+  ],
+  "ratelimits": [
+    {
+      "name": "UPLOAD_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 120, "period": 60 }
+    }
+  ],
+  "secrets": {
+    "required": ["UPLOAD_TOKEN", "URL_SIGNING_KEY"]
+  },
+  "observability": { "enabled": true }
+}
