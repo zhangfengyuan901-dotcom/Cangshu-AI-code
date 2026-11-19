@@ -1,0 +1,221 @@
+"""Stage and switch the reviewed checkout application/bridge pair, preserving the existing ledger."""
+import fcntl
+from contextlib import ExitStack
+import gzip
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import time
+
+import release_base as base
+import pair_base as pair
+import stage_base as stage
+
+
+FOLDER = Path("/opt/piknoai-relay/checkout73-20261113")
+PRIVATE = FOLDER / "private"
+APP = base.APP
+APP_OLD = "sha256:98dcba86d96d71298718cdd26c9fe8f556f204b28853275359b0af5a09c55d02"
+BINARY_OLD = "a5446a7a68b060289c39ce8893db84a481fe8fa89aa4ba98c25f25fa1c4d13e7"
+BRIDGE_OLD = "sha256:10be445fd089bf325edb46323d7e99d0d6c968d332d63cae88460fc024ccd240"
+JS_OLD = "31654814e4423c6cb43ab613781d6ad32ad8c35d4549fc4375a10f0fd1a33120"
+APP_REF = "hamster-modelgif72-release:local"
+BRIDGE_REF = "hamster-lanjing71-release:local"
+APP_NEW = "hamster-checkout73-release:local"
+BRIDGE_NEW = "hamster-lanjing73-release:local"
+VERSION = "v1.0.0-rc.41-hamster.73"
+base.STAGE, base.PRIVATE = FOLDER, PRIVATE
+stage.STAGE, stage.PRIVATE = FOLDER, PRIVATE
+stage.OLD_APP_IMAGE, stage.OLD_BRIDGE_IMAGE = APP_OLD, BRIDGE_OLD
+req = base.require
+
+
+def services():
+    ids = base.run(["docker", "ps", "-a", "--filter", "label=com.docker.compose.service=lanjing-bridge", "--format", "{{.ID}}"]).decode().splitlines()
+    req(len(ids) == 1, "BRIDGE_COUNT_CHANGED")
+    return base.inspect(APP), base.inspect(ids[0])
+
+
+def check_pair(app_id, bridge_id, bin_hash, js_hash):
+    app, bridge = services()
+    for item, expected, filename, sha in [(app, app_id, "/new-api", bin_hash), (bridge, bridge_id, "/app/server.mjs", js_hash)]:
+        req(item["Image"] == expected and item["State"]["Running"] and item["State"].get("Health", {}).get("Status") == "healthy", "SERVICE_IMAGE_OR_HEALTH_CHANGED")
+        req(base.run(["docker", "exec", item["Id"], "sha256sum", filename]).decode().split()[0] == sha, "SERVICE_PAYLOAD_CHANGED")
+    return app, bridge
+
+
+def checkout_config():
+    # Only compare within the host. Environment contents never leave this process.
+    _, bridge = services()
+    values = dict(item.split("=", 1) for item in bridge["Config"]["Env"] if "=" in item)
+    merchant = values.get("LANJING_MERCHANT_ID", "2347637")
+    origin = values.get("LANJING_BASE", "https://2347637.pay.lanjingzf.com")
+    req(merchant.isdecimal() and origin.rstrip("/") == f"https://{merchant}.pay.lanjingzf.com", "CASHIER_ORIGIN_REQUIRES_REVIEW")
+
+
+def effective_tags(app_ref, bridge_ref):
+    cfg = json.loads(base.run([*base.COMPOSE, "config", "--format", "json"]))["services"]
+    req(cfg["new-api"]["image"] == app_ref and cfg["lanjing-bridge"]["image"] == bridge_ref, "COMPOSE_IMAGE_DRIFT")
+
+def verify_refs(refs, images):
+    for ref, expected in zip(refs, images, strict=True):
+        req(json.loads(base.run(["docker", "image", "inspect", ref]))[0]["Id"] == expected, "SERVICE_IMAGE_TAG_DRIFT")
+
+
+PAYMENT_ROUTE = re.compile(rb"\|\s+(?:GET|POST) /api/user/(?:pay|topup(?:/checkout|/cancel|/complete)?|lanjing/internal/(?:claim|bind)|epay/notify)(?:[?\s]|$)")
+
+
+def guard_activity(app_id):
+    base.no_new_work(base.database_state())
+    # A reopened cashier may use an older row. A positive claim without a bound
+    # provider order is unresolved even when the original order is old.
+    activity = base.sql("""SELECT json_build_object('busy', EXISTS (
+        SELECT 1 FROM top_ups WHERE status='closing' OR
+          (status='pending' AND epay_claimed_at > 0 AND
+           (epay_claimed_at >= extract(epoch from now())::bigint - 600
+            OR coalesce(epay_gateway_order_id,'')='' OR coalesce(epay_gateway_really_price,'')=''))))""")
+    req(activity == {"busy": False}, "CHECKOUT_PAYMENT_IN_PROGRESS")
+    if app_id:
+        # A re-entry of an already-bound checkout makes a claim request but does
+        # not update the order. Inspect route names only inside the ECS process.
+        logs = base.run(["docker","logs","--since","60s",app_id])
+        req(not any(b"[GIN]" in line and PAYMENT_ROUTE.search(line) for line in logs.splitlines()), "CHECKOUT_RECENT_PAYMENT_REQUEST")
+
+
+def recover_services(old_pair, candidate_images):
+    project = old_pair[0]["Config"]["Labels"]["com.docker.compose.project"]
+    result = []
+    for service, prior, old, new in zip(("new-api","lanjing-bridge"), old_pair, (APP_OLD,BRIDGE_OLD),candidate_images):
+        ids = base.run(["docker","ps","-a","--filter","label=com.docker.compose.project="+project,
+                        "--filter","label=com.docker.compose.service="+service,"--format","{{.ID}}"]).decode().splitlines()
+        req(len(ids) <= 1, "PAIR_RECOVERY_MULTIPLE_CONTAINERS")
+        if not ids:
+            # An exited compose writer can have removed the old container
+            # before the replacement was created. There is no process to stop.
+            result.append({"Image":old,"State":{"Running":False}})
+            continue
+        item=base.inspect(ids[0])
+        req(item["Image"] in (old,new) and item["Config"]["Labels"]["com.docker.compose.project"]==project
+            and item["Config"]["Labels"]["com.docker.compose.service"]==service, "PAIR_RECOVERY_IDENTITY_CHANGED")
+        result.append(item)
+    return result
+
+
+def snapshot():
+    app, bridge = check_pair(APP_OLD, BRIDGE_OLD, BINARY_OLD, JS_OLD)
+    effective_tags(APP_REF, BRIDGE_REF)
+    verify_refs((APP_REF, BRIDGE_REF), (APP_OLD, BRIDGE_OLD))
+    checkout_config()
+    return {"runtime": [base.runtime(app), base.runtime(bridge)], "ids": [app["Id"], bridge["Id"]],
+            "files": base.files_state(), "schema": base.schema_digest(), "options": base.database_state()["options"]}
+
+
+def stage_pair():
+    req(not (PRIVATE / "stage.json").exists(), "PAIR_ALREADY_STAGED")
+    m = json.loads((FOLDER / "manifest.json").read_text())
+    req(m["version"] == VERSION and m["tests_passed"] is True, "VALIDATION_MISSING")
+    before = snapshot()
+    req(shutil.disk_usage(FOLDER).free > 4 * m["binary_bytes"] + 1150 * 1024**2, "INSUFFICIENT_STAGE_SPACE")
+    tags = base.run(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]).decode().splitlines()
+    req(APP_NEW not in tags and BRIDGE_NEW not in tags, "CANDIDATE_TAG_ALREADY_EXISTS")
+    compressed, binary, js = FOLDER / "backend73-new-api.gz", FOLDER / "backend73-new-api", FOLDER / "server.mjs"
+    req(base.digest(js) == m["bridge_source_sha256"] and base.digest(compressed) == m["gzip_sha256"], "CANDIDATE_TRANSFER_CHANGED")
+    with gzip.open(compressed, "rb") as stream, binary.open("xb") as dest:
+        shutil.copyfileobj(stream, dest)
+    req(binary.stat().st_size == m["binary_bytes"] and base.digest(binary) == m["binary_sha256"], "CANDIDATE_BINARY_CHANGED")
+    PRIVATE.mkdir(mode=0o700)
+    images = []
+    for old, tag, file, dest, expected in [(APP_OLD, APP_NEW, binary, "/new-api", m["binary_sha256"]), (BRIDGE_OLD, BRIDGE_NEW, js, "/app/server.mjs", m["bridge_source_sha256"])]:
+        image = stage.thin_image(old, tag, file.name, file, dest, dest == "/app/server.mjs")
+        image_config = lambda ref: json.loads(base.run(["docker", "image", "inspect", ref]))[0]["Config"]
+        req(image_config(old) == image_config(image), "CANDIDATE_CONFIG_CHANGED")
+        req(base.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum", image, dest]).decode().split()[0] == expected, "CANDIDATE_IMAGE_PAYLOAD_CHANGED")
+        images.append(image)
+    req(base.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "/new-api", images[0], "--version"]).decode().strip() == VERSION, "CANDIDATE_VERSION_CHANGED")
+    base.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "node", images[1], "--check", "/app/server.mjs"])
+    req(snapshot() == before, "LIVE_STATE_CHANGED_DURING_STAGE")
+    base.save("stage.json", {"baseline": before, "images": images, "manifest": m})
+    return {"staged": True, "switched": False, "images": images}
+
+
+def apply_pair():
+    req(not (PRIVATE / "apply-attempt.json").exists(), "PREVIOUS_APPLY_REQUIRES_REVIEW")
+    plan = json.loads((PRIVATE / "stage.json").read_text())
+    before, images, m = plan["baseline"], plan["images"], plan["manifest"]
+    req(snapshot() == before, "PAIR_CHANGED_AFTER_STAGE")
+    verify_refs((APP_NEW, BRIDGE_NEW), images)
+    old_pair = services()
+    protected = base.durable_rows()
+    guard_activity(old_pair[0]["Id"])
+    base.save("apply-attempt.json", {"time": time.time(), "old": [APP_OLD, BRIDGE_OLD], "images": images})
+    try:
+        pair.replace_service_image("compose.yaml", "new-api", APP_REF, APP_NEW)
+        pair.replace_service_image("compose.payments.yaml", "lanjing-bridge", BRIDGE_REF, BRIDGE_NEW)
+        effective_tags(APP_NEW, BRIDGE_NEW)
+        verify_refs((APP_REF, BRIDGE_REF, APP_NEW, BRIDGE_NEW), (APP_OLD, BRIDGE_OLD, *images))
+        guard_activity(old_pair[0]["Id"])
+        pair.recreate_pair(*old_pair, (APP_OLD,), (BRIDGE_OLD,), *images)
+        pair.wait_pair(*images)
+        current = check_pair(*images, m["binary_sha256"], m["bridge_source_sha256"])
+        req([base.runtime(item) for item in current] == before["runtime"], "RUNTIME_BINDINGS_CHANGED")
+        req(base.schema_digest() == before["schema"] and base.database_state()["options"] == before["options"], "SCHEMA_OR_OPTIONS_CHANGED")
+        base.preserved_durable_rows(protected, base.durable_rows(protected))
+        files = base.files_state()
+        req(all(files.get(key) == value for key, value in before["files"].items() if key not in ("compose.yaml", "compose.payments.yaml")), "UNRELATED_CONFIGURATION_CHANGED")
+        record = {"applied": True, "version": VERSION, "images": images, "schema_unchanged": True, "existing_bindings_verified": True, "financial_restore": False}
+        base.save("apply-success.json", record)
+        return record
+    except Exception as error:
+        restored = False
+        recovery_error = None
+        try:
+            if str(error) != "PAIR_STOP_LIFECYCLE_REQUIRES_REVIEW":
+                verify_refs((APP_REF, BRIDGE_REF), (APP_OLD, BRIDGE_OLD))
+                current = recover_services(old_pair, images)
+                rebuild = [item["Image"] for item in current] != [APP_OLD, BRIDGE_OLD] or not all(item["State"]["Running"] for item in current)
+                if rebuild:
+                    guard_activity(current[0].get("Id") if current[0]["State"]["Running"] else None)
+                pair.replace_service_image("compose.yaml", "new-api", APP_NEW, APP_REF)
+                pair.replace_service_image("compose.payments.yaml", "lanjing-bridge", BRIDGE_NEW, BRIDGE_REF)
+                effective_tags(APP_REF, BRIDGE_REF)
+                if rebuild:
+                    pair.recreate_pair(*current, (APP_OLD, images[0]), (BRIDGE_OLD, images[1]), APP_OLD, BRIDGE_OLD)
+                pair.wait_pair(APP_OLD, BRIDGE_OLD)
+                check_pair(APP_OLD, BRIDGE_OLD, BINARY_OLD, JS_OLD)
+                restored = True
+        except Exception as secondary:
+            recovery_error = secondary
+        finally:
+            def safe_code(exc):
+                return str(exc) if isinstance(exc,RuntimeError) and re.fullmatch(r"[A-Z0-9_]{1,96}",str(exc)) else "CONTROLLED_RELEASE_FAILED"
+            base.save("apply-failure.json", {"restored":restored,"financial_restore":False,"failure":safe_code(error),
+                "recovery_failure":safe_code(recovery_error) if recovery_error else None})
+        if recovery_error:
+            raise RuntimeError("PAIR_RECOVERY_REQUIRES_REVIEW") from None
+        raise
+
+
+def main(action):
+    if action == "preflight":
+        snapshot()
+        return {"baseline_verified": True, "cashier_origin_matches": True, "disk_free": shutil.disk_usage(FOLDER.parent).free}
+    req(action in ("stage", "apply") and FOLDER.resolve() == FOLDER and not PRIVATE.is_symlink(), "RELEASE_ACTION_OR_PATH_INVALID")
+    with ExitStack() as stack:
+        locks = [FOLDER.parent/".relay-checkout-release.lock",FOLDER/".lock"]
+        for name, file in (("account71-20261112",".apply71.lock"),("modelgif72-20261112",".release72.lock")):
+            previous = FOLDER.parent/name
+            if previous.is_dir():
+                req(previous.resolve()==previous,"RELEASE_LOCK_PATH_INVALID")
+                locks.append(previous/file)
+        for file in locks:
+            fd=os.open(file, os.O_WRONLY|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
+            stack.callback(os.close,fd)
+            req(stat.S_ISREG(os.fstat(fd).st_mode),"RELEASE_LOCK_PATH_INVALID")
+            try:
+                fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError("RELEASE_WRITER_ACTIVE") from None
+        return stage_pair() if action == "stage" else apply_pair()

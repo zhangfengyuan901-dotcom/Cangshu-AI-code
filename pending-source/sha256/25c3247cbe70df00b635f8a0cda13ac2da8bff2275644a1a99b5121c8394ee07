@@ -1,0 +1,103 @@
+const encoder=new TextEncoder();
+const ACTIVE='tool-config/active';
+const versionPattern=/^[a-f0-9]{32}$/;
+const keyPattern=/^[a-f0-9]{64}$/;
+const encode=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes)));
+const decode=value=>Uint8Array.from(atob(value),character=>character.charCodeAt(0));
+
+async function readConfiguration(env){
+  const object=await env.MEDIA.get(ACTIVE);
+  // The legacy Worker secret is retained only for jobs created before the
+  // managed configuration existed. It must never make new work ready.
+  if(!object)return {version:'',updated_at:'',etag:null};
+  if(object.size>2048)throw Error('Invalid tool configuration');
+  const value=await object.json();
+  if(!versionPattern.test(value.version)||typeof value.updated_at!=='string')throw Error('Invalid tool configuration');
+  return {...value,etag:object.etag};
+}
+
+const rawKey=value=>Uint8Array.from(value.match(/../g),part=>parseInt(part,16));
+const keyId=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',rawKey(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
+async function encryptionKeys(env){
+  const active=env.RH_CONFIG_ENCRYPTION_KEY||'';
+  if(!keyPattern.test(active))throw Error('Tool encryption unavailable');
+  let previous=[];
+  if(env.RH_CONFIG_ENCRYPTION_PREVIOUS_KEYS){
+    try{previous=JSON.parse(env.RH_CONFIG_ENCRYPTION_PREVIOUS_KEYS);}catch{throw Error('Tool encryption keyring unavailable');}
+    if(!Array.isArray(previous)||previous.length>4||previous.some(value=>!keyPattern.test(value)))throw Error('Tool encryption keyring unavailable');
+  }
+  const values=[...new Set([active,...previous])],keys=new Map();
+  for(const value of values){
+    const id=await keyId(value);
+    keys.set(id,await crypto.subtle.importKey('raw',rawKey(value),{name:'AES-GCM'},false,['encrypt','decrypt']));
+  }
+  const activeId=await keyId(active);
+  return {activeId,activeKey:keys.get(activeId),keys,decryptionKeys:[...keys.values()]};
+}
+
+// A task retains its credential version. Rotation never queries an old task
+// under a different upstream account. Legacy jobs retain the original secret.
+export async function toolCredential(env,version){
+  const selected=version===undefined?(await readConfiguration(env)).version:version;
+  if(selected==='legacy')return {version:'legacy',key:env.RUNNINGHUB_API_KEY||''};
+  if(!selected)return {version:'',key:''};
+  if(!versionPattern.test(selected))throw Error('Invalid tool credential version');
+  const object=await env.MEDIA.get('tool-config/versions/'+selected);
+  if(!object||object.size>2048)throw Error('Tool credential unavailable');
+  const value=await object.json(),keyring=await encryptionKeys(env);
+  if(value.kek_id&&!keyPattern.test(value.kek_id))throw Error('Tool credential unavailable');
+  const candidates=value.kek_id?[keyring.keys.get(value.kek_id)]:keyring.decryptionKeys;
+  if(!candidates[0])throw Error('Tool credential unavailable');
+  let raw;
+  for(const candidate of candidates){
+    try{raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:decode(value.iv),additionalData:encoder.encode(selected)},candidate,decode(value.ciphertext));break;}catch{}
+  }
+  if(!raw)throw Error('Tool credential unavailable');
+  const apiKey=new TextDecoder().decode(raw);
+  if(!/^[A-Za-z0-9_-]{32}$/.test(apiKey))throw Error('Tool credential unavailable');
+  return {version:selected,key:apiKey};
+}
+
+export async function toolConfiguration(request,env,{sameSecret,boundedBytes,fail,json}){
+  if(!env.TOOLS_ADMIN_SECRET||env.TOOLS_ADMIN_SECRET.length<32||!env.TOOLS_BRIDGE_SECRET||env.TOOLS_BRIDGE_SECRET.length<32||
+    await sameSecret(env.TOOLS_ADMIN_SECRET,env.TOOLS_BRIDGE_SECRET)||!env.RH_CONFIG_ENCRYPTION_KEY)throw fail(503,'Tool configuration unavailable');
+  const auth=request.headers.get('authorization')||'';
+  if(auth.length>512||!await sameSecret(auth,'Bearer '+env.TOOLS_ADMIN_SECRET))throw fail(401,'Tool configuration authorization required');
+  const url=new URL(request.url),check=url.pathname==='/media/v1/tools/config/check';
+  if(url.search||!['/media/v1/tools/config','/media/v1/tools/config/check'].includes(url.pathname))throw fail(404,'Tool configuration operation unavailable');
+  if(check?request.method!=='POST':!['GET','POST'].includes(request.method))throw fail(405,'Tool configuration operation unavailable');
+  const current=await readConfiguration(env);
+  const view=version=>({configured:Boolean(version),enabled:env.TOOLS_ENABLED==='true',ready:Boolean(version)&&env.TOOLS_ENABLED==='true',version,updated_at:current.updated_at,storage:'cloud-encrypted'});
+  if(request.method==='GET'){
+    const credential=await toolCredential(env,current.version);
+    return json({...view(current.version),configured:Boolean(credential.key),ready:Boolean(credential.key)&&env.TOOLS_ENABLED==='true'});
+  }
+  let apiKey,expectedVersion;
+  if(check){
+    if(request.body&&Number(request.headers.get('Content-Length')||0)>0)throw fail(400,'Invalid tool configuration request');
+    apiKey=(await toolCredential(env,current.version)).key;
+    if(!apiKey)throw fail(409,'Tool credential not configured');
+  }else{
+    const bytes=await boundedBytes(request.body,1024);let input;
+    try{input=JSON.parse(new TextDecoder().decode(bytes));}catch{throw fail(400,'Invalid tool configuration request');}
+    if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).sort().join(',')!=='api_key,expected_version'||!/^[A-Za-z0-9_-]{32}$/.test(input.api_key||'')||typeof input.expected_version!=='string')throw fail(400,'Invalid tool configuration request');
+    apiKey=input.api_key;expectedVersion=input.expected_version;
+    if(expectedVersion!==current.version)throw fail(409,'Tool configuration changed; refresh before saving');
+  }
+  // Read-only authentication check, not a generation or a workflow-access test.
+  let response,data;
+  try{
+    response=await fetch('https://www.runninghub.cn/uc/openapi/accountStatus',{method:'POST',headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json'},body:JSON.stringify({apikey:apiKey}),redirect:'manual',signal:AbortSignal.timeout(10000)});
+    data=JSON.parse(new TextDecoder().decode(await boundedBytes(response.body,16384)));
+  }catch{throw fail(502,'Tool authorization check unavailable; configuration unchanged');}
+  if(!response.ok||data.code!==0||!data.data||typeof data.data!=='object')throw fail(422,'Tool credential authorization check failed; configuration unchanged');
+  if(check)return json({...view(current.version),authorization_valid:true});
+  const version=crypto.randomUUID().replaceAll('-',''),iv=crypto.getRandomValues(new Uint8Array(12)),keyring=await encryptionKeys(env);
+  const ciphertext=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:encoder.encode(version)},keyring.activeKey,encoder.encode(apiKey));
+  const versionKey='tool-config/versions/'+version;
+  await env.MEDIA.put(versionKey,JSON.stringify({kek_id:keyring.activeId,iv:encode(iv),ciphertext:encode(ciphertext)}),{onlyIf:{etagDoesNotMatch:'*'},httpMetadata:{contentType:'application/json'}});
+  const updated_at=new Date().toISOString();
+  const saved=await env.MEDIA.put(ACTIVE,JSON.stringify({version,updated_at}),{onlyIf:current.etag?{etagMatches:current.etag}:{etagDoesNotMatch:'*'},httpMetadata:{contentType:'application/json'}});
+  if(!saved){await env.MEDIA.delete(versionKey);throw fail(409,'Tool configuration changed; refresh before saving');}
+  return json({...view(version),updated_at,authorization_valid:true});
+}

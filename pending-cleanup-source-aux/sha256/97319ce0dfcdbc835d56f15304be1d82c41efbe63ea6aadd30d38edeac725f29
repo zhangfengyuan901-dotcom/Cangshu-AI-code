@@ -1,0 +1,95 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const http=require('node:http');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const electron=require('electron');
+const {app,BrowserWindow,session,safeStorage}=electron;
+const candidate=path.resolve(process.argv[2]||path.join(__dirname,'source'));
+const {createDesktopAccount,PARTITION}=require(path.join(candidate,'electron/account-desktop.cjs'));
+const profile=fs.mkdtempSync(path.join(__dirname,'electron-profile-'));
+app.setPath('userData',profile);app.setPath('sessionData',profile);app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-background-networking');app.commandLine.appendSwitch('disable-component-update');
+app.commandLine.appendSwitch('proxy-server','http://127.0.0.1:9');
+const relay='https://www.piknoai.com',flow='F'.repeat(43),groups=['image-standard','video-standard','tool-standard','chat-standard'];
+const counts={start:0,exchange:0,ack:0,external:0,nativeCashier:0,unexpected:0};
+const installed=new Set();let approved=false,authenticated=false,challenge='',phase='boot',balance=0;
+const ok=data=>Response.json({success:true,data});
+const bundle=()=>({access_token:'fixture-session',token_type:'Bearer',access_expires_at:Date.now()/1000+120,user:{id:42,username:'synthetic'},session:{sid:'fixture-session-id',current:true}});
+const config=()=>({relayMode:true,keyStorage:'protected',configured:installed.has(groups[0]),videoConfigured:installed.has(groups[1]),toolConfigured:installed.has(groups[2]),chatConfigured:installed.has(groups[3])});
+async function waitFor(check){for(let attempt=0;attempt<240;attempt++){if(await check())return;await new Promise(resolve=>setTimeout(resolve,50));}throw Error('FIXTURE_WAIT_TIMEOUT');}
+
+async function run(){
+  const modules=new Set(['/account.mjs','/fault-events.mjs']);
+  const server=http.createServer((req,res)=>{
+    if(req.url==='/'){
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'self'"});
+      return res.end('<!doctype html><meta charset="utf-8"><title>Enrollment fixture</title><section class="active" data-panel="account"><span id="billingConnection"></span><div class="account-dashboard"></div></section><script type="module" src="/account.mjs"></script>');
+    }
+    if(req.url==='/api/config'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(config()));}
+    if(req.url.startsWith('/api/relay/connection')){
+      const data=Object.fromEntries(['image','video','tool','chat'].map((kind,index)=>[kind,{configured:installed.has(groups[index]),state:installed.has(groups[index])?'ready':'unconfigured'}]));
+      res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({...config(),...data,tools:{digital:true,depth:true}}));
+    }
+    if(modules.has(req.url)){res.writeHead(200,{'content-type':'text/javascript; charset=utf-8'});return res.end(fs.readFileSync(path.join(candidate,'public',req.url.slice(1))));}
+    res.writeHead(404);res.end();
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const appUrl=`http://127.0.0.1:${server.address().port}/`;
+  const partition=session.fromPartition(PARTITION);
+  partition.protocol.handle('https',async request=>{
+    const url=new URL(request.url);
+    if(url.origin!==relay){counts.unexpected++;return new Response(null,{status:403});}
+    if(url.pathname==='/api/user/auth/refresh')return authenticated?ok(bundle()):Response.json({success:false},{status:401});
+    if(url.pathname==='/api/user/desktop/start'){
+      const body=await request.json();assert.equal(body.purpose,'connect');challenge=body.challenge;counts.start++;
+      return ok({flow_id:flow,expires_at:Math.floor(Date.now()/1000)+900,interval:3,verification_url:relay+'/hub/billing#desktop='+flow});
+    }
+    if(url.pathname==='/api/user/desktop/exchange'){
+      counts.exchange++;const body=await request.json();
+      assert.equal(body.flow_id,flow);assert.equal(crypto.createHash('sha256').update(body.verifier).digest('base64url'),challenge);
+      if(!approved)return ok({status:'pending',expires_at:Math.floor(Date.now()/1000)+900});
+      authenticated=true;
+      return ok({status:'ready',...bundle(),keys:groups.map((group,index)=>({id:index+1,group,key:String(index+1).repeat(48)}))});
+    }
+    if(url.pathname==='/api/user/desktop/ack'){counts.ack++;return ok({status:'complete'});}
+    if(url.pathname==='/api/user/self')return ok({id:42,username:'synthetic',quota:balance,used_quota:0});
+    if(url.pathname==='/api/status')return ok({quota_per_unit:1000000,usd_exchange_rate:1});
+    if(url.pathname==='/api/user/self/groups')return ok(Object.fromEntries(groups.map(group=>[group,{}])));
+    const key=/^\/api\/token\/(\d+)$/.exec(url.pathname);
+    if(key){const id=Number(key[1]);return ok({id,group:groups[id-1],name:'Managed '+id,created_time:1700000000,status:1,expired_time:-1});}
+    counts.unexpected++;return new Response(null,{status:403});
+  });
+  const win=new BrowserWindow({show:false,webPreferences:{preload:path.join(candidate,'electron/app-events.cjs'),sandbox:true,contextIsolation:true,backgroundThrottling:false}});
+  const account=createDesktopAccount({window:win,electron:{...electron,BrowserWindow:class{constructor(){counts.nativeCashier++;throw Error('Unexpected cashier');}}},
+    appUrl,journalFile:path.join(profile,'operations.json'),getConfiguredGroups:()=>[...installed],getConnectedAccountId:()=>installed.size?42:null,
+    openExternal:async target=>{counts.external++;assert.equal(target,relay+'/hub/billing#desktop='+flow);},
+    connectCreatedKey:async(value,{assertCurrent})=>{
+      assert.equal(assertCurrent(),true);assert.equal(value.userId,42);assert.equal(installed.has(value.group),false);
+      const file=path.join(profile,value.group+'.bin');fs.writeFileSync(file,safeStorage.encryptString(value.key));
+      assert.equal(safeStorage.decryptString(fs.readFileSync(file)),value.key);installed.add(value.group);
+      return {ok:true,code:'SAVED_CHECK_PENDING'};
+    },onConfigured:()=>win.webContents.send('hamster-relay-configured')});
+  try{
+    await win.loadURL(appUrl);const js=value=>win.webContents.executeJavaScript(value);
+    phase='guest';await waitFor(()=>js("document.getElementById('registerLocalAccount')?.hidden===false&&!document.getElementById('registerLocalAccount').disabled"));
+    await js("document.getElementById('registerLocalAccount').click()");
+    phase='external';await waitFor(()=>counts.external===1);
+    assert.equal(counts.nativeCashier,0);assert.equal(counts.start,1);
+    await waitFor(()=>js("document.getElementById('localAccountNotice').textContent.includes('FFFF-FFFF')"));
+    phase='register';approved=true;
+    win.emit('focus');
+    await waitFor(()=>installed.size===4&&counts.ack===1);
+    phase='return-after-payment';balance=100000000;
+    await new Promise(resolve=>setTimeout(resolve,1600));win.emit('focus');
+    await waitFor(()=>js("document.getElementById('localAccountBalance').textContent==='¥100.00'"));
+    const renderer=await js("JSON.stringify({text:document.body.textContent,bridge:Object.keys(window.hamsterDesktopAccount)})");
+    assert.doesNotMatch(renderer,/fixture-session|111111111111111111|verifier|challenge/);
+    assert.equal(counts.unexpected,0);assert.equal(BrowserWindow.getAllWindows().length,1);
+    return {ok:true,scope:'real_electron_ui_with_synthetic_enrollment',counts,installedGroups:installed.size,
+      encryptedProof:true,rendererCredentials:false,balanceOnManualReturn:100,refreshedOnFocusWithoutClick:true,realPaymentCalls:0};
+  }finally{account.dispose();win.destroy();partition.protocol.unhandle('https');server.closeAllConnections();server.close();}
+}
+app.whenReady().then(run).then(value=>{fs.writeFileSync(path.join(__dirname,'electron-enrollment-verification.json'),JSON.stringify(value,null,2)+'\n');app.exit(0);}).catch(error=>{
+  fs.writeFileSync(path.join(__dirname,'electron-enrollment-verification.json'),JSON.stringify({ok:false,phase,code:error.code==='ERR_ASSERTION'?'FIXTURE_ASSERTION_FAILED':error.message==='FIXTURE_WAIT_TIMEOUT'?'FIXTURE_WAIT_TIMEOUT':'FIXTURE_FAILED',counts},null,2)+'\n');app.exit(1);
+});

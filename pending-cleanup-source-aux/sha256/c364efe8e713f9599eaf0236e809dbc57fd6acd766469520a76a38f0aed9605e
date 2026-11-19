@@ -1,0 +1,63 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(process.cwd());
+const text = value => String(value ?? '')
+  .replace(/https?:\/\/\S+|[A-Za-z]:[\\/][^\s]+|\bsk-[\w-]+|[\w-]{40,}/g, '[redacted]')
+  .slice(0, 200);
+const local = value => {
+  if (!value) return null;
+  const relative = path.relative(root, value).replaceAll('\\', '/');
+  return !relative.startsWith('..') && !path.isAbsolute(relative) ? relative : null;
+};
+const classify = message => {
+  const checks = [
+    [/timed out/i, 'timeout'],
+    [/cancelled by parent/i, 'parent_cancelled'],
+    [/event loop has already resolved/i, 'pending_promise'],
+    [/Cannot find (module|package)|ENOENT/i, 'missing_file_or_module'],
+    [/JSON|Unexpected (token|end)|not valid/i, 'parse_or_invalid_input'],
+    [/is not a function/i, 'method_missing'],
+    [/Cannot read properties|Cannot destructure/i, 'undefined_property'],
+    [/does not match|did not match/i, 'pattern_mismatch'],
+    [/Missing expected (exception|rejection)/i, 'expected_error_missing'],
+    [/Missing expected/i, 'expected_value_missing'],
+    [/fetch failed|EAI_AGAIN|ENETUNREACH|ECONNREFUSED/i, 'connection_failure'],
+    [/EACCES|EPERM|EBUSY/i, 'filesystem_access'],
+    [/Expected values|following are equal|following expression|Expected actual/i, 'assertion_mismatch'],
+  ];
+  return checks.find(([pattern]) => pattern.test(message))?.[1] ?? 'other';
+};
+const safeValue = value => {
+  if (value === undefined) return {type: 'undefined'};
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') return {type: 'string', length: value.length};
+  if (Array.isArray(value)) return {type: 'array', length: value.length};
+  return {type: typeof value};
+};
+
+module.exports = async function* (source) {
+  const failures = [];
+  let counts;
+  for await (const {type, data} of source) {
+    if (type === 'test:summary' && !data.file) counts = data.counts;
+    if (type !== 'test:fail') continue;
+    const outer = data.details?.error;
+    if (!outer || outer.failureType === 'subtestsFailed') continue;
+    const cause = outer.cause ?? outer;
+    const frames = String(cause.stack ?? '').split('\n').flatMap(line => {
+      const hit = line.match(/(?:\(|\s)((?:[A-Za-z]:[\\/]|\/)[^\r\n]+?):(\d+):(\d+)\)?$/);
+      const file = hit && local(hit[1]);
+      return file ? [{file, line: Number(hit[2])}] : [];
+    }).slice(0, 4);
+    failures.push({
+      file: local(data.file), line: data.line, name: text(data.name),
+      failureType: text(outer.failureType), code: text(cause.code),
+      kind: classify(String(cause.message ?? '')),
+      operator: text(cause.operator), actual: safeValue(cause.actual), expected: safeValue(cause.expected), frames,
+    });
+  }
+  const result = {node: process.version, counts, failures};
+  fs.writeFileSync(process.env.HAMSTER_TEST_AUDIT_FILE, JSON.stringify(result, null, 2) + '\n');
+  yield JSON.stringify({counts, records: failures.length}) + '\n';
+};

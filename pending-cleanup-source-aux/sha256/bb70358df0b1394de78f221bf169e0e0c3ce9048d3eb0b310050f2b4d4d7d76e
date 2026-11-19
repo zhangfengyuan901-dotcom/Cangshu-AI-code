@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const cp=require('node:child_process');
+const crypto=require('node:crypto');
+const root=path.resolve(__dirname,'../..'),official=path.join(root,'仓鼠AI');
+const verification=JSON.parse(fs.readFileSync(path.join(__dirname,'source-verification.json')));
+const log=fs.openSync(path.join(__dirname,'build.log'),'wx');
+const result=cp.spawnSync(process.execPath,[path.join(official,'node_modules/electron-builder/cli.js'),
+  '--config',path.join(__dirname,'builder-formal.json'),'--win','portable','--publish','never'],{
+  cwd:verification.stage,stdio:['ignore',log,log],windowsHide:true});
+fs.closeSync(log);assert.equal(result.status,0,'Formal candidate package build failed');
+const asar=require(path.join(official,'node_modules/@electron/asar'));
+const archive=path.join(verification.artifacts,'win-unpacked/resources/app.asar');
+const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+const manifest=JSON.parse(fs.readFileSync(path.join(official,'release/source-manifest.json')));
+const changed=new Map(verification.changedFiles.map(row=>[row.file,row.after]));
+for(const [file,entry]of Object.entries(manifest.files)){
+  const bytes=asar.extractFile(archive,file.replaceAll('/',path.sep));
+  assert.equal(hash(bytes),changed.get(file)||entry.sha256,'ASAR application input changed');
+}
+for(const [file,digest]of changed)assert.equal(hash(asar.extractFile(archive,file.replaceAll('/',path.sep))),digest);
+const pkg=JSON.parse(asar.extractFile(archive,'package.json'));
+assert.deepEqual(pkg,verification.normalizedPackageAfter);
+const portable=path.join(verification.artifacts,'仓鼠AI-1.7.77-便携版.exe');
+const resultVerification={...verification,status:'formal_candidate_built_not_promoted',
+  portable,portableSHA256:hash(fs.readFileSync(portable)),asar:archive,asarSHA256:hash(fs.readFileSync(archive)),
+  immutableApplicationFilesVerified:Object.keys(manifest.files).length+1,customerAcceptance:false};
+fs.writeFileSync(path.join(__dirname,'package-verification.json'),JSON.stringify(resultVerification,null,2)+'\n');
+console.log(JSON.stringify({passed:true,version:pkg.version,portable,portableSHA256:resultVerification.portableSHA256,asarSHA256:resultVerification.asarSHA256}));

@@ -1,0 +1,17 @@
+$ErrorActionPreference='Stop'
+$qaRoot=[IO.Path]::GetFullPath($PSScriptRoot)
+$directory=[IO.Path]::GetFullPath((Join-Path $qaRoot 'qa-install/中文 安装/仓鼠AI'))
+if(-not $directory.StartsWith($qaRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Outside QA root'}
+$installation=Get-Content -LiteralPath (Join-Path $qaRoot 'qa-installation.json') -Raw|ConvertFrom-Json
+if(-not $installation.installPassed){throw 'No verified installation'}
+$fixture=Join-Path $qaRoot 'qa-installed-profile'
+$files=@(Get-ChildItem -LiteralPath $fixture -Recurse -File | Where-Object {$_.Name -in @('work-directory.json','ui-preferences.json','interaction-preferences.json') -or $_.Extension -eq '.png'})
+$before=@{};foreach($file in $files){$before[$file.FullName]=(Get-FileHash -LiteralPath $file.FullName).Hash}
+$process=Start-Process -FilePath (Join-Path $qaRoot 'artifacts/仓鼠AI-1.7.85-安装包.exe') -ArgumentList "/S /currentuser /D=$directory" -WindowStyle Hidden -Wait -PassThru
+$same=$true;foreach($entry in $before.GetEnumerator()){if(-not(Test-Path -LiteralPath $entry.Key) -or (Get-FileHash -LiteralPath $entry.Key).Hash -ne $entry.Value){$same=$false}}
+$setup=Get-Content -LiteralPath (Join-Path $qaRoot 'setup-build-verification.json') -Raw|ConvertFrom-Json
+$marker=Get-Content -LiteralPath (Join-Path $directory 'resources/installed-runtime.json') -Raw|ConvertFrom-Json
+$result=@{version='1.7.85';exitCode=$process.ExitCode;passed=($process.ExitCode -eq 0 -and $same -and $marker.state -eq 'ready' -and (Get-FileHash -LiteralPath (Join-Path $directory 'resources/app.asar')).Hash.ToLowerInvariant() -eq $setup.asarSHA256);sameVersionRepair=$true;unicodeAndSpaceDirectory=$true;retainedFixtureFiles=$files.Count;retainedDataUnchanged=$same;realCustomerData=$false}
+[IO.File]::WriteAllText((Join-Path $qaRoot 'qa-silent-upgrade.json'),($result|ConvertTo-Json)+"`n",[Text.UTF8Encoding]::new($false))
+$result|ConvertTo-Json -Compress
+if(-not $result.passed){exit 1}

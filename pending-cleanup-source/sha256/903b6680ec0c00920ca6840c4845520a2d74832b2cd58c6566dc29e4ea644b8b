@@ -1,0 +1,285 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {mountNativeAuth,mountNativePayment} from '../public/account-native.mjs';
+
+const source=fs.readFileSync(new URL('../public/account.mjs',import.meta.url),'utf8');
+const groups=['image-standard','video-standard','tool-standard','chat-standard'];
+const signed={ok:true,signedIn:true,user:{id:7,email:'customer@example.test'},balance:149.069966,spent:8.230034,requests:16,groups,pending:[]};
+const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
+async function settled(predicate){for(let i=0;i<50;i++){if(predicate())return;await new Promise(resolve=>setImmediate(resolve));}assert.fail('UI did not settle');}
+const authStatus={ok:true,status:{password_login_enabled:true,password_register_enabled:true,register_enabled:true,email_verification:true,turnstile_check:false},unknown:null,verification:null,storageAvailable:true};
+const tree=node=>node?[node,...node.children.flatMap(tree)]:[];
+const named=(dialog,name)=>tree(dialog).find(node=>node.name===name);
+const button=(dialog,text)=>tree(dialog).find(node=>node.tag==='button'&&node.textContent===text);
+const textOf=dialog=>tree(dialog).map(node=>node.textContent).join(' ');
+
+function fixture({respond=async()=>signed,active=true,startupState='ready',confirm=()=>true}={}){
+  const elements=new Map(),commands=[],listeners=new Map(),documentListeners=new Map();let now=Date.now(),uuid=0;
+  class Element{
+    constructor(tag='div'){this.tag=tag;this.children=[];this.value='';this.textContent='';this.innerHTML='';this.dataset={};this.hidden=false;this.disabled=false;this.handlers={};}
+    setAttribute(name,value){this[name]=value;}
+    removeAttribute(name){delete this[name];}
+    reportValidity(){return true;}
+    append(...children){for(const child of children){child.parent=this;this.children.push(child);}}
+    replaceChildren(...children){this.children=[];this.append(...children);}
+    remove(){this.removed=true;if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);}
+    addEventListener(type,fn){this.handlers[type]=fn;}
+    showModal(){this.open=true;}close(){this.open=false;}
+  }
+  const el=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
+  const dashboard=el('dashboard'),panel={active,classList:{contains:()=>panel.active}};dashboard.closest=()=>panel;
+  const document={body:{dataset:{startupState}},visibilityState:'visible',getElementById:el,createElement:tag=>new Element(tag),querySelector:selector=>selector==='.account-dashboard'?dashboard:null,addEventListener:(type,fn)=>documentListeners.set(type,fn)};
+  const window={hamsterDesktopAccount:{command:async(action,payload)=>{commands.push({action,payload});return respond(action,payload);}},addEventListener:(type,fn)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(fn);},removeEventListener:(type,fn)=>listeners.set(type,(listeners.get(type)||[]).filter(handler=>handler!==fn)),dispatchEvent:event=>{for(const fn of listeners.get(event.type)||[])fn(event);}};
+  const context={mountNativeAuth,mountNativePayment,document,window,Date:class extends Date{static now(){return now;}},crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(++uuid).padStart(12,'0')}`},Event:class{constructor(type){this.type=type;}},CustomEvent:class{constructor(type,options={}){this.type=type;this.detail=options.detail;}},fetch:async()=>Response.json({relayMode:true,keyStorage:'protected'}),localStorage:{removeItem(){},setItem(){assert.fail('account metadata must not be persisted');}},confirm};
+  const initialized=vm.runInNewContext(`(async()=>{${source.replace("import {mountNativeAuth,mountNativePayment} from './account-native.mjs';",'').replace("import {reportAccountFailure} from './fault-events.mjs';",'const reportAccountFailure=()=>{};')}\n})()`,context);
+  const event=type=>window.dispatchEvent(new context.Event(type));
+  return {initialized,el,commands,event,document,advance:ms=>{now+=ms;},activate:()=>{panel.active=true;event('hamster-view-changed');},deactivate:()=>{panel.active=false;event('hamster-view-changed');},ready:()=>{document.body.dataset.startupState='ready';event('hamster-startup-ready');},get dialog(){return dashboard.children.find(node=>node.tag==='dialog');}};
+}
+
+test('local account renders safe metadata, rounds card amounts and never loads a remote account frame',async()=>{
+  const app=fixture();await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');
+  assert.equal(app.el('localAccountSpent').textContent,'¥8.23');assert.equal(app.el('localAccountIdentity').textContent,'customer@example.test');
+  assert.deepEqual(app.commands.map(row=>row.action),['snapshot']);
+  assert.doesNotMatch(source,/mountRelayAccountView|relayAccountViewport|<iframe/);
+  assert.equal(app.el('createImageKey').hidden,false);assert.equal(app.el('recoverImageKey').hidden,true);
+});
+
+test('startup and visibility gate snapshot reads, revisits use only in-memory display results',async()=>{
+  const app=fixture({startupState:'loading'});await app.initialized;assert.equal(app.commands.length,0);app.ready();await settled(()=>app.commands.length===1);app.event('hamster-view-changed');assert.equal(app.commands.length,1);
+  app.deactivate();app.advance(20000);app.event('hamster-account-updated');assert.equal(app.commands.length,1);assert.equal(app.el('localAccountWallet').hidden,true);
+  app.activate();await settled(()=>app.commands.length===2);assert.equal(app.commands.every(row=>row.action==='snapshot'),true);
+});
+
+test('late snapshot is discarded after account change and one fresh snapshot follows',async()=>{
+  const first=deferred();let count=0;
+  const app=fixture({respond:()=>++count===1?first.promise:Promise.resolve({ok:true,signedIn:false,groups:[],pending:[]})});await app.initialized;
+  app.event('hamster-account-updated');first.resolve(signed);await settled(()=>app.commands.length===2);await settled(()=>app.el('localAccountIdentity').textContent==='登录后开通所需功能');
+  assert.equal(app.el('localAccountBalance').textContent,'—');assert.equal(app.el('localAccountWallet').hidden,true);
+});
+
+test('creating requires explicit form submission and reuses one request ID after an uncertain response',async()=>{
+  const app=fixture({respond:async action=>action==='create'?{ok:false,code:'NETWORK'}:signed});await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');
+  app.el('createImageKey').onclick();assert.equal(app.commands.filter(row=>row.action==='create').length,0);
+  const form=app.dialog.children.find(row=>row.tag==='form'),days=form.children[0].children[0],limit=form.children[1].children[0];assert.equal(days.value,'30');assert.equal(limit.placeholder,'不设上限');
+  limit.value='20';await form.onsubmit({preventDefault(){}});await form.onsubmit({preventDefault(){}});
+  const requests=app.commands.filter(row=>row.action==='create');assert.equal(requests.length,2);assert.equal(requests[0].payload.requestId,requests[1].payload.requestId);assert.equal(requests[0].payload.group,'image-standard');assert.equal(requests[0].payload.limit,'20');assert.equal(requests[0].payload.days,30);
+});
+
+test('pending original creation blocks a new create and resumes only the original operation',async()=>{
+  const app=fixture({respond:async action=>action==='recover'?{ok:true,code:'SAVED_CHECK_PENDING',saved:true}:{...signed,pending:[{group:'image-standard',name:'original',state:'pending'}]}});await app.initialized;await settled(()=>app.el('recoverImageKey').hidden===false);
+  assert.equal(app.el('createImageKey').hidden,true);assert.equal(app.el('selectImageKey').hidden,true);await app.el('recoverImageKey').onclick();
+  assert.equal(app.commands.filter(row=>row.action==='recover').length,1);assert.equal(app.commands.filter(row=>row.action==='create').length,0);
+});
+
+test('empty filtered key page still permits next page; only a selected active Key can enable',async()=>{
+  const app=fixture({respond:async(action,payload)=>action==='keys'?{ok:true,items:payload.page===1?[]:[{id:23,name:'<img onerror=bad>',group:'image-standard',status:1,expiresAt:-1}],total:22,page:payload.page}:action==='enable'?{ok:true,code:'CONNECTED'}:signed});await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');
+  app.el('selectImageKey').onclick();await settled(()=>app.commands.some(row=>row.action==='keys'));
+  const list=app.dialog.children[1],pager=app.dialog.children[2];await settled(()=>pager.children[2].disabled===false);assert.match(list.children[0].textContent,/本页没有/);pager.children[2].onclick();await settled(()=>list.children[0]?.className==='local-key-row');
+  assert.equal(list.children[0].children[0].children[0].textContent,'<img onerror=bad>');assert.equal(app.commands.some(row=>row.action==='enable'),false);
+  await list.children[0].children[1].onclick();assert.deepEqual(JSON.parse(JSON.stringify(app.commands.find(row=>row.action==='enable').payload)),{id:23,group:'image-standard'});
+});
+
+test('native update during enable clears stale rows and refreshes after the operation settles',async()=>{
+  const pending=deferred();let app;app=fixture({respond:async(action)=>action==='keys'?{ok:true,items:[{id:1,name:'first',status:1,expiresAt:-1}],total:1}:action==='enable'?pending.promise:signed});await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');
+  app.el('selectImageKey').onclick();await settled(()=>app.dialog.children[1].children[0]?.className==='local-key-row');const enabled=app.dialog.children[1].children[0].children[1].onclick();
+  app.event('hamster-account-updated');assert.equal(app.dialog,undefined);assert.equal(app.el('localAccountWallet').hidden,true);pending.resolve({ok:true,code:'CONNECTED'});await enabled;await settled(()=>app.el('localAccountWallet').hidden===false);
+  assert.equal(app.commands.filter(row=>row.action==='snapshot').length,2);
+});
+
+test('usage and task settlements remain separate and reserved funds are visibly marked',async()=>{
+  const app=fixture({respond:async(action,payload)=>action==='usage'?{ok:true,items:[{kind:'image-standard',model:'image',createdAt:1700000000,amount:0.123456,state:'reserved'}],total:1,page:payload.page}:signed});await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');
+  app.el('usageLocalAccount').onclick();await settled(()=>app.commands.some(row=>row.action==='usage'));const select=app.dialog.children[1],list=app.dialog.children[2];select.value='settlements';select.onchange();await settled(()=>app.commands.filter(row=>row.action==='usage').length===2);await settled(()=>list.children[0]?.className==='local-usage-row');
+  assert.equal(app.commands.filter(row=>row.action==='usage')[1].payload.kind,'settlements');assert.equal(list.children[0].children[1].children[1].textContent,'已预留');assert.equal(list.children[0].children[1].children[0].textContent,'¥0.123456');
+});
+
+test('native recharge errors are fixed text and never render arbitrary service details',async()=>{
+  const app=fixture({respond:async action=>action==='payment-options'?{ok:false,code:'WINDOW_OPEN',message:'sk-secret'}:signed});await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');app.el('payLocalAccount').onclick();
+  await settled(()=>textOf(app.dialog).includes('请先完成并关闭安全支付窗口。'));assert.doesNotMatch(textOf(app.dialog),/sk-/);
+});
+
+test('a limited initial snapshot never locks registration or login',async()=>{
+  for(const mode of ['register','login']){
+    const app=fixture({respond:async action=>action==='snapshot'?{ok:false,code:'RATE_LIMITED',retryAfterMs:1200000}:authStatus});
+    await app.initialized;await settled(()=>app.el('localAccountNotice').textContent.includes('1200 秒'));
+    assert.equal(app.el('localAccountGuest').hidden,false);assert.equal(app.el(`${mode}LocalAccount`).disabled,false);
+    app.el(`${mode}LocalAccount`).onclick();await settled(()=>app.commands.length===2);
+    assert.deepEqual(app.commands.map(row=>row.action),['snapshot','auth-status']);
+    assert.equal(named(app.dialog,'username').hidden,false);assert.equal(app.commands.some(row=>row.action==='auth-login'||row.action==='auth-register'),false);
+    app.deactivate();
+  }
+});
+
+test('a limited refresh preserves displayed account data and allows payment, usage and logout',async()=>{
+  let snapshots=0;
+  const app=fixture({respond:async action=>action==='snapshot'?(++snapshots===1?signed:{ok:false,code:'RATE_LIMITED',retryAfterMs:1200000}):action==='usage'?{ok:true,items:[],total:0,page:1}:{ok:true}});
+  await app.initialized;await settled(()=>app.el('localAccountBalance').textContent==='¥149.07');
+  await app.el('refreshLocalAccount').onclick();
+  assert.match(app.el('localAccountNotice').textContent,/此操作请求过于频繁.*1200 秒/);
+  assert.equal(app.el('localAccountWallet').hidden,false);assert.equal(app.el('localAccountBalance').textContent,'¥149.07');
+  await app.el('payLocalAccount').onclick();
+  app.el('usageLocalAccount').onclick();await settled(()=>app.commands.some(row=>row.action==='usage'));
+  await app.el('logoutLocalAccount').onclick();
+  assert.deepEqual(app.commands.map(row=>row.action),['snapshot','snapshot','payment-options','usage','logout']);
+  assert.equal(app.el('localAccountWallet').hidden,true);assert.equal(app.el('localAccountBalance').textContent,'—');
+});
+
+test('native login and registration open only local forms and do not claim authentication',async()=>{
+  for(const mode of ['login','register']){
+    const pending=deferred();let authenticated=false;
+    const app=fixture({respond:async action=>action==='auth-status'?pending.promise:authenticated?signed:{ok:true,signedIn:false,groups:[],pending:[]}});await app.initialized;await settled(()=>app.commands.length===1);
+    app.el(`${mode}LocalAccount`).onclick();
+    pending.resolve(authStatus);await settled(()=>named(app.dialog,'username')?.disabled===false);
+    assert.equal(app.el('localAccountWallet').hidden,true);assert.equal(app.el('localAccountIdentity').textContent,'登录后开通所需功能');
+    assert.equal(app.el('loginLocalAccount').disabled,false);assert.equal(app.el('registerLocalAccount').disabled,false);
+    assert.deepEqual(app.commands.map(row=>row.action),['snapshot','auth-status']);
+    authenticated=true;app.event('hamster-account-updated');await settled(()=>app.el('localAccountWallet').hidden===false);
+    assert.equal(app.commands.filter(row=>row.action==='snapshot').length,2);
+  }
+});
+
+test('rejected native auth status shows fixed recovery text and never retries automatically',async()=>{
+  let attempts=0;
+  const app=fixture({respond:async action=>{if(action==='auth-status'){attempts++;throw Error('private bridge failure sk-secret');}return {ok:true,signedIn:false,groups:[],pending:[]};}});await app.initialized;await settled(()=>app.commands.length===1);
+  app.el('registerLocalAccount').onclick();await settled(()=>textOf(app.dialog).includes('网络请求未完成'));
+  assert.doesNotMatch(textOf(app.dialog),/private|sk-secret/);assert.equal(app.el('localAccountWallet').hidden,true);
+  for(const id of ['registerLocalAccount','loginLocalAccount','refreshLocalAccount'])assert.equal(app.el(id).disabled,false);
+  assert.equal(attempts,1);assert.deepEqual(app.commands.map(row=>row.action),['snapshot','auth-status']);
+  app.el('loginLocalAccount').onclick();await settled(()=>attempts===2);
+  assert.equal(app.commands.some(row=>['create','enable','recover'].includes(row.action)),false);
+});
+
+test('native login completes image verification and MFA before refreshing the account',async()=>{
+  let authenticated=false,passwordReceived='',otpReceived='';
+  const app=fixture({respond:async(action,payload)=>{
+    if(action==='snapshot')return authenticated?signed:{ok:true,signedIn:false};
+    if(action==='auth-status')return {...authStatus,status:{...authStatus.status,turnstile_check:true,auth_challenge_provider:'local-image'}};
+    if(action==='auth-challenge')return {ok:true,required:true,image:'data:image/png;base64,AAAA',expiresIn:120};
+    if(action==='auth-answer')return {ok:true,verified:true,expiresIn:120};
+    if(action==='auth-login'){passwordReceived=payload.password;return {ok:true,signedIn:false,verification:{required:true,methods:['2fa'],expiresAt:Date.now()+120000}};}
+    if(action==='auth-verify'){otpReceived=payload.code;authenticated=true;return {ok:true,signedIn:true};}
+    return {ok:true};
+  }});await app.initialized;await settled(()=>app.commands.length===1);app.el('loginLocalAccount').onclick();await settled(()=>tree(app.dialog).some(node=>node.src));
+  const form=tree(app.dialog).find(node=>node.tag==='form');assert.equal(tree(form).find(node=>node.type==='submit').disabled,true);
+  named(app.dialog,'answer').value='123456';named(app.dialog,'answer').oninput();await button(app.dialog,'验证').onclick();
+  named(app.dialog,'username').value='customer@example.test';named(app.dialog,'password').value='synthetic-password';await form.onsubmit({preventDefault(){}});
+  assert.equal(passwordReceived,'synthetic-password');assert.equal(named(app.dialog,'password').value,'');assert.equal(app.el('localAccountWallet').hidden,true);
+  named(app.dialog,'otp').value='A1B2-C3D4';await form.onsubmit({preventDefault(){}});await settled(()=>app.el('localAccountWallet').hidden===false);
+  assert.equal(otpReceived,'A1B2-C3D4');assert.equal(app.commands.filter(row=>row.action==='auth-login').length,1);assert.equal(app.commands.filter(row=>row.action==='auth-verify').length,1);assert.equal(app.dialog,undefined);
+});
+
+test('unknown native login is only reconciled and a hidden form cannot apply a late login',async()=>{
+  const app=fixture({respond:async action=>action==='snapshot'?{ok:true,signedIn:false}:action==='auth-status'?authStatus:action==='auth-login'?{ok:false,code:'RESULT_UNKNOWN',unknown:{action:'login',at:Date.now()}}:{ok:false,code:'NETWORK'}});
+  await app.initialized;await settled(()=>app.commands.length===1);app.el('loginLocalAccount').onclick();await settled(()=>named(app.dialog,'password')?.disabled===false);
+  const form=tree(app.dialog).find(node=>node.tag==='form');named(app.dialog,'username').value='fixture';named(app.dialog,'password').value='synthetic-password';await form.onsubmit({preventDefault(){}});
+  assert.equal(form.hidden,true);assert.ok(button(app.dialog,'核对当前登录账户'));await button(app.dialog,'核对当前登录账户').onclick();assert.equal(app.commands.filter(row=>row.action==='auth-login').length,1);assert.equal(app.commands.filter(row=>row.action==='auth-reconcile').length,1);app.deactivate();assert.equal(app.dialog,undefined);
+  const pending=deferred();const late=fixture({respond:async action=>action==='snapshot'?{ok:true,signedIn:false}:action==='auth-status'?authStatus:action==='auth-login'?pending.promise:{ok:true}});
+  await late.initialized;await settled(()=>late.commands.length===1);late.el('loginLocalAccount').onclick();await settled(()=>named(late.dialog,'password')?.disabled===false);const lateForm=tree(late.dialog).find(node=>node.tag==='form');named(late.dialog,'username').value='fixture';named(late.dialog,'password').value='synthetic-password';const submit=lateForm.onsubmit({preventDefault(){}});late.deactivate();pending.resolve({ok:true,signedIn:true});await submit;assert.equal(late.commands.filter(row=>row.action==='snapshot').length,1);assert.equal(late.el('localAccountWallet').hidden,true);
+});
+
+test('native registration sends email only on explicit click and clears passwords on close',async()=>{
+  const app=fixture({respond:async action=>action==='snapshot'?{ok:true,signedIn:false}:action==='auth-status'?authStatus:{ok:true,sent:true}});await app.initialized;await settled(()=>app.commands.length===1);app.el('registerLocalAccount').onclick();await settled(()=>named(app.dialog,'password')?.disabled===false);
+  assert.equal(app.commands.some(row=>row.action==='auth-send-code'),false);named(app.dialog,'email').value='synthetic@example.test';named(app.dialog,'password').value='synthetic-password';await button(app.dialog,'发送验证码').onclick();assert.equal(app.commands.filter(row=>row.action==='auth-send-code').length,1);const password=named(app.dialog,'password');app.deactivate();assert.equal(password.value,'');assert.equal(app.commands.some(row=>row.action==='auth-register'),false);
+});
+
+test('one recharge click opens exactly one cashier for the displayed amount without a confirmation prompt',async()=>{
+  let pending=null,creates=0,opens=0,terminal=false;
+  const app=fixture({confirm:()=>assert.fail('unexpected recharge confirmation'),respond:async(action,payload)=>{
+    if(action==='snapshot')return signed;
+    assert.equal(payload.accountId,7);
+    if(action==='payment-options')return {ok:true,available:true,amounts:[50,100,200],methods:['alipay','wxpay'],pending};
+    if(action==='payment-quote')return {ok:true,quoteId:'synthetic-quote',amount:payload.amount,method:payload.method,expiresAt:Date.now()+120000};
+    if(action==='payment-create'){creates++;pending={amount:50,method:'alipay',canContinue:true};return {ok:true,pending:true,canContinue:true,amount:50,method:'alipay'};}
+    if(action==='payment-open'){opens++;return {ok:true,paymentOpened:true};}
+    if(action==='payment-orders')return {ok:true,total:pending?1:0,page:1,pending:terminal?null:pending,canContinue:pending?.canContinue===true,items:pending?[{amount:50,method:'alipay',status:terminal?'success':'pending',createdAt:1700000000}]:[]};
+    return {ok:true};
+  }});await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);app.el('payLocalAccount').onclick();await settled(()=>button(app.dialog,'充值 ¥50.00')?.disabled===false);
+  assert.match(textOf(app.dialog),/充值账户：customer@example.test/);assert.equal(creates,0);assert.equal(opens,0);
+  const recharge=button(app.dialog,'充值 ¥50.00');
+  await Promise.all([recharge.onclick(),recharge.onclick()]);
+  assert.equal(creates,1);assert.equal(app.commands.find(row=>row.action==='payment-create').payload.confirmed,true);
+  assert.equal(opens,1);assert.equal(button(app.dialog,'继续支付'),undefined);
+  terminal=true;await button(app.dialog,'刷新余额与订单').onclick();assert.equal(creates,1);assert.match(textOf(app.dialog),/已入账/);assert.equal(app.commands.some(row=>row.action==='payment'),false);app.deactivate();
+});
+
+test('cashier return refreshes balance and orders without closing or recreating the payment dialog',async()=>{
+  let balance=signed.balance,status='pending';
+  const pending={amount:50,method:'alipay',orderKnown:true,canContinue:false};
+  const app=fixture({respond:async(action,payload)=>{
+    if(action==='snapshot')return {...signed,balance};
+    if(action==='payment-options')return {ok:true,available:true,amounts:[50],methods:['alipay'],cancelSupported:true,pending};
+    if(action==='payment-orders')return {ok:true,total:1,pending:status==='pending'?pending:null,items:[{amount:50,method:'alipay',status,createdAt:1700000000}]};
+    if(action==='payment-quote')return {ok:true,quoteId:'synthetic-quote',amount:payload.amount,method:payload.method};
+    return {ok:false,code:'NETWORK'};
+  }});
+  await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);
+  app.el('payLocalAccount').onclick();await settled(()=>textOf(app.dialog).includes('等待支付或核对'));
+  const dialog=app.dialog;
+  balance=199.07;status='success';app.event('hamster-payment-updated');
+  await settled(()=>app.el('localAccountBalance').textContent==='¥199.07'&&textOf(app.dialog).includes('已入账'));
+  assert.equal(app.dialog,dialog);
+  assert.equal(app.commands.some(row=>['payment-create','payment-open','payment-cancel'].includes(row.action)),false);
+  app.deactivate();
+});
+
+test('explicit cancel removes a confirmed cancelled order from the display',async()=>{
+  let status='pending';
+  const pending={amount:50,method:'alipay',orderKnown:true,canContinue:false};
+  const app=fixture({respond:async(action,payload)=>{
+    if(action==='snapshot')return signed;
+    if(action==='payment-options')return {ok:true,available:true,amounts:[50],methods:['alipay'],cancelSupported:true,pending};
+    if(action==='payment-orders')return {ok:true,total:1,pending:status==='pending'?pending:null,items:[{amount:50,method:'alipay',status,createdAt:1700000000}]};
+    if(action==='payment-cancel'){assert.deepEqual(payload,{accountId:7,confirmed:true});status='cancelled';return {ok:true,status};}
+    if(action==='payment-quote')return {ok:true,quoteId:'synthetic-quote',amount:payload.amount,method:payload.method};
+    return {ok:false,code:'NETWORK'};
+  }});
+  await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);
+  app.el('payLocalAccount').onclick();await settled(()=>textOf(app.dialog).includes('等待支付或核对'));
+  await button(app.dialog,'取消充值').onclick();
+  assert.match(textOf(app.dialog),/充值订单已取消/);
+  assert.match(textOf(app.dialog),/暂无充值记录/);
+  assert.equal(button(app.dialog,'取消充值').hidden,true);
+  assert.equal(app.commands.filter(row=>row.action==='payment-cancel').length,1);
+  app.deactivate();
+});
+
+test('account mismatch blocks recharge and activation while retaining the displayed balance',async()=>{
+  const app=fixture({respond:async()=>({...signed,accountMatched:false})});await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);
+  assert.equal(app.el('localAccountBalance').textContent,'¥149.07');assert.equal(app.el('localAccountMapping').hidden,false);assert.equal(app.el('payLocalAccount').disabled,true);assert.equal(app.el('createImageKey').disabled,true);
+  app.el('payLocalAccount').onclick();app.el('createImageKey').onclick();await app.el('recoverImageKey').onclick();assert.equal(app.dialog,undefined);assert.equal(app.commands.every(row=>row.action==='snapshot'),true);
+});
+
+test('a retained pending recharge only loads original records and never creates or opens payment automatically',async()=>{
+  const pending={amount:100,method:'wxpay',createdAt:Date.now(),orderKnown:false,canContinue:false};
+  const app=fixture({respond:async action=>action==='snapshot'?signed:action==='payment-options'?{ok:true,available:true,amounts:[50,100,200],methods:['alipay','wxpay'],pending}:action==='payment-orders'?{ok:true,page:1,total:1,pending,canContinue:false,items:[{amount:100,method:'wxpay',status:'pending',createdAt:1700000000}]}:{ok:true}});
+  await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);app.el('payLocalAccount').onclick();await settled(()=>textOf(app.dialog).includes('等待支付或核对'));
+  assert.equal(button(app.dialog,'继续支付'),undefined);assert.equal(button(app.dialog,'充值 ¥50.00').parent.hidden,true);
+  assert.equal(app.commands.some(row=>['payment-create','payment-open','payment-quote','payment-resolve'].includes(row.action)),false);await button(app.dialog,'刷新余额与订单').onclick();assert.equal(app.commands.filter(row=>row.action==='payment-orders').length,2);assert.equal(app.commands.some(row=>row.action==='payment-create'),false);app.deactivate();
+});
+
+test('a late recharge creation cannot repaint or continue payment after an account change',async()=>{
+  const pending=deferred();
+  const app=fixture({respond:async(action,payload)=>action==='snapshot'?signed:action==='payment-options'?{ok:true,available:true,amounts:[50],methods:['alipay'],pending:null}:action==='payment-orders'?{ok:true,page:1,total:0,pending:null,items:[]}:action==='payment-quote'?{ok:true,quoteId:'q',amount:payload.amount,method:payload.method}:action==='payment-create'?pending.promise:{ok:true}});
+  await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);app.el('payLocalAccount').onclick();await settled(()=>button(app.dialog,'充值 ¥50.00')?.disabled===false);
+  const creating=button(app.dialog,'充值 ¥50.00').onclick();app.event('hamster-account-updated');pending.resolve({ok:true,pending:true,amount:50,method:'alipay',canContinue:true});await creating;assert.equal(app.dialog,undefined);assert.equal(app.commands.filter(row=>row.action==='payment-create').length,1);assert.equal(app.commands.some(row=>row.action==='payment-open'),false);
+});
+
+test('unsupported verification and unavailable operation storage never enable native login',async()=>{
+  for(const status of [{...authStatus,status:{...authStatus.status,turnstile_check:true,auth_challenge_provider:'turnstile'}},{...authStatus,storageAvailable:false}]){
+    const app=fixture({respond:async action=>action==='snapshot'?{ok:true,signedIn:false}:status});await app.initialized;await settled(()=>app.commands.length===1);app.el('loginLocalAccount').onclick();await settled(()=>app.commands.length===2);await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(tree(app.dialog).find(node=>node.type==='submit').disabled,true);assert.equal(app.commands.some(row=>row.action==='auth-login'),false);app.deactivate();
+  }
+});
+
+test('legacy recharge rows never label unknown methods as Alipay or null amounts as zero',async()=>{
+  const app=fixture({respond:async action=>action==='snapshot'?signed:action==='payment-options'?{ok:true,available:false,amounts:[],methods:[],pending:null}:action==='payment-orders'?{ok:true,page:1,total:1,pending:null,canContinue:false,items:[{amount:null,method:'other',status:'unknown',createdAt:1700000000}]}:{ok:true}});
+  await app.initialized;await settled(()=>app.el('localAccountWallet').hidden===false);app.el('payLocalAccount').onclick();await settled(()=>tree(app.dialog).some(node=>node.className==='local-usage-row'));
+  const row=tree(app.dialog).find(node=>node.className==='local-usage-row');assert.equal(row.children[0].children[0].textContent,'账户充值');assert.equal(row.children[1].children[0].textContent,'—');assert.doesNotMatch(textOf(row),/支付宝|¥0\.00/);app.deactivate();
+});
+
+test('restored unknown login explains that reconciliation shows the actual current account',async()=>{
+  const app=fixture({respond:async action=>action==='snapshot'?{ok:true,signedIn:false}:action==='auth-status'?{...authStatus,unknown:{action:'login',at:Date.now()}}:{ok:true}});
+  await app.initialized;await settled(()=>app.commands.length===1);app.el('loginLocalAccount').onclick();await settled(()=>textOf(app.dialog).includes('当前实际登录账户'));
+  assert.match(textOf(app.dialog),/不代表原登录目标已成功/);assert.ok(button(app.dialog,'核对当前登录账户'));assert.equal(app.commands.some(row=>row.action==='auth-login'),false);app.deactivate();
+});

@@ -1,0 +1,11 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const root=__dirname,baseline=path.resolve(root,'../custom-installer-1.7.85-current');assert(JSON.parse(fs.readFileSync(path.join(baseline,'verification.json'),'utf8')).passed);
+for(const name of ['dev','source','resource-inputs','build-inputs']){
+ const target=path.join(root,name);assert(!fs.existsSync(target));fs.cpSync(path.join(baseline,name),target,{recursive:true,filter:source=>{if(fs.lstatSync(source).isSymbolicLink())return false;return name==='source'||!path.relative(path.join(baseline,name),source).split(path.sep).includes('node_modules');}});
+}
+const replace=value=>typeof value==='string'?value.replaceAll(baseline,root):Array.isArray(value)?value.map(replace):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[k,replace(v)])):value;
+fs.writeFileSync(path.join(root,'builder.json'),JSON.stringify(replace(JSON.parse(fs.readFileSync(path.join(baseline,'builder.json'),'utf8'))),null,2)+'\n');
+for(const name of ['stage-candidate.cjs','verify-package.cjs','qa-helpers.cjs','qa-installed.cjs','qa-installation.ps1','node-failure-audit-reporter.cjs','font-inputs.json'])fs.writeFileSync(path.join(root,name),fs.readFileSync(path.join(baseline,name),'utf8').replaceAll('1.7.85','1.7.86'));
+for(const name of ['node_modules','canvas/node_modules','build/hypit-host/node_modules']){const target=path.join(root,'dev',name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.symlinkSync(fs.realpathSync(path.join(baseline,'dev',name)),target,'junction');}
+console.log(JSON.stringify({version:'1.7.86',baseline:'1.7.85',isolated:true}));

@@ -1,0 +1,40 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const root=__dirname,workspace=path.resolve(root,'../..'),relative=name=>path.relative(workspace,path.join(root,name)).replaceAll('\\','/');
+const read=name=>JSON.parse(fs.readFileSync(path.join(root,name),'utf8').replace(/^\uFEFF/,''));
+const pkg=read('package-verification.json'),node=read('full-node-verification.json'),qa=read('qa-installed.json'),installation=read('qa-installation.json'),fonts=read('font-inputs.json'),official=read('official-source-check.json');
+assert(pkg.passed&&qa.passed&&official.ok&&installation.installPassed&&installation.uninstallPassed&&installation.retainedDataUnchanged&&installation.originalInstallerCacheRestored);
+assert.equal(pkg.installerSHA256,qa.installerSHA256);assert.equal(pkg.installerSHA256,installation.installerSHA256);assert.equal(pkg.asarSHA256,qa.installedAsarSHA256);
+assert.equal(node.counts.tests,1210);assert.equal(node.counts.passed,1210);for(const key of ['failed','cancelled','skipped'])assert.equal(node.counts[key],0);
+const python=fs.readFileSync(path.join(root,'python-font-routes.log'),'utf8');assert.match(python,/Ran 4 tests/);assert.match(python,/\nOK\s*$/);
+assert.equal(qa.checks.length,2);assert(qa.checks.every(check=>check.cleanExit&&check.uncaughtMain===0));
+const typography=qa.checks[0].typography;
+for(const role of ['shell','chat','canvas']){assert(Object.values(typography[role].fonts).every(Boolean));assert(typography[role].tabularDigits);assert.equal(typography[role].externalFontRequests,0);}
+assert(typography.codeFamily.startsWith('"JetBrains Mono"'));assert(Object.values(typography.narrowLayout).every(Boolean));
+const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+for(const input of fonts.files)assert.equal(sha(path.join(root,'source/public/fonts',input.name)),input.sha256);
+assert.equal(sha(path.join(root,pkg.installer)),pkg.installerSHA256);
+const result={format:1,version:'1.7.81',baselineCandidate:'1.7.80',checkedAt:new Date().toISOString(),passed:true,status:'local_candidate_verified_not_published',
+ installer:relative(pkg.installer),installerSHA256:pkg.installerSHA256,asarSHA256:pkg.asarSHA256,signed:false,
+ evidence:{source:relative('candidate-source-verification.json'),package:relative('package-verification.json'),fonts:relative('font-inputs.json'),node:relative('full-node-verification.json'),python:relative('python-font-routes.log'),installed:relative('qa-installed.json'),installation:relative('qa-installation.json'),official:relative('official-source-check.json')},
+ checks:{node:{tests:1210,pass:1210,fail:0,cancelled:0,skipped:0},pythonFontRoutes:{tests:4,pass:4,fail:0},installedLaunches:2,mainProcessExceptions:0,installAndUninstallPassed:true,retainedFixtureFiles:installation.retainedFixtureFiles,originalInstallerCacheRestored:true},
+ typography,embeddedFonts:['InterVariable.woff2','JetBrainsMono-Regular.woff2','Roboto-Regular.ttf'],fontLicenseFiles:3,byteNumber:'local-only; Inter fallback with tabular digits',fontRuntimeNetwork:'loopback only',
+ officialSourceModified:false,published:false,customerAcceptance:false,realCustomerData:false,realGenerationCalls:0,realPaymentCalls:0};
+fs.writeFileSync(path.join(root,'verification.json'),JSON.stringify(result,null,2)+'\n');
+const statePath=path.join(workspace,'.agents/project-state.json'),state=JSON.parse(fs.readFileSync(statePath,'utf8'));
+state.updated_at=result.checkedAt;
+state.client.typography_candidate={version:result.version,baseline_candidate:'1.7.80',status:result.status,source:relative('source'),development_source:relative('dev'),build_config:relative('builder.json'),build_overlay:relative('stage-candidate.cjs'),installer:result.installer,installer_sha256:result.installerSHA256,asar_sha256:result.asarSHA256,signed:false,
+ verification:relative('verification.json'),font_inputs:result.evidence.fonts,source_verification:result.evidence.source,package_verification:result.evidence.package,node_verification:result.evidence.node,python_verification:result.evidence.python,installed_verification:result.evidence.installed,installation_verification:result.evidence.installation,
+ font_family:'Inter, -apple-system, BlinkMacSystemFont, PingFang SC, Hiragino Sans GB, Noto Sans, Microsoft YaHei, Helvetica Neue, Helvetica, Arial, sans-serif',
+ embedded_fonts:['Inter','JetBrains Mono','Roboto'],byte_number:result.byteNumber,typography:result.typography,tests:result.checks,
+ published:false,official_source_modified:false,customer_acceptance:false,real_customer_data:false,real_generation_calls:0,real_payment_calls:0,remaining:'Release promotion and distribution through the approved netdisk have not been performed.'};
+state.client.latest_local_candidate='1.7.81';state.client.browser_shell_candidate.included_in_candidate='1.7.81';
+for(const entry of state.unfinished_work||[]){
+ if(['client-browser-shell-installer','client-window-close-disposed-webcontents','client-full-regression-repair','current-full-client-regressions'].includes(entry.id)){
+  entry.candidate_version='1.7.81';entry.status='local_candidate_verified_pending_publication';entry.candidate_verification=relative('verification.json');
+  entry.remaining='The implementation is verified in the local 1.7.81 installer candidate. Release promotion and approved-netdisk distribution have not been performed.';
+  if(entry.id==='current-full-client-regressions')entry.evidence=result.evidence.node;
+ }
+}
+fs.writeFileSync(statePath,JSON.stringify(state,null,2)+'\n');
+console.log(JSON.stringify({version:result.version,passed:true,embeddedFonts:3,tests:result.checks,installer:result.installer,published:false}));

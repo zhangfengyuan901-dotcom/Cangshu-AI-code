@@ -1,0 +1,81 @@
+// Final-ASAR, loopback-only fault injection. This never uses a customer profile.
+const electron=require('electron');
+const {app,BrowserWindow,session}=electron;
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),http=require('node:http'),https=require('node:https'),crypto=require('node:crypto');
+const {fileURLToPath}=require('node:url');
+const root=path.resolve(process.env.HAMSTER_ACCOUNT_WINDOW_QA_ROOT||'');
+if(!root.startsWith(path.resolve(os.tmpdir())+path.sep)||!path.basename(root).startsWith('hamster-account-window-fault-'))throw Error('Isolated QA directory required');
+const mode=process.env.HAMSTER_ACCOUNT_WINDOW_QA_MODE;
+if(!['drain','load'].includes(mode))throw Error('Unknown QA scenario');
+const codeRoot=path.resolve(process.env.HAMSTER_ACCOUNT_WINDOW_QA_ASAR||'');
+const expectedSHA256=process.env.HAMSTER_ACCOUNT_WINDOW_QA_SHA256||'',expectedVersion=process.env.HAMSTER_ACCOUNT_WINDOW_QA_VERSION||'';
+if(!/^[a-f0-9]{64}$/.test(expectedSHA256)||crypto.createHash('sha256').update(fs.readFileSync(codeRoot)).digest('hex')!==expectedSHA256)throw Error('Packaged QA source mismatch');
+if(require(path.join(codeRoot,'package.json')).version!==expectedVersion)throw Error('Packaged QA version mismatch');
+const testDeadlineMs=1500;
+app.setPath('userData',root);app.setPath('sessionData',path.join(root,'session'));app.disableHardwareAcceleration();
+const origins=new Set(),allowedFiles=new Set(['account-status.html','account-status.js','account-status.css','app-events.cjs'].map(file=>path.join(codeRoot,'electron',file).toLowerCase()));
+const observed={refreshRequests:0,remoteAuthRequests:0,refreshReleased:false,refreshAbortedBeforeRelease:false,strictCookieReceived:false,originMatched:false,remoteReleased:false,remoteAbortedBeforeRelease:false,sentinelRequests:0,sentinelClosedBeforeRelease:false,sentinelReleased:false,blockedExternal:0,failures:[],stops:[]};
+const block=s=>{
+  s.webRequest.onBeforeRequest((details,callback)=>{
+    let allowed=false;
+    try{const url=new URL(details.url);allowed=['http:','https:'].includes(url.protocol)&&origins.has(url.origin)||url.protocol==='file:'&&allowedFiles.has(fileURLToPath(url).toLowerCase());}catch{}
+    if(!allowed)observed.blockedExternal++;
+    callback({cancel:!allowed});
+  });
+  s.setCertificateVerifyProc((request,callback)=>callback(request.hostname==='127.0.0.1'?0:-3));
+};
+app.on('session-created',block);
+app.on('web-contents-created',(_event,contents)=>{
+  const stop=contents.stop.bind(contents);
+  contents.stop=()=>{observed.stops.push(contents.id);return stop();};
+});
+let localServer,remoteServer,desktop,win,heldRefresh,heldRemote,heldSentinel,localBase,remoteBase;
+const json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
+const authHTML='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>合成账户页</title><h1 id="synthetic-auth">合成注册页面，仅用于本地验收</h1></html>';
+function releaseRefresh(){
+  observed.refreshReleased=true;
+  if(!heldRefresh)return;
+  heldRefresh.setHeader('Set-Cookie','qa_refresh=rotated; Path=/api/user/auth; HttpOnly; Secure; SameSite=Strict');
+  json(heldRefresh,{success:true,data:{user:{id:12},session:{sid:'synthetic-session'},access_token:'synthetic-access',access_expires_at:Date.now()/1000+120}});
+  heldRefresh=null;
+}
+function releaseRemote(){observed.remoteReleased=true;if(heldRemote){heldRemote.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});heldRemote.end(authHTML);heldRemote=null;}}
+function releaseSentinel(){observed.sentinelReleased=true;if(heldSentinel){heldSentinel.end('sentinel completed');heldSentinel=null;}}
+const localHTML=`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'"><title>仓鼠AI · 合成故障验证</title><style>body{font-family:'Microsoft YaHei',sans-serif;background:#f4f5f2;padding:48px;color:#354640}button{padding:14px 28px;font-size:18px}p{line-height:1.8}</style><script src="/qa.js" defer></script></head><body><h1>本地合成账户入口</h1><button id="registerLocalAccount">注册账户</button><p id="status">正在读取合成会话</p></body></html>`;
+const localScript=`window.qa={opens:[],snapshot:null,updates:0,sentinel:null};
+window.addEventListener('hamster-account-updated',()=>window.qa.updates++);
+window.hamsterDesktopAccount.command('snapshot').then(result=>{window.qa.snapshot=result;document.getElementById('status').textContent='合成会话读取已结束';});
+document.getElementById('registerLocalAccount').addEventListener('click',async()=>{const button=document.getElementById('registerLocalAccount');button.disabled=true;const started=performance.now();document.getElementById('status').textContent='正在处理';try{const result=await window.hamsterDesktopAccount.command('auth',{mode:'register'});window.qa.opens.push({result,elapsedMs:performance.now()-started});document.getElementById('status').textContent=result.ok?'安全窗口已打开':'未能打开安全窗口';}finally{button.disabled=false;}});`;
+app.whenReady().then(async()=>{
+  block(session.defaultSession);
+  remoteServer=https.createServer({key:fs.readFileSync(path.join(root,'key.pem')),cert:fs.readFileSync(path.join(root,'cert.pem'))},(req,res)=>{
+    const url=new URL(req.url,remoteBase||'https://127.0.0.1');
+    if(url.pathname==='/api/user/auth/refresh'){
+      observed.refreshRequests++;observed.strictCookieReceived=req.headers.cookie==='qa_refresh=initial';observed.originMatched=req.headers.origin===remoteBase;
+      if(mode==='drain'&&!observed.refreshReleased){heldRefresh=res;res.on('close',()=>{if(!observed.refreshReleased)observed.refreshAbortedBeforeRelease=true;});return;}
+      return json(res,{success:false},401);
+    }
+    if(url.pathname==='/auth-lite/index.html'){
+      observed.remoteAuthRequests++;
+      if(mode==='load'&&!observed.remoteReleased){heldRemote=res;res.on('close',()=>{if(!observed.remoteReleased)observed.remoteAbortedBeforeRelease=true;});return;}
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(authHTML);
+    }
+    if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}
+    return json(res,{success:false},404);
+  });
+  await new Promise(resolve=>remoteServer.listen(0,'127.0.0.1',resolve));remoteBase=`https://127.0.0.1:${remoteServer.address().port}`;origins.add(remoteBase);
+  localServer=http.createServer((req,res)=>{
+    if(req.url==='/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(localHTML);}
+    if(req.url==='/qa.js'){res.writeHead(200,{'Content-Type':'application/javascript; charset=utf-8'});return res.end(localScript);}
+    if(req.url==='/sentinel'){observed.sentinelRequests++;heldSentinel=res;res.on('close',()=>{if(!observed.sentinelReleased)observed.sentinelClosedBeforeRelease=true;});return;}
+    res.writeHead(404);res.end();
+  });
+  await new Promise(resolve=>localServer.listen(0,'127.0.0.1',resolve));localBase=`http://127.0.0.1:${localServer.address().port}`;origins.add(localBase);
+  const remoteSession=session.fromPartition('persist:hamster-relay-account');
+  await remoteSession.cookies.set({url:remoteBase+'/api/user/auth',name:'qa_refresh',value:'initial',path:'/api/user/auth',httpOnly:true,secure:true,sameSite:'strict'});
+  win=new BrowserWindow({width:1000,height:760,show:true,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true,preload:path.join(codeRoot,'electron/app-events.cjs')}});
+  desktop=require(path.join(codeRoot,'electron/account-desktop.cjs')).createDesktopAccount({window:win,electron,appUrl:localBase+'/',origin:remoteBase,allowLoopbackForTests:true,journalFile:path.join(root,'account-operations.json'),loadTimeoutMs:testDeadlineMs,connectCreatedKey:async()=>{throw Error('Key writes forbidden');},reportFailure:value=>observed.failures.push(value)});
+  global.__accountWindowFaultQA={observed,releaseRefresh,releaseRemote,releaseSentinel,facts:async()=>({mode,testDeadlineMs,productionDeadlineMs:25000,mainContentsId:win.webContents.id,mainAlive:!win.isDestroyed(),windows:BrowserWindow.getAllWindows().map(child=>({id:child.id,contentsId:child.webContents.id,visible:child.isVisible(),focused:child.isFocused(),url:child.webContents.getURL(),preload:child.webContents.getLastWebPreferences().preload||null,nodeIntegration:child.webContents.getLastWebPreferences().nodeIntegration,sandbox:child.webContents.getLastWebPreferences().sandbox,contextIsolation:child.webContents.getLastWebPreferences().contextIsolation})),cookieFlags:(await remoteSession.cookies.get({name:'qa_refresh'})).map(cookie=>({httpOnly:cookie.httpOnly,secure:cookie.secure,sameSite:cookie.sameSite}))})};
+  await win.loadURL(localBase+'/');win.on('closed',()=>app.quit());
+}).catch(error=>{console.error(error);app.exit(1);});
+app.on('before-quit',()=>{desktop?.dispose();localServer?.closeAllConnections();localServer?.close();remoteServer?.closeAllConnections();remoteServer?.close();});

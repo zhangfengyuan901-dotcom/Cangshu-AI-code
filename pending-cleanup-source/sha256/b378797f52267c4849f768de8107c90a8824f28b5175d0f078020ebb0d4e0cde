@@ -1,0 +1,31 @@
+'use strict';
+const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),zlib=require('node:zlib');
+const root=__dirname,dist=path.join(root,'dev/canvas/dist'),projectId='d'.repeat(32),imageId='a'.repeat(32),videoId='b'.repeat(32);
+let doc={id:projectId,title:'合成预览画布',revision:1,nodes:[{id:'image-node',type:'asset',dragHandle:'.node-drag-handle',position:{x:20,y:20},data:{assetId:imageId}},{id:'video-node',type:'asset',dragHandle:'.node-drag-handle',position:{x:400,y:20},data:{assetId:videoId}}],edges:[],runs:[],viewport:{x:0,y:0,zoom:1}};
+const assets=[{id:imageId,kind:'image',name:'合成预览.png',size:4096},{id:videoId,kind:'video',name:'合成控件.mp4',size:4096,durationSeconds:1}];
+const width=320,height=200,rows=Buffer.alloc((width*4+1)*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const at=y*(width*4+1)+1+x*4;rows[at]=60+x/2;rows[at+1]=120+y/2;rows[at+2]=190;rows[at+3]=255;}
+function chunk(kind,data){const body=Buffer.concat([Buffer.from(kind),data]),length=Buffer.alloc(4),sum=Buffer.alloc(4);let crc=0xffffffff;for(const byte of body){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}length.writeUInt32BE(data.length);sum.writeUInt32BE((crc^0xffffffff)>>>0);return Buffer.concat([length,body,sum]);}
+const head=Buffer.alloc(13);head.writeUInt32BE(width);head.writeUInt32BE(height,4);head[8]=8;head[9]=6;const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',head),chunk('IDAT',zlib.deflateSync(rows)),chunk('IEND',Buffer.alloc(0))]);
+const facts={scope:'canvas-browser-local-synthetic',realCustomerData:false,realGenerationCalls:0,forbiddenCalls:0};
+const server=http.createServer(async(req,res)=>{
+ const url=new URL(req.url,'http://127.0.0.1');
+ const json=value=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(value));};
+ if(url.pathname==='/qa-stop'){json({ok:true});server.close();server.closeAllConnections();return;}
+ if(url.pathname==='/api/relay/state')return json({relayMode:false,revision:1});
+ if(url.pathname==='/api/canvas/models')return json({data:[],revision:1});
+ if(url.pathname==='/api/relay/connection')return json({});
+ if(url.pathname==='/api/uploads/status')return json({connected:false});
+ if(url.pathname==='/api/relay/catalog/events'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.end(': synthetic fixture\n\n');return;}
+ if(url.pathname==='/api/assets')return json({items:assets});
+ if(url.pathname==='/api/assets/'+imageId+'/file'){res.writeHead(200,{'Content-Type':'image/png'});res.end(png);return;}
+ if(url.pathname==='/api/canvas/projects')return json({projects:[{id:projectId,title:doc.title}]});
+ if(url.pathname==='/api/canvas/projects/'+projectId+'/sync')return json(doc);
+ if(url.pathname==='/api/canvas/projects/'+projectId){if(req.method==='PUT'){const chunks=[];for await(const chunk of req)chunks.push(chunk);doc={...JSON.parse(Buffer.concat(chunks)),revision:doc.revision+1};}return json(doc);}
+ if(url.pathname.startsWith('/api/')){if(!url.pathname.endsWith('/file'))facts.forbiddenCalls++;res.writeHead(404);res.end();return;}
+ const file=path.resolve(dist,'.'+(url.pathname==='/'?'/index.html':url.pathname));
+ if(!file.startsWith(dist+path.sep)||!fs.existsSync(file)||!fs.statSync(file).isFile()){res.writeHead(404);res.end();return;}
+ res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png','.woff2':'font/woff2','.ttf':'font/ttf','.txt':'text/plain'})[path.extname(file)]||'application/octet-stream'});fs.createReadStream(file).pipe(res);
+});
+server.listen(0,'127.0.0.1',()=>{fs.writeFileSync(path.join(root,'qa-canvas-browser-port.json'),JSON.stringify({port:server.address().port,projectId}));console.log(JSON.stringify({ready:true,port:server.address().port}));});
+server.on('close',()=>{fs.writeFileSync(path.join(root,'qa-canvas-browser-fixture.json'),JSON.stringify(facts,null,2)+'\n');});
+setTimeout(()=>{server.close();server.closeAllConnections();},300000).unref();

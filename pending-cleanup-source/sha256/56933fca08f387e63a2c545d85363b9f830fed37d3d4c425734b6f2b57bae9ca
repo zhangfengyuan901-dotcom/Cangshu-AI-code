@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "file": "electron/account-desktop.cjs",
+      "existed": true,
+      "sha256": "ac3777c718a4ca85f5d38595ab5fc0f4e4c8089622ffa0bd79471e3aacdd6ee9"
+    },
+    {
+      "file": "electron/account-service.cjs",
+      "existed": true,
+      "sha256": "174e237e8419398e7c09915a61fd92c64c204f8395a3cb0dbfc81957b30b5857"
+    },
+    {
+      "file": "electron/app-events.cjs",
+      "existed": true,
+      "sha256": "fa652763d1a286ec6d924435a41e9392650631dc20f12961298d97a4efbc0dbe"
+    },
+    {
+      "file": "electron/main.cjs",
+      "existed": true,
+      "sha256": "3040e1ca3b298069a6bcd95ca2b6c1982c265789308411389483ae1b399f1eb6"
+    },
+    {
+      "file": "public/account.mjs",
+      "existed": true,
+      "sha256": "2ff9276527888f62e2daf7bc80aeae57d1981081760ee0c8a7ff00f736d10131"
+    },
+    {
+      "file": "public/app.js",
+      "existed": true,
+      "sha256": "45422d76f0e11ae715987dffe0d211f6c46336579e598f3d92aaf030d779a263"
+    },
+    {
+      "file": "server.js",
+      "existed": true,
+      "sha256": "de183cb1f9be78acf827e47615a7e349e65a73f41ea66247d030f5a83669d13c"
+    },
+    {
+      "file": "electron/account-browser.cjs",
+      "existed": false,
+      "sha256": null
+    },
+    {
+      "file": "package.json",
+      "existed": true,
+      "sha256": "a12851a0b10360a4e7472b346a212d298a75f6092442ff674ac8886338003bad"
+    },
+    {
+      "file": "package-lock.json",
+      "existed": true,
+      "sha256": "3a38e0915035cf9efd9eade79de5882badeacb13d0b8642e34449d382db5435a"
+    },
+    {
+      "file": "release/current.json",
+      "existed": true,
+      "sha256": "5bd09309889da3679c9b09fd16cba6fa66ecadb0d4a71e4b9c7485995e0a548c"
+    },
+    {
+      "file": "release/source-manifest.json",
+      "existed": true,
+      "sha256": "df77805f2cb6107af924383944d4f4b167ec61c0f56b6161d177c2847dd65791"
+    }
+  ]
+}

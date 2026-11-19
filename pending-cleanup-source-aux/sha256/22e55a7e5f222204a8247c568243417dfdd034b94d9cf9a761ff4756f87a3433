@@ -1,0 +1,78 @@
+param([ValidateSet('Install','InstallUI','Uninstall')][string]$Action)
+$ErrorActionPreference='Stop'
+$candidateRoot=[IO.Path]::GetFullPath($PSScriptRoot)
+$installDirectory=Join-Path $candidateRoot 'qa-install/中文 安装/仓鼠AI'
+$installer=Join-Path $candidateRoot 'artifacts/仓鼠AI-1.7.86-安装包.exe'
+$cache=Join-Path $env:LOCALAPPDATA 'hamster-ai-updater/installer.exe'
+$backup=Join-Path $candidateRoot 'qa-installer-cache-before.exe'
+$record=Join-Path $candidateRoot 'qa-installation.json'
+$guid='ccdefc5f-4344-55e2-848f-c386cf81f44f'
+$registryKeys=@("Software/$guid","Software/Microsoft/Windows/CurrentVersion/Uninstall/$guid","Software/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall/$guid")
+function RegistryConflicts {
+ $count=0
+ foreach($hive in @('HKCU:','HKLM:')){foreach($key in $registryKeys){if(Test-Path -LiteralPath "$hive/$key"){$count++}}}
+ return $count
+}
+function WriteRecord($data){[IO.File]::WriteAllText($record,($data|ConvertTo-Json -Depth 8)+"`n",[Text.UTF8Encoding]::new($false))}
+if(-not ([IO.Path]::GetFullPath($installDirectory)).StartsWith($candidateRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Install target outside QA root'}
+if($Action -eq 'Install' -or $Action -eq 'InstallUI'){
+ if((RegistryConflicts) -ne 0){throw 'An existing application registration prevents isolated installer QA'}
+ if(Test-Path -LiteralPath $installDirectory){throw 'QA install target must be new'}
+ if(Get-Process -Name '仓鼠AI' -ErrorAction SilentlyContinue){throw 'Client is running'}
+ $shortcutRoots=@([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('CommonDesktopDirectory'),[Environment]::GetFolderPath('Programs'),[Environment]::GetFolderPath('CommonPrograms'))
+ foreach($directory in $shortcutRoots){if(Test-Path -LiteralPath (Join-Path $directory '仓鼠AI.lnk')){throw 'Existing shortcut prevents isolated installer QA'}}
+ $setup=Get-Content -LiteralPath (Join-Path $candidateRoot 'setup-build-verification.json') -Raw|ConvertFrom-Json
+ $facts=@{version='1.7.86';realCustomerData=$false;isolatedInstallPath=$true;preexistingRegistration=$false;installerSHA256=(Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant();backendSHA256=$setup.engineSHA256;cacheExisted=(Test-Path -LiteralPath $cache)}
+ if($facts.cacheExisted){if(Test-Path -LiteralPath $backup){if((Get-FileHash -LiteralPath $cache).Hash -ne (Get-FileHash -LiteralPath $backup).Hash){throw 'Preserve original cache backup'}}else{Copy-Item -LiteralPath $cache -Destination $backup};$facts.cacheBeforeSHA256=(Get-FileHash -LiteralPath $backup).Hash.ToLowerInvariant()}
+ WriteRecord $facts
+ [IO.Directory]::CreateDirectory((Split-Path -Parent $installDirectory))|Out-Null
+ if($Action -eq 'InstallUI'){
+  $uiRoot=Join-Path $candidateRoot 'qa-setup-ui'
+  [IO.Directory]::CreateDirectory($uiRoot)|Out-Null
+  [IO.File]::WriteAllText((Join-Path $uiRoot 'setup-qa-authorized.txt'),$guid,[Text.UTF8Encoding]::new($false))
+  $process=Start-Process -FilePath $installer -ArgumentList ('--qa-root="'+$uiRoot+'" --qa-install="'+$installDirectory+'" --qa-auto-close') -WindowStyle Hidden -Wait -PassThru
+  $uiResult=Get-Content -LiteralPath (Join-Path $uiRoot 'setup-ui-result.json') -Raw|ConvertFrom-Json
+  $facts.customUiPassed=$uiResult.passed
+  $facts.customUiStages=$uiResult.stages
+ }else{$process=Start-Process -FilePath $installer -ArgumentList "/S /currentuser /D=$installDirectory" -WindowStyle Hidden -Wait -PassThru}
+ $facts.installExitCode=$process.ExitCode
+ $facts.installed=(Test-Path -LiteralPath (Join-Path $installDirectory '仓鼠AI.exe'))
+ $marker=Join-Path $installDirectory 'resources/installed-runtime.json'
+ $facts.offlineRuntimeReady=(Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).state -eq 'ready')
+ $facts.registered=(RegistryConflicts) -gt 0
+ $facts.installPassed=$facts.installed -and $facts.offlineRuntimeReady -and $facts.registered -and $process.ExitCode -eq 0 -and ($Action -ne 'InstallUI' -or $facts.customUiPassed)
+ WriteRecord $facts
+ [pscustomobject]@{installPassed=$facts.installPassed;exitCode=$process.ExitCode;offlineRuntimeReady=$facts.offlineRuntimeReady}|ConvertTo-Json -Compress
+ if(-not $facts.installPassed){exit 1}
+}else{
+ $facts=Get-Content -LiteralPath $record -Raw|ConvertFrom-Json -AsHashtable
+ if(-not $facts.installPassed){throw 'No verified installation to remove'}
+ $registered=Get-ItemProperty -LiteralPath "HKCU:/Software/$guid"
+ if([IO.Path]::GetFullPath($registered.InstallLocation) -ne [IO.Path]::GetFullPath($installDirectory)){throw 'Registered target differs from isolated installation'}
+ if((Get-Item -LiteralPath $installDirectory).LinkType){throw 'Uninstall target is a link'}
+ $uninstallers=@(Get-ChildItem -LiteralPath $installDirectory -Filter '*Uninstall*.exe' -File)
+ if($uninstallers.Count -ne 1){throw 'Expected one isolated uninstaller'}
+ $fixture=Join-Path $candidateRoot 'qa-installed-profile'
+ $files=Get-ChildItem -LiteralPath $fixture -Recurse -File | Where-Object {$_.Name -eq 'work-directory.json' -or $_.Extension -eq '.png' -or $_.Name -eq 'ui-preferences.json' -or $_.Name -eq 'interaction-preferences.json'}
+ $before=@{};foreach($file in $files){$before[$file.FullName]=(Get-FileHash -LiteralPath $file.FullName).Hash}
+ if($before.Count -lt 4){throw 'Missing retained-data fixtures'}
+ $process=Start-Process -FilePath $uninstallers[0].FullName -ArgumentList '/S /currentuser' -WindowStyle Hidden -Wait -PassThru
+ $deadline=(Get-Date).AddSeconds(90)
+ while((Test-Path -LiteralPath (Join-Path $installDirectory '仓鼠AI.exe')) -and (Get-Date) -lt $deadline){Start-Sleep -Milliseconds 500}
+ $facts.uninstallExitCode=$process.ExitCode
+ $facts.applicationRemoved=-not (Test-Path -LiteralPath (Join-Path $installDirectory '仓鼠AI.exe'))
+ $facts.registrationRemoved=(RegistryConflicts) -eq 0
+ $facts.retainedFixtureFiles=$before.Count
+ $facts.retainedDataUnchanged=$true
+ foreach($entry in $before.GetEnumerator()){if(-not (Test-Path -LiteralPath $entry.Key) -or (Get-FileHash -LiteralPath $entry.Key).Hash -ne $entry.Value){$facts.retainedDataUnchanged=$false}}
+ if($facts.cacheExisted){
+  if(Test-Path -LiteralPath $cache){$present=(Get-FileHash -LiteralPath $cache).Hash.ToLowerInvariant();if($present -ne $facts.backendSHA256 -and $present -ne $facts.cacheBeforeSHA256){throw 'Installer cache changed outside QA'}}
+  [IO.Directory]::CreateDirectory((Split-Path -Parent $cache))|Out-Null
+  Copy-Item -LiteralPath $backup -Destination $cache -Force
+  $facts.originalInstallerCacheRestored=(Get-FileHash -LiteralPath $cache).Hash.ToLowerInvariant() -eq $facts.cacheBeforeSHA256
+ }
+ $facts.uninstallPassed=$facts.applicationRemoved -and $facts.registrationRemoved -and $facts.retainedDataUnchanged -and $process.ExitCode -eq 0
+ WriteRecord $facts
+ [pscustomobject]@{uninstallPassed=$facts.uninstallPassed;retainedFixtureFiles=$facts.retainedFixtureFiles;retainedDataUnchanged=$facts.retainedDataUnchanged;originalInstallerCacheRestored=$facts.originalInstallerCacheRestored}|ConvertTo-Json -Compress
+ if(-not $facts.uninstallPassed){exit 1}
+}

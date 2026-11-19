@@ -1,0 +1,44 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const root=__dirname,workspace=path.resolve(root,'../..'),relative=name=>path.relative(workspace,path.join(root,name)).replaceAll('\\','/');
+const json=name=>JSON.parse(fs.readFileSync(path.join(root,name),'utf8').replace(/^\uFEFF/,''));
+const pkg=json('package-verification.json'),node=json('full-node-verification-final.json'),installed=json('qa-installed.json'),installation=json('qa-installation.json'),official=json('official-source-check.json');
+const formal=fs.readFileSync(path.join(root,'formal-regression.log'),'utf8'),python=fs.readFileSync(path.join(root,'python-chat-regression.log'),'utf8');
+assert(pkg.passed&&installed.passed&&official.ok&&installation.installPassed&&installation.uninstallPassed);
+assert.equal(node.counts.tests,1210);assert.equal(node.counts.passed,node.counts.tests);
+for(const key of ['failed','cancelled','skipped'])assert.equal(node.counts[key],0);
+assert.match(formal,/tests 313/);assert.match(formal,/pass 313/);assert.match(formal,/fail 0/);assert.match(python,/Ran 112 tests/);assert.match(python,/\nOK\s*$/);
+assert.equal(pkg.installerSHA256,installed.installerSHA256);assert.equal(pkg.installerSHA256,installation.installerSHA256);assert.equal(pkg.asarSHA256,installed.installedAsarSHA256);
+assert.equal(installation.retainedDataUnchanged,true);assert.equal(installation.originalInstallerCacheRestored,true);
+assert.equal(installed.checks.length,2);assert(installed.checks.every(check=>check.cleanExit&&check.uncaughtMain===0&&check.errorDialogs===0));
+const first=installed.checks[0];assert(first.chatAndCanvasRetained&&first.chatState.activity==='true');assert.equal(first.hiddenIdleRequestsIn6500Ms,0);
+assert(first.navigation.panelNodesPreserved&&first.navigation.draftPreserved&&first.stress.taskNodeRetained&&first.canvas.dragSaved);
+const installer=path.join(root,pkg.installer);assert.equal(crypto.createHash('sha256').update(fs.readFileSync(installer)).digest('hex'),pkg.installerSHA256);
+const verified={format:1,version:'1.7.80',checkedAt:new Date().toISOString(),passed:true,status:'local_candidate_verified_not_published',
+ installer:relative(pkg.installer),installerSHA256:pkg.installerSHA256,asarSHA256:pkg.asarSHA256,signed:false,
+ evidence:{source:relative('candidate-source-verification.json'),package:relative('package-verification.json'),node:relative('full-node-verification-final.json'),formal:relative('formal-regression.log'),python:relative('python-chat-regression.log'),installed:relative('qa-installed.json'),installation:relative('qa-installation.json'),official:relative('official-source-check.json')},
+ checks:{node:{tests:1210,pass:1210,fail:0,cancelled:0,skipped:0},formal:{tests:313,pass:313,fail:0,cancelled:0,skipped:0},python:{tests:112,pass:112,fail:0},installedLaunches:2,mainProcessExceptions:0,installerUninstallPassed:true,retainedFixtureFiles:installation.retainedFixtureFiles,originalInstallerCacheRestored:true},
+ localSyntheticPerformance:{navigation:first.navigation,largeLists:first.stress,canvas:first.canvas},
+ productionSourceVersion:'1.7.77',published:false,customerAcceptance:false,realCustomerData:false,realGenerationCalls:0,realPaymentCalls:0};
+fs.writeFileSync(path.join(root,'verification.json'),JSON.stringify(verified,null,2)+'\n');
+const stateFile=path.join(workspace,'.agents/project-state.json'),state=JSON.parse(fs.readFileSync(stateFile,'utf8'));
+state.updated_at=verified.checkedAt;
+state.client.browser_shell_candidate={version:'1.7.80',baseline_candidate:'1.7.79',baseline_release:'1.7.77',status:verified.status,
+ source:relative('source'),development_source:relative('dev'),build_config:relative('builder.json'),build_overlay:relative('stage-candidate.cjs'),installer:verified.installer,
+ installer_sha256:pkg.installerSHA256,asar_sha256:pkg.asarSHA256,signed:false,verification:relative('verification.json'),source_verification:verified.evidence.source,package_verification:verified.evidence.package,
+ features:['Browser-style keep-alive function pages with deferred first activation','Task cards patched in place and asset windowing','Trusted iframe visibility messages and single-flight foreground refresh','Canvas drag updates coalesced per frame with visible-element rendering','History reviews share one fresh configuration snapshot per pass','Native work-directory choice applied after restart with earlier results and assets retained','Chinese assisted Windows installer with selectable installation directory and offline runtime'],
+ tests:verified.checks,performance:verified.localSyntheticPerformance,installed_verification:verified.evidence.installed,installation_verification:verified.evidence.installation,
+ node_verification:verified.evidence.node,formal_regression_log:verified.evidence.formal,python_regression_log:verified.evidence.python,
+ published:false,official_source_modified:false,customer_acceptance:false,real_customer_data:false,real_generation_calls:0,real_payment_calls:0,
+ performance_scope:'Local Windows Electron installed executable with synthetic 1000 tasks, 3000 assets, and 200-node/500-edge canvas; not customer acceptance.',remaining:'Publish or distribute through the configured netdisk only when release is requested.'};
+for(const entry of state.unfinished_work||[]){
+ if(['client-window-close-disposed-webcontents','client-full-regression-repair','current-full-client-regressions'].includes(entry.id)){
+  entry.status='local_candidate_verified_pending_publication';entry.candidate_version='1.7.80';entry.candidate_verification=entry.id==='current-full-client-regressions'?verified.evidence.node:relative('verification.json');
+  entry.remaining='The repair is verified in the local 1.7.80 installer candidate; publish through the configured netdisk when release is requested.';
+  if(entry.id==='current-full-client-regressions'){entry.evidence=verified.evidence.node;entry.result={exit_code:0,tests:1210,pass:1210,fail:0,cancelled:0,skipped:0};entry.production_source_changed=false;}
+ }
+}
+if(!state.unfinished_work.some(entry=>entry.id==='client-browser-shell-installer'))state.unfinished_work.push({id:'client-browser-shell-installer',status:'local_candidate_verified_pending_publication',candidate_version:'1.7.80',candidate_verification:relative('verification.json'),remaining:'The local implementation and installer validation are complete. Release promotion and approved-netdisk distribution are not performed.'});
+if(!state.protected_paths.includes(relative('')+'/'))state.protected_paths.push(relative('')+'/');
+fs.writeFileSync(stateFile,JSON.stringify(state,null,2)+'\n');
+console.log(JSON.stringify({version:verified.version,passed:verified.passed,tests:verified.checks,installer:verified.installer,published:false}));

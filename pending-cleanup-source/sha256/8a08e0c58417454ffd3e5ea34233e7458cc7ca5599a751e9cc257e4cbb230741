@@ -1,0 +1,228 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import vm from 'node:vm';
+import {createRequire} from 'node:module';
+import {mediaCapabilities,modelMediaSummary,mediaLimitError,defaultImageOptions,imageSizesForRatio,buildImagePayload} from '../public/core.mjs';
+import {canvasMediaError} from '../public/canvas-core.mjs';
+import {estimatePrice} from '../public/canvas-pricing.mjs';
+import {createUploadGate,createUploadQueue,mediaUploadMetadata,mediaExpiryError} from '../public/media-upload-state.mjs';
+const require=createRequire(import.meta.url),{createPiknoClient,quoteParameters}=require('../pikno-client.cjs');
+const cfg={piknoUserId:7,piknoVideoKey:'synthetic-video-key',piknoImageKey:'synthetic-image-key'};
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZCr8AAAAASUVORK5CYII=','base64');
+const endpoint='https://www.piknoai.com',source=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+const media=(images,videos=0,audios=0)=>[['image',images],['video',videos],['audio',audios]].flatMap(([kind,count])=>Array.from({length:count},(_,i)=>({kind,url:`${endpoint}/media/v1/assets/${String(i).padStart(32,'a')}?ticket=synthetic`,durationSeconds:2,expires_at:2000000000})));
+const counts=items=>({images:items.filter(i=>i.kind==='image').length,videos:items.filter(i=>i.kind==='video').length,audios:items.filter(i=>i.kind==='audio').length});
+const base={duration:4,resolution:'720p',ratio:'16:9',concurrency:1,prompt:'synthetic'};
+const line=(max_images=30,max_videos=10,max_audio=10,max_media_total=50)=>({id:'pikno-video-synthetic',name:'测试视频线路',provider:'canseedream',kind:'video',resolutions:['720p'],ratios:['16:9'],durations:[4],max_images,max_videos,max_audio,max_media_total,line_revision:1,prices:[{resolution:'720p',unit:'second',retail_cny:'0.10'}]});
+const model=raw=>({...raw,id:'main-'+raw.kind+'-synthetic',type:raw.kind,provider:'generate',billing_mode:'relay',currency:'CNY',max_audios:raw.max_audio,reference_surcharge_cny:'0.05'});
+const payload=items=>({...base,images:items.filter(i=>i.kind==='image'),videos:items.filter(i=>i.kind==='video'),audios:items.filter(i=>i.kind==='audio')});
+function section(start,end){const first=source.indexOf(start),last=source.indexOf(end,first);assert(first>=0&&last>first);return source.slice(first,last);}
+function clientFixture(raw){
+  const calls=[];
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{
+    const route=new URL(target).pathname,form=route==='/v1/images/edits'?await new Request(target,init).formData():null;
+    const body=form?{...Object.fromEntries([...form].filter(([,value])=>typeof value==='string')),n:Number(form.get('n')),images:form.getAll('image[]').length?form.getAll('image[]'):[form.get('image')]}:init.body?JSON.parse(init.body):null;calls.push({route,body,form});
+    if(route==='/api/pikno/catalog')return Response.json({data:{models:[raw]}});
+    if(route==='/v1/models')return Response.json({data:[{id:raw.id}]});
+    if(route==='/v1/client/quote')return Response.json({data:{quote_id:'synthetic-signed-quote',name:raw.name,line_revision:1,currency:'CNY',unit:raw.kind==='image'?'image':'second',unit_price_cny:'0.10',units:raw.kind==='image'?1:4,reference_surcharge_cny:'0',per_item_cny:raw.kind==='image'?'0.10':'0.40',quantity:1,total_cny:raw.kind==='image'?'0.10':'0.40',expires_at:Math.floor(Date.now()/1000)+300}});
+    if(route==='/v1/videos')return Response.json({id:'synthetic-task',status:'queued'});
+    if(route==='/v1/images/edits')return Response.json({data:[{url:'https://synthetic.invalid/output.png'}]});
+    throw Error('Unexpected offline fixture route');
+  }});return {client,calls};
+}
+
+for(const [name,raw,allowed,blocked] of [
+  ['A',line(),media(30,10,10),media(31)],
+  ['B',line(30,0,10,40),media(30,0,10),media(1,1)],
+  ['Kling',line(10,5,3,15),media(10,5),media(10,5,1)],
+  ['bamboo A',line(9,3,3,12),media(9,3),media(9,3,1)],
+  ['bamboo B',line(9,3,3,15),media(9,3,3),media(10)],
+  ['Wan',line(10,5,5,20),media(10,5,5),media(10,6)],
+]){
+  test(`${name}: main/canvas upload counts, quote, estimate and one submit agree with published limits`,async()=>{
+    const m=model(raw),f=clientFixture(raw);
+    assert.equal(mediaLimitError(m,allowed),'');
+    assert.notEqual(mediaLimitError(m,blocked),'');
+    assert.equal(canvasMediaError(m,allowed.map(asset=>({asset}))), '');
+    assert.equal(canvasMediaError(m,blocked.map(asset=>({asset}))),mediaLimitError(m,blocked));
+    assert.equal(estimatePrice(m,{...base,media_counts:counts(allowed)}).total_cny,'0.450000');
+    assert.equal(estimatePrice(m,{...base,media_counts:counts(blocked)}).known,false);
+    assert.equal(quoteParameters(raw,{...base,media_counts:counts(allowed)}).reference_images,counts(allowed).images);
+    assert.throws(()=>quoteParameters(raw,{...base,media_counts:counts(blocked)}));
+    await f.client.quote(cfg,raw,{...base,media_counts:counts(allowed)});
+    await f.client.submit(cfg,raw,payload(allowed));
+    const before=f.calls.length;assert.throws(()=>f.client.submit(cfg,raw,payload(blocked)));
+    assert.equal(f.calls.length,before,'over-limit references do not enter transport');
+    const body=f.calls.find(c=>c.route==='/v1/videos').body;
+    assert.deepEqual([body.image_urls.length,body.video_urls.length,body.audio_urls.length],[counts(allowed).images,counts(allowed).videos,counts(allowed).audios]);
+    assert.equal(body.image_urls[0].expires_at,undefined,'local expiry metadata is not forwarded');
+  });
+}
+
+test('catalogue carries 30 image / 50 total and 30 image / 40 total without clipping to 20',async()=>{
+  for(const raw of [line(),line(30,0,10,40)]){
+    const f=clientFixture(raw),published=(await f.client.catalog(cfg)).data[0];
+    assert.equal(published.max_images,30);assert.equal(published.max_media_total,raw.max_media_total);
+    assert.equal(published.max_media_files,raw.max_media_total);
+    assert.equal(mediaCapabilities(published).total,raw.max_media_total);
+    assert.match(modelMediaSummary(published),/^30图/);
+  }
+});
+
+test('only an absent aggregate limit retains legacy 20; explicit invalid or zero limits prohibit references',async()=>{
+  const missing=line();delete missing.max_media_total;
+  const f=clientFixture(missing),legacy=(await f.client.catalog(cfg)).data[0];
+  assert.equal(legacy.max_media_total,20);assert.equal(mediaLimitError(legacy,media(20)),'');
+  assert.match(mediaLimitError(legacy,media(21)),/素材总数最多20个/);
+  assert.throws(()=>quoteParameters(missing,{...base,media_counts:counts(media(21))}));
+  assert.throws(()=>f.client.submit(cfg,missing,payload(media(21))));
+  for(const value of [0,null,-1,1.5,'50',1001,NaN,Infinity]){
+    const raw={...line(),max_media_total:value},m=model(raw),f=clientFixture(raw);
+    assert.equal(mediaCapabilities(m).total,0);
+    assert.notEqual(mediaLimitError(m,media(1)),'');
+    assert.throws(()=>quoteParameters(raw,{...base,media_counts:{images:1}}));
+    assert.throws(()=>f.client.submit(cfg,raw,payload(media(1))));assert.equal(f.calls.length,0);
+    assert.equal((await f.client.catalog(cfg)).data[0].max_media_total,0);
+  }
+});
+
+test('declared zero classifications, aggregate ceilings and invalid per-kind fields fail before upload',()=>{
+  const noVideo=model(line(30,0,10,40));assert.match(mediaLimitError(noVideo,media(0,1)),/不支持视频/);
+  for(const field of ['max_images','max_videos','max_audios']){
+    const m={...model(line()),[field]:1001};const item={max_images:'image',max_videos:'video',max_audios:'audio'}[field];
+    assert.notEqual(mediaLimitError(m,[{kind:item}]),'');
+  }
+  assert.equal(mediaCapabilities({...model(line()),max_media_files:12}).total,12);
+  assert.equal(mediaCapabilities({...model(line()),max_media_files:-1}).total,0);
+});
+
+function uploadFixture(m,{initial=0,hold=false}={}){
+  const state={type:m.type,model:m,media:media(initial),pendingMedia:[]},uploads=[],toasts=[],errors=[],revoked=[];let id=0;
+  const context={state,relayConfigRevision:0,hasGenerationKey:()=>true,accountHint:()=>'',mediaUploadMetadata,
+    $:()=>({classList:{add(){},remove(){}}}),mediaUploadGate:createUploadGate(()=>[...state.media,...state.pendingMedia]),mediaUploadQueue:createUploadQueue(2),uploadReuse:new Map(),
+    activeFileBatches:{image:0,video:0,audio:0},renderMediaLimits(){},renderMedia(){},kindForFile:file=>file.type.split('/')[0],mediaLimitError,
+    fileFingerprint:async file=>file.name,performance,crypto:{randomUUID:()=>String(++id)},setTimeout:()=>0,
+    URL:{createObjectURL:file=>'blob:'+file.name,revokeObjectURL:url=>revoked.push(url)},nextTag:kind=>kind+id,
+    toast:value=>toasts.push(value),handleError:error=>errors.push(error.message),
+    uploadFile:async(file,kind,direct)=>{let release;const promise=new Promise(resolve=>release=resolve);uploads.push({name:file.name,kind,direct,release});if(hold)await promise;return {url:`${endpoint}/media/v1/assets/${'b'.repeat(32)}?ticket=synthetic`,expires_at:2000000000};}};
+  vm.createContext(context);vm.runInContext(section('async function handleFiles(','function kindForFile('),context);
+  return {state,context,uploads,toasts,errors,revoked};
+}
+const files=count=>Array.from({length:count},(_,i)=>({name:`synthetic-${i}.png`,type:'image/png',size:100}));
+const flush=async()=>{for(let i=0;i<40;i++)await Promise.resolve();};
+
+test('real upload queue accepts 30 images for A and rejects image 31 before network work',async()=>{
+  const f=uploadFixture(model(line()));await f.context.handleFiles(files(31),'image');
+  assert.equal(f.uploads.length,30);assert.equal(f.state.media.length,30);assert.equal(f.state.pendingMedia.length,0);
+  assert.equal(f.toasts.length,1);assert.match(f.toasts[0],/最多支持30/);assert.deepEqual(f.errors,[]);
+});
+
+test('pending uploads reserve capacity across picker batches and lower aggregate limits',async()=>{
+  const f=uploadFixture(model(line(9,3,3,12)),{initial:7,hold:true});
+  f.state.media.push(...media(0,3,1));
+  const first=f.context.handleFiles(files(1),'image');await flush();assert.equal(f.state.pendingMedia.length,1);
+  const next=f.context.handleFiles([{...files(1)[0],name:'later.png'}],'image');await flush();
+  assert.equal(f.uploads.length,1);assert.equal(f.toasts.length,1);assert.match(f.toasts[0],/素材总数最多12个/);
+  f.uploads[0].release();await Promise.all([first,next]);assert.equal(f.state.media.length,12);assert.equal(f.state.pendingMedia.length,0);
+});
+
+test('asset-library reuse and URL insertion apply current classified and aggregate capacity',async()=>{
+  const m=model(line(9,3,3,12)),state={type:'video',model:m,media:[...media(8,3)],pendingMedia:[],apiKey:'',relayMode:true};let calls=0,id=0;
+  const toasts=[],context={state,relayConfigRevision:0,mediaLimitError,mediaUploadMetadata,hasGenerationKey:()=>true,accountHint:()=>'',
+    $:()=>({disabled:false}),assetsRequest:async()=>{calls++;return {url:`${endpoint}/media/v1/assets/${'c'.repeat(32)}?ticket=synthetic`,expires_at:2000000000};},
+    switchView(){},renderMedia(){},crypto:{randomUUID:()=>String(++id)},nextTag:kind=>kind+id,toast:value=>toasts.push(value)};
+  vm.createContext(context);vm.runInContext('let selectingAsset=false;\n'+section('function addMediaByUrl(','function removeMedia(')+'\n'+section('async function useGenerationAsset','async function openGenerationAssets'),context);
+  await context.useGenerationAsset({id:'c'.repeat(32),kind:'image'});assert.equal(calls,1);assert.equal(state.media.length,12);
+  await context.useGenerationAsset({id:'d'.repeat(32),kind:'audio'});assert.equal(calls,1);assert.equal(state.media.length,12);
+  context.addMediaByUrl('synthetic-url','audio');assert.equal(state.media.length,12);assert.match(toasts.at(-1),/素材总数最多12个/);
+});
+
+const imageRaw={id:'pikno-image-synthetic',name:'图片生成',kind:'image',max_images:5,max_videos:0,max_audio:0,max_media_total:5,line_revision:1,
+  resolutions:['1024x1024','1536x1152','1152x1536'],ratios:['1:1','4:3','3:4'],qualities:['auto','low','medium','high'],prices:[{resolution:'default',unit:'image',retail_cny:'0.10'}]};
+
+test('image main composer selects 4:3 and 3:4 and forwards all five original files with exact sizes',async t=>{
+  const f=clientFixture(imageRaw),m=(await f.client.catalog(cfg)).data[0];
+  t.after(()=>f.client.stop());
+  assert.deepEqual(m.aspect_ratios,['1:1','4:3','3:4']);assert.equal(m.max_images,5);
+  const context={state:{model:m,options:defaultImageOptions(m)},isVideoType:()=>false,imageSizesForRatio,
+    openMenu(_anchor,items){context.items=items;},renderComposer(){},toast:()=>assert.fail('valid image menu selection failed')};
+  vm.createContext(context);vm.runInContext(section('function ratioMenu(anchor)','function qualityMenu(anchor)'),context);
+  for(const [ratio,size] of [['4:3','1536x1152'],['3:4','1152x1536']]){
+    context.ratioMenu({});context.items.find(i=>i.label===ratio).onSelect();assert.equal(context.state.options.size,size);
+    context.sizeMenu({});assert.equal(context.items.length,1);
+    const items=[];
+    for(let index=0;index<5;index++)items.push({kind:'image',url:(await f.client.upload(cfg,png,{kind:'image',contentType:'image/png'})).url});
+    const body=buildImagePayload({model:m,prompt:'synthetic',...context.state.options,images:items,concurrency:1});
+    assert.equal(mediaLimitError(m,items),'');assert.notEqual(mediaLimitError(m,media(6)),'');
+    assert.equal(quoteParameters(imageRaw,{...body,media_counts:counts(items)}).reference_images,5);
+    await f.client.quote(cfg,imageRaw,body);await f.client.submit(cfg,imageRaw,body);
+    const sent=f.calls.at(-1);assert.equal(sent.route,'/v1/images/edits');assert.equal(sent.body.size,size);assert.equal(sent.body.images.length,5);
+    for(const file of sent.body.images)assert.deepEqual(Buffer.from(await file.arrayBuffer()),png);
+    assert.equal(sent.body.n,1);
+    assert.throws(()=>f.client.submit(cfg,imageRaw,{...body,images:media(6)}));
+  }
+});
+
+test('main image picker accepts five local references and rejects the sixth before direct upload',async()=>{
+  const f=uploadFixture(model(imageRaw));await f.context.handleFiles(files(6),'image');
+  assert.equal(f.uploads.length,5);assert.equal(f.state.media.length,5);assert.ok(f.uploads.every(u=>u.direct===true));
+  assert.equal(f.toasts.length,1);assert.match(f.toasts[0],/最多支持5/);
+});
+
+test('real main image submit preserves all five references and selected 4:3 / 3:4 payloads after silent checking',async()=>{
+  const m=model(imageRaw),calls=[],toasts=[];
+  const state={type:'image',model:m,relayMode:true,submitting:false,pendingMedia:[],media:media(5),concurrency:1,batches:[]};
+  const element={value:'synthetic image instruction'};
+  const context={state,relayConfigRevision:0,pendingQuotedSubmissions:new Map(),batchIsActive:()=>false,hasGenerationKey:()=>true,
+    mediaLimitError,mediaUploadMetadata,mediaExpiryError,$:()=>element,renderMediaLimits(){},refreshGenerationMedia:async()=>true,
+    isVideoType:()=>false,buildImagePayload,quoteSnapshot:()=>({synthetic:true}),crypto:{randomUUID:()=> 'synthetic-image-request'},
+    preparePaidSubmission:async()=>({id:'synthetic-quote'}),preparedQuoteCurrent:()=>true,showStoppedBalance:()=>false,
+    request:async(route,options)=>{calls.push({route,body:options.json});return {accepted:true,task:{id:'synthetic'}};},
+    acceptLocalTask:()=>true,noteQuotedResult(){},submissionMessage:()=> 'synthetic accepted',toast:value=>toasts.push(value),
+    releaseSubmittedMedia(){},renderAllTasks(){},syncTasks(){},quoteSubmissionFailed:()=>false,handleError:error=>assert.fail(error.message)};
+  vm.createContext(context);vm.runInContext(section('function groupMedia()','async function refreshGenerationMedia')+'\n'+section('async function onSubmit(e)','let syncingBatches='),context);
+  for(const [ratio,size] of [['4:3','1536x1152'],['3:4','1152x1536']]){
+    state.options={aspect_ratio:ratio,size,quality:'auto'};element.value='synthetic image instruction';
+    await context.onSubmit({preventDefault(){}});
+    assert.equal(calls.at(-1).route,'/images');assert.equal(calls.at(-1).body.images.length,5);
+    assert.equal(calls.at(-1).body.aspect_ratio,ratio);assert.equal(calls.at(-1).body.size,size);
+    assert.equal(calls.at(-1).body.quote_id,'synthetic-quote');assert.equal(state.submitting,false);
+  }
+  state.media=media(6);await context.onSubmit({preventDefault(){}});
+  assert.equal(calls.length,2);assert.match(toasts.at(-1),/最多支持5/);
+});
+
+test('a persisted unknown with 30 references remains queryable after a line shrinks; no new submit is sent',async t=>{
+  const {createApp}=require('../server.js'),{createPiknoKeyStore}=require('../pikno-key-store.cjs'),{settleBatch}=require('./support/batch.cjs');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hamster-capability-replay-')),raw=line();
+  let submits=0,quotes=0;
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{
+    const route=new URL(target).pathname;
+    if(route==='/v1/client/context')return Response.json({user_id:7,group:'video-standard'});
+    if(route==='/api/pikno/catalog')return Response.json({data:{models:[raw]}});
+    if(route==='/v1/models')return Response.json({data:[{id:raw.id}]});
+    if(route==='/v1/client/quote'){quotes++;return Response.json({data:{quote_id:'synthetic-signed-quote',name:raw.name,line_revision:1,currency:'CNY',unit:'second',unit_price_cny:'0.10',units:4,reference_surcharge_cny:'0',per_item_cny:'0.40',quantity:1,total_cny:'0.40',expires_at:Math.floor(Date.now()/1000)+300}});}
+    if(route==='/v1/videos'){submits++;throw Error('synthetic connection loss');}
+    throw Error('Unexpected offline replay route');
+  }});
+  const options={relayMode:true,relayClient:client,relayKeyStore:createPiknoKeyStore(),openBrowserImpl(){},
+    configPath:path.join(root,'config.json'),taskDir:path.join(root,'tasks'),resultDir:path.join(root,'results'),assetDir:path.join(root,'assets'),smartVideoLauncher:{stop(){}},taskOptions:{tickMs:600000}};
+  let app,url;
+  const start=async()=>{app=createApp(options);await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));url='http://127.0.0.1:'+app.address().port;};
+  const stop=async()=>{if(app){await new Promise(resolve=>app.close(resolve));app=null;}};
+  t.after(async()=>{await stop();assert(path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(root).startsWith('hamster-capability-replay-'));fs.rmSync(root,{recursive:true,force:true});});
+  const api=(route,body,key)=>fetch(url+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(key?{'Idempotency-Key':key}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  await start();assert.equal((await api('/api/config',{piknoVideoKey:'sk-'+'v'.repeat(48)})).status,200);
+  const published=(await(await api('/api/models')).json()).data[0],request={...payload(media(30)),model:published.id};
+  const quoted=await(await api('/api/quotes',request)).json();assert(quoted.quote?.id);
+  const body={...request,quote_id:quoted.quote.id},key='synthetic-old-unknown';
+  const first=await settleBatch(api,await api('/api/videos',body,key));assert.equal(first.task.status,'unknown');assert.equal(submits,1);assert.equal(quotes,1);
+  await stop();raw.max_media_total=12;raw.max_images=9;await start();
+  const response=await api('/api/videos',body,key);assert.equal(response.status,202);const replay=await response.json();
+  assert.equal(replay.task.status,'unknown');assert.equal(replay.tasks.length,1);assert.equal(submits,1);assert.equal(quotes,1);
+  const newQuote=await api('/api/quotes',request);assert.equal(newQuote.status,400,'new over-limit attempts use the updated line');
+  assert.equal(submits,1);assert.equal(quotes,1);
+});

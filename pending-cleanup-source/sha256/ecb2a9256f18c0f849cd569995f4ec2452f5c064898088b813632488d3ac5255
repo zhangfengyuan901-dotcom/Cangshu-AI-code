@@ -1,0 +1,89 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+const read = file => readFileSync(new URL('../website/public/' + file, import.meta.url), 'utf8');
+const home = read('index.html');
+const tutorial = read('tutorials/index.html');
+const script = read('quickstart.js');
+
+test('当前正式版提供同版本官方直链，移除旧版本网盘入口', () => {
+  assert.match(home, /id="portableDownload" href="\/download\/HamsterAI-Portable-1\.7\.75\.exe"/);
+  assert.doesNotMatch(home, /id="cloudDownload"|pan\.baidu\.com|z1pu|data-copy-code=/);
+  assert.doesNotMatch(home, /1\.7\.(?:72|73)\.exe/);
+});
+
+test('本次正式版下载与教程版本一致，校验信息格式完整', () => {
+  assert.match(home, /仓鼠AI正式版/);
+  assert.match(home, /[\d,]+ 字节/);
+  assert.match(home, /<code\s*>\s*[A-F0-9]{64}<\/code\s*>/);
+  assert.match(tutorial, /仓鼠AI正式版 1\.7\.75/);
+  assert.doesNotMatch(home, /href="[^\"]*(?:Setup-|1\.7\.(?:63|64|66))[^\"]*\.exe/);
+  assert.doesNotMatch(home, /__RELEASE_74_/);
+});
+
+test('动态教程与图标仅依赖本站资源，保持现有 CSP', () => {
+  for (const page of [home, tutorial]) {
+    assert.match(page, /<link rel="stylesheet" href="\/quickstart\.css"/);
+    assert.match(page, /<script src="\/quickstart\.js" type="module"><\/script>/);
+    assert.doesNotMatch(page, /<script\b(?![^>]*\bsrc=)[^>]*>/i);
+    assert.doesNotMatch(page, /<(?:object|embed)\b|\son(?:click|load|error)\s*=/i);
+  }
+  const headers = read('_headers');
+  assert.match(headers, /script-src 'self' https:\/\/static\.cloudflareinsights\.com;/);
+  assert.match(headers, /object-src 'none'/);
+  assert.doesNotMatch(headers, /unsafe-inline|unsafe-eval|pan\.baidu/);
+  assert.match(script, /document\.querySelectorAll\('\[data-copy-code\]'\)/);
+});
+
+test('首页首先展示精简五步教程，默认教程保留静态步骤与启用条件', () => {
+  const firstMainChild = home.match(/<main\b[^>]*>\s*<(?:section|div)\b([^>]*)>/)?.[1];
+  assert.ok(firstMainChild, '首页 main 应有首内容块');
+  assert.match(firstMainChild, /\bid="quickstart"/);
+  assert.equal([...home.matchAll(/\bid="quickstart"/g)].length, 1);
+  assert.ok(home.indexOf('id="quickstart"') < home.indexOf('id="cases"'));
+  assert.ok(home.indexOf('id="quickstart"') < home.indexOf('id="download"'));
+  assert.doesNotMatch(home, /class="(?:download-note|case-note)(?:\s|")|跟着动态演示，从下载到第一次使用|随时暂停，也可以直接选择某一步|下载后直接运行，无需安装/);
+  const downloadStep = script.match(/\{\s*name:\s*'下载'([\s\S]*?)(?=\{\s*name:\s*'点击打开')/)?.[1];
+  assert.ok(downloadStep, '动态教程应保留下载步骤');
+  const downloadDescription = downloadStep.match(/\bcopy:\s*'([^']*)'/)?.[1] || '';
+  assert.equal(downloadDescription.trim(), '', '首步下载说明应无文本');
+  assert.doesNotMatch(script, /class="qs-hint"|\bhint:\s*'[^']+'/);
+  assert.doesNotMatch(script, /Windows 10 \/ 11 · 64 位 · 无需安装|选择官网下载或百度网盘下载，将程序保存到电脑|付款状态未确认时，先核对原订单|生成前，查看并确认本次报价/);
+  for (const page of [home, tutorial]) {
+    const fallback = page.match(/<ol class="quickstart-fallback">([\s\S]*?)<\/ol>/)?.[1];
+    assert.ok(fallback);
+    const steps = [...fallback.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(match => match[1]);
+    assert.equal(steps.length, 5);
+    assert.match(steps[0], /下载/);
+    assert.match(steps[1], /打开/);
+    assert.match(steps[2], /注册.*登录/);
+    assert.match(steps[3], /手动充值/);
+    assert.match(steps[4], /开通并启用.*检测通过.*开始使用/);
+  }
+  for (const text of ['在应用内', '按用途', '开通并启用', '免费检测通过', '无需一次开通全部功能']) assert.ok(script.includes(text), text);
+});
+
+test('动画有手动控制、减少动态效果支持，演示不调用账户或生成业务', () => {
+  for (const label of ['播放教程', '暂停教程', '重播', 'aria-pressed']) assert.ok(script.includes(label), label);
+  assert.match(read('quickstart.css'), /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  assert.doesNotMatch(script, /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\/api\/|\/v1\//);
+  assert.doesNotMatch(script, /window\.open\s*\(|location\.(?:assign|replace)\s*\(/);
+});
+
+test('历史版本教程保留版本说明且不被新动态教程替换', () => {
+  for (const version of ['1.7.46', '1.7.49', '1.7.52', '1.7.53', '1.7.54']) {
+    const archived = read('tutorials/' + version + '/index.html');
+    assert.ok(archived.includes(version), version);
+    assert.ok(archived.includes('https://hamsterai.cc/tutorials/' + version + '/'), version + ' canonical');
+    assert.doesNotMatch(archived, /data-quickstart|\/quickstart\.(?:js|css)|pan\.baidu\.com/);
+    assert.ok(tutorial.includes('/tutorials/' + version + '/'), version + ' archive link');
+  }
+});
+
+
+test('当前教程说明原生账号与视频反推，去除图片编辑宣传并保留历史归档', () => {
+  for (const phrase of ['直接在应用内','沿用已有账号、余额与订单','点击「继续支付」进入独立安全收银台','当前登录账号与本机 Key 归属不一致','抖音','小红书','哔哩哔哩','0.03 元／秒','先预占 18 元']) assert.ok(tutorial.includes(phrase), phrase);
+  assert.doesNotMatch(tutorial, /图片生成和编辑|tutorial-1749-editor|独立反推／改写工作台已退役|ChatCut/i);
+  assert.doesNotMatch(home + script, /ChatCut|图片编辑/i);
+});

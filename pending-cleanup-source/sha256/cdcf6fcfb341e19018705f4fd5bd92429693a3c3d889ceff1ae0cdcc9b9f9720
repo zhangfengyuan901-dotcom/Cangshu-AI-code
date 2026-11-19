@@ -1,0 +1,142 @@
+"""Local fault injection against the paired release; no Docker, network, or production state."""
+import importlib.util
+import json
+import sqlite3
+from pathlib import Path
+import sys
+import tempfile
+import types
+from unittest import mock
+
+HERE = Path(__file__).resolve().parent
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def require(ok, code):
+    if not ok:
+        raise RuntimeError(code)
+
+records = {}
+def check(name, ok):
+    records[name] = bool(ok)
+
+if 'fcntl' not in sys.modules:
+    try:
+        import fcntl
+    except ImportError:
+        sys.modules['fcntl'] = types.SimpleNamespace(LOCK_EX=2, LOCK_NB=4)
+for name in ('release_base', 'stage_base', 'pair_base'):
+    sys.modules[name] = types.SimpleNamespace(APP='fixture', require=require)
+m = load('guard_test_checkout', HERE / 'deploy73.py')
+real_base = load('guard_test_prior', HERE.parent / 'relay-model-gif-current' / 'release72-remote.py')
+oldids=[m.APP_OLD,m.BRIDGE_OLD]
+newids=['fixture-candidate-app','fixture-candidate-bridge']
+oldrefs=[m.APP_REF,m.BRIDGE_REF]
+newrefs=[m.APP_NEW,m.BRIDGE_NEW]
+def case(fault='none'):
+    with tempfile.TemporaryDirectory() as td:
+        root=Path(td)
+        baseline={'runtime':['a','b'],'ids':['aa','bb'],'files':{},'schema':'ok','options':'ok'}
+        plan={'baseline':baseline,'images':newids,'manifest':{'binary_sha256':'fixture','bridge_source_sha256':'fixture'}}
+        (root/'stage.json').write_text(json.dumps(plan))
+        refs=oldrefs[:]
+        images=oldids[:]
+        events=[]
+        saved={}
+        calls=0
+        def service_info():
+            return [dict(Image=i,Id=k,State={'Running':True},Config={'Labels':{'com.docker.compose.project':'x','com.docker.compose.service':service}})
+                    for i,k,service in zip(images,baseline['ids'],('new-api','lanjing-bridge'))]
+        def snap():
+            m.verify_refs(oldrefs, oldids)
+            value=dict(baseline)
+            if fault=='drift':
+                value['schema']='unexpected'
+            return value
+        def db():
+            nonlocal calls
+            calls+=1
+            state=dict.fromkeys(('active_tasks','active_settlements','active_llm','recent_payments','unaccepted_reverse'),0)
+            state['options']='ok'
+            if fault=='payment' or fault=='late_payment' and calls==2:
+                state['recent_payments']=1
+            return state
+        def switch(*args):
+            forward=list(args[-2:])==newids
+            events.append('forward' if forward else 'rollback')
+            images[:]=args[-2:]
+            if forward and fault in ('missing_container','duplicate_container','stop_unowned','rollback_active','rollback_ref_drift'):
+                raise RuntimeError('PAIR_STOP_LIFECYCLE_REQUIRES_REVIEW' if fault=='stop_unowned' else 'PAIR_STOP_COMMAND_FAILED')
+        def wait(*args):
+            if list(args)==newids and fault=='bad_health':
+                raise RuntimeError('PAIR_HEALTH_TIMEOUT')
+        def change(file,service,old,new):
+            ix=0 if service=='new-api' else 1
+            require(refs[ix] in (old,new),'REF_DRIFT')
+            refs[ix]=new
+        def effective(a,b):
+            require(refs==[a,b],'REF_MISMATCH')
+        def run(argv):
+            if argv[1]=='image':
+                ref=argv[-1];target=(oldids+newids)[(oldrefs+newrefs).index(ref)]
+                if ref==oldrefs[0] and (fault=='old_ref_drift' or fault=='rollback_ref_drift' and 'forward' in events):
+                    target='changed'
+                return json.dumps([{'Id':target}]).encode()
+            if argv[1]=='logs':
+                return b'[GIN] date | 200 | 1ms | 127.0.0.1 | POST /api/user/lanjing/internal/claim\n' if fault=='old_bound_reentry' else b''
+            if argv[1]=='ps':
+                if 'label=com.docker.compose.service=lanjing-bridge' not in argv:return b'aa\n'
+                if events==['forward'] and fault=='missing_container':return b''
+                if events==['forward'] and fault=='duplicate_container':return b'bb\ncc\n'
+                return b'bb\n'
+            raise AssertionError('Unexpected mock action')
+        def payments(query):
+            db=sqlite3.connect(':memory:')
+            db.execute('create table top_ups(status,epay_claimed_at,epay_gateway_order_id,epay_gateway_really_price)')
+            rows={'recent_claim':('pending',99900,'bound','1.00'),'unbound_old_claim':('pending',500,'',''),'closing':('closing',0,'',''),
+                  'idle_bound':('pending',500,'bound','1.00'),'idle_unclaimed':('pending',0,'','')}
+            if fault in rows:db.execute('insert into top_ups values(?,?,?,?)',rows[fault])
+            if fault=='rollback_active' and events==['forward']:db.execute("insert into top_ups values('closing',0,'','')")
+            observed=db.execute(query.replace('json_build_object','json_object').replace('extract(epoch from now())::bigint','100000')).fetchone()[0]
+            db.close()
+            return {'busy':bool(json.loads(observed)['busy'])}
+        base=types.SimpleNamespace(run=run,sql=payments,inspect=lambda id:service_info()[baseline['ids'].index(id)],
+            durable_rows=lambda *a:{},no_new_work=real_base.no_new_work,database_state=db,save=lambda name,value:saved.update({name:value}),
+            schema_digest=lambda:'ok',files_state=lambda:{},preserved_durable_rows=lambda *_:None,runtime=lambda x:'a' if x['Id']=='aa' else 'b')
+        pair=types.SimpleNamespace(replace_service_image=change,recreate_pair=switch,wait_pair=wait)
+        with mock.patch.multiple(m,PRIVATE=root,base=base,pair=pair,snapshot=snap,services=service_info,check_pair=lambda *_:service_info(),effective_tags=effective):
+            try: m.apply_pair()
+            except RuntimeError: pass
+        return events,saved,refs,images
+for name in ('drift','payment','late_payment','unbound_old_claim','recent_claim','old_bound_reentry','closing','old_ref_drift'):
+    events,saved,refs,images=case(name)
+    check(name+'_blocked_before_recreate',not events and refs==oldrefs)
+events,saved,refs,images=case('bad_health')
+check('known_pair_failed_health_rolls_back',events==['forward','rollback'] and refs==oldrefs and images==oldids and saved.get('apply-failure.json',{}).get('restored') is True)
+events,saved,refs,images=case('stop_unowned')
+check('unowned_stop_never_starts_second_writer',events==['forward'] and saved.get('apply-failure.json',{}).get('restored') is False)
+events,saved,refs,images=case('missing_container')
+check('missing_container_recovered',events==['forward','rollback'] and saved.get('apply-failure.json',{}).get('restored') is True)
+for fault in ('duplicate_container','rollback_active','rollback_ref_drift'):
+    events,saved,refs,images=case(fault)
+    check(fault+'_rollback_fails_closed_and_records',events==['forward'] and saved.get('apply-failure.json',{}).get('restored') is False and bool(saved['apply-failure.json']['recovery_failure']))
+for fault in ('none','idle_bound','idle_unclaimed'):
+    check(fault+'_permits_forward',case(fault)[0]==['forward'])
+with tempfile.TemporaryDirectory() as td:
+    root=Path(td)/'checkout'
+    root.mkdir()
+    for old in ('account71-20261112','modelgif72-20261112'):(root.parent/old).mkdir()
+    seen=[]
+    def flock(fd,mode):
+        seen.append(fd)
+        if len(seen)==3:raise BlockingIOError
+    mutex=types.SimpleNamespace(LOCK_EX=2,LOCK_NB=4,flock=flock)
+    with mock.patch.multiple(m,FOLDER=root,PRIVATE=root/'private',fcntl=mutex),mock.patch.object(m.os,'O_NOFOLLOW',getattr(m.os,'O_NOFOLLOW',0),create=True),mock.patch.object(m.os,'O_NONBLOCK',getattr(m.os,'O_NONBLOCK',0),create=True),mock.patch.object(m,'apply_pair') as apply:
+        try:m.main('apply')
+        except RuntimeError as error:check('historical_writer_blocks_before_apply',str(error)=='RELEASE_WRITER_ACTIVE' and not apply.called)
+print(json.dumps(records,indent=2))
+sys.exit(0 if all(records.values()) else 1)

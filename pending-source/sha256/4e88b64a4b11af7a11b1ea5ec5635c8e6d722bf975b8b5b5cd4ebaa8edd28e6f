@@ -1,0 +1,230 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createHmac} from 'node:crypto';
+import {runtimeSource} from './runtime-source.mjs';
+import {Miniflare,convertV4MiniflareOptions} from '../../tools/relay-cli/node_modules/miniflare/dist/src/index.js';
+
+test('tool readiness requires private bridge authentication and never generates or reveals credentials',async()=>{
+ const bridge='test-ready-bridge-secret-12345678901234567890';
+ const admin='test-ready-admin-secret-123456789012345678901';
+ const source=(await runtimeSource({toolFetch:'noNetworkAllowed'}))+`\nasync function noNetworkAllowed(){throw Error('readiness must not contact a provider');}`;
+ for(const bindings of [
+  {TOOLS_ENABLED:'false'},
+  {TOOLS_ENABLED:'true'},
+  {TOOLS_ENABLED:'true',RUNNINGHUB_API_KEY:'private-test-rh-key'},
+ ]){
+  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-03',script:source,r2Buckets:['MEDIA'],bindings:{TOOLS_BRIDGE_SECRET:bridge,TOOLS_ADMIN_SECRET:admin,...bindings}}));
+  try{
+   const url='https://www.piknoai.com/media/v1/tools/status';
+   assert.equal((await mf.dispatchFetch(url)).status,401);
+   assert.equal((await mf.dispatchFetch(url,{headers:{Authorization:'Bearer customer-video-key'}})).status,401);
+   const response=await mf.dispatchFetch(url,{headers:{Authorization:'Bearer '+bridge}});
+   assert.equal(response.status,200);
+   const status=await response.json(),ready=false;
+   assert.deepEqual(status,{enabled:bindings.TOOLS_ENABLED==='true',credential_configured:false,ready,tools:{digital:{available:ready,max_audio_seconds:30},depth:{available:ready}}});
+   assert.doesNotMatch(JSON.stringify(status),/private-test-rh-key|test-ready-bridge|208789|208902/);
+   assert.equal((await mf.dispatchFetch(url,{method:'POST',headers:{Authorization:'Bearer '+bridge}})).status,405);
+  }finally{await mf.dispose();}
+ }
+});
+
+test('RH management is separate, encrypted, version checked and read-only authorization never generates',async()=>{
+ const admin='test-management-secret-12345678901234567890',bridge='test-execution-secret-12345678901234567890';
+ const keyA='A'.repeat(32),keyB='B'.repeat(32),keyC='C'.repeat(32),keyD='D'.repeat(32),master='c'.repeat(64);
+ const source=(await runtimeSource({toolFetch:'configurationFetch'}))+`
+ let checks=0;
+ async function configurationFetch(url,options){
+  if(url!=='https://www.runninghub.cn/uc/openapi/accountStatus'||options.method!=='POST')throw Error('no generation allowed');
+  const body=JSON.parse(options.body);if(options.headers.Authorization!=='Bearer '+body.apikey)throw Error('auth mismatch');checks++;
+  return Response.json(body.apikey==='${'X'.repeat(32)}'?{code:401}:{code:0,data:{remainMoney:999,secret:body.apikey}});
+ }`;
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-03',script:source,r2Buckets:['MEDIA'],bindings:{TOOLS_ENABLED:'true',TOOLS_ADMIN_SECRET:admin,TOOLS_BRIDGE_SECRET:bridge,RH_CONFIG_ENCRYPTION_KEY:master}}));
+ try{
+  const base='https://www.piknoai.com/media/v1/tools/config';
+  const get=(secret=admin)=>mf.dispatchFetch(base,{headers:{Authorization:'Bearer '+secret}});
+  const save=(api_key,expected_version='',secret=admin)=>mf.dispatchFetch(base,{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({api_key,expected_version})});
+  const check=()=>mf.dispatchFetch(base+'/check',{method:'POST',headers:{Authorization:'Bearer '+admin}});
+  assert.equal((await get(bridge)).status,401,'execution bridge cannot manage RH credentials');
+  assert.equal((await get('customer-key')).status,401);
+  assert.equal((await save(keyA,'',bridge)).status,401);
+  assert.deepEqual(await(await get()).json(),{configured:false,enabled:true,ready:false,version:'',updated_at:'',storage:'cloud-encrypted'});
+  assert.equal((await check()).status,409);
+  assert.equal((await save('invalid')).status,400);
+  assert.equal((await save('X'.repeat(32))).status,422);
+  let response=await save(keyA);assert.equal(response.status,200,await response.clone().text());
+  const first=await response.json();assert.equal(first.configured,true);assert.equal(first.authorization_valid,true);assert.match(first.version,/^[a-f0-9]{32}$/);
+  assert.doesNotMatch(JSON.stringify(first),new RegExp(keyA+'|'+admin+'|'+master+'|remainMoney'));
+  const bucket=await mf.getR2Bucket('MEDIA');
+  const versionA=await(await bucket.get('tool-config/versions/'+first.version)).text();
+  assert.doesNotMatch(versionA,new RegExp(keyA+'|'+keyB+'|'+master));assert.match(versionA,/ciphertext/);
+  assert.equal((await save(keyB)).status,409);
+  assert.equal((await check()).status,200);
+  const second=await(await save(keyB,first.version)).json();assert.notEqual(second.version,first.version);
+  assert.equal((await get()).status,200);
+  assert.equal((await bucket.get('tool-config/versions/'+first.version)).size,versionA.length,'old encrypted credential retained for existing tasks');
+  const ready=await(await mf.dispatchFetch('https://www.piknoai.com/media/v1/tools/status',{headers:{Authorization:'Bearer '+bridge}})).json();assert.equal(ready.ready,true);
+  const concurrent=await Promise.all([save(keyC,second.version),save(keyD,second.version)]);
+  assert.deepEqual(concurrent.map(item=>item.status).sort(),[200,409]);
+  const winner=await concurrent.find(item=>item.status===200).json();
+  const storedVersions=await bucket.list({prefix:'tool-config/versions/'});
+  assert.equal(storedVersions.objects.length,3,'losing CAS credential is removed');
+  const encrypted=await(await bucket.get('tool-config/versions/'+winner.version)).json();
+  assert.match(encrypted.kek_id,/^[a-f0-9]{64}$/);
+  await bucket.put('tool-config/versions/'+winner.version,JSON.stringify({...encrypted,ciphertext:encrypted.ciphertext.slice(0,-8)+'AAAAAAAA'}));
+  assert.equal((await get()).status,502,'corrupt encrypted credentials fail closed');
+ }finally{await mf.dispose();}
+ const sameSecret=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-03',script:source,r2Buckets:['MEDIA'],bindings:{TOOLS_ENABLED:'true',TOOLS_ADMIN_SECRET:admin,TOOLS_BRIDGE_SECRET:admin,RH_CONFIG_ENCRYPTION_KEY:master}}));
+ try{
+  assert.equal((await sameSecret.dispatchFetch('https://www.piknoai.com/media/v1/tools/config',{headers:{Authorization:'Bearer '+admin}})).status,503);
+  assert.equal((await sameSecret.dispatchFetch('https://www.piknoai.com/media/v1/tools/status',{headers:{Authorization:'Bearer '+admin}})).status,503);
+ }finally{await sameSecret.dispose();}
+});
+
+test('RH credential encryption retains explicit previous KEKs during rotation',async()=>{
+ const admin='rotation-admin-secret-123456789012345678901',bridge='rotation-bridge-secret-12345678901234567890';
+ const oldMaster='a'.repeat(64),newMaster='b'.repeat(64),apiKey='R'.repeat(32);
+ let source=(await runtimeSource({toolFetch:'rotationFetch'})).replace('export default {','const mediaWorker = {');
+ source+=`
+ async function rotationFetch(url,options){
+  if(url!=='https://www.runninghub.cn/uc/openapi/accountStatus')throw Error('unexpected network');
+  return Response.json({code:0,data:{authorized:true}});
+ }
+ export default {fetch(request,env){
+  if(!request.headers.has('x-test-rotated'))return mediaWorker.fetch(request,env);
+  const rotated=Object.create(env);rotated.RH_CONFIG_ENCRYPTION_KEY='${newMaster}';
+  if(!request.headers.has('x-test-drop-old'))rotated.RH_CONFIG_ENCRYPTION_PREVIOUS_KEYS=JSON.stringify(['${oldMaster}']);
+  return mediaWorker.fetch(request,rotated);
+ }};`;
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-03',script:source,r2Buckets:['MEDIA'],bindings:{TOOLS_ENABLED:'true',TOOLS_ADMIN_SECRET:admin,TOOLS_BRIDGE_SECRET:bridge,RH_CONFIG_ENCRYPTION_KEY:oldMaster}}));
+ try{
+  const url='https://www.piknoai.com/media/v1/tools/config',authorization='Bearer '+admin;
+  const saved=await mf.dispatchFetch(url,{method:'POST',headers:{Authorization:authorization,'Content-Type':'application/json'},body:JSON.stringify({api_key:apiKey,expected_version:''})});
+  assert.equal(saved.status,200,await saved.clone().text());
+  const bucket=await mf.getR2Bucket('MEDIA'),active=await(await bucket.get('tool-config/active')).json();
+  const versionKey='tool-config/versions/'+active.version,legacyCiphertext=await(await bucket.get(versionKey)).json();
+  delete legacyCiphertext.kek_id;await bucket.put(versionKey,JSON.stringify(legacyCiphertext));
+  const rotated=await mf.dispatchFetch(url,{headers:{Authorization:authorization,'x-test-rotated':'1'}});
+  assert.equal(rotated.status,200,await rotated.clone().text());assert.equal((await rotated.json()).ready,true);
+  assert.equal((await mf.dispatchFetch(url,{headers:{Authorization:authorization,'x-test-rotated':'1','x-test-drop-old':'1'}})).status,502,'removing an in-use old KEK fails closed');
+ }finally{await mf.dispose();}
+});
+
+test('tool execution uses real R2 claims and streaming; ambiguous submissions never repeat',async()=>{
+ const secret='test-ticket-only-123456789012345678901234',bridge='test-tool-bridge-only-12345678901234567890';
+ const admin='test-tool-admin-only-12345678901234567890',master='d'.repeat(64),activeKey='U'.repeat(32),legacyKey='L'.repeat(32);
+ let source=(await runtimeSource({toolFetch:'mockToolFetch'})).replace('export default {','const mediaWorker = {');
+ source+=`
+ let mode='success',uploads=0,runs=0,queries=0,transfers=0;
+ async function mockToolFetch(url,options){
+  url=String(url);
+  if(url==='https://www.runninghub.cn/uc/openapi/accountStatus'){
+   const body=JSON.parse(options.body);if(options.headers.Authorization!=='Bearer '+body.apikey)throw Error('configuration auth mismatch');
+   return Response.json({code:0,data:{remainMoney:'test-only'}});
+  }
+  if(url.startsWith('https://www.runninghub.cn/openapi/v2')){
+   const requestBody=options.body&&String(options.headers?.['Content-Type']||'').includes('application/json')?JSON.parse(options.body):null;
+   const expected=requestBody?.taskId==='legacy-upstream'?'${legacyKey}':'${activeKey}';
+   if(options.headers.Authorization!=='Bearer '+expected)throw Error('credential missing');
+   if(url.endsWith('/media/upload/binary')){
+    const form=await new Request(url,options).formData();
+    if(form.get('file').size!==16)throw Error('stream corrupted');uploads++;
+    return Response.json({code:0,message:'success',data:{type:form.get('file').type.split('/')[0],download_url:'https://upload.example/reference-'+uploads,...(uploads===1?{fileName:'openapi/reference-1'}:{}),size:'16'}});
+   }
+   if(url.includes('/run/ai-app/')){
+    const body=JSON.parse(options.body),digital=url.endsWith('/run/ai-app/2087890031699648513'),depth=url.endsWith('/run/ai-app/2089021172049596418');
+    if(!digital&&!depth)throw Error('workflow invalid');
+    if(body.instanceType!=='default'||body.usePersonalQueue!==false||Object.keys(body).sort().join(',')!=='instanceType,nodeInfoList,usePersonalQueue')throw Error('unexpected execution or retention options');
+    if(JSON.stringify(body.nodeInfoList.map(node=>[node.nodeId,node.fieldName]))!==JSON.stringify(digital?[['133','image'],['125','audio']]:[['183','video']]))throw Error('guide node mapping invalid');
+    if(runs===0&&body.nodeInfoList[0].fieldValue!=='openapi/reference-1')throw Error('documented upload receipt invalid');
+    runs++;if(mode==='ambiguous')throw Error('lost response after submission');
+    if(mode==='rejected')return Response.json({errorCode:'TEST_REJECTED',status:'FAILED'},{status:422});
+    if(mode==='failed-submit')return Response.json({status:'FAILED',errorCode:'TEST_FAILED'});
+    if(mode==='timeout-status')return Response.json({errorCode:'TEST_TIMEOUT'},{status:408});
+    if(mode==='server-error')return Response.json({errorCode:'TEST_SERVER'},{status:500});
+    return Response.json({taskId:'upstream-'+runs,status:'QUEUED'});
+   }
+   if(url.endsWith('/query')){if(requestBody?.taskId==='legacy-upstream')return Response.json({status:'RUNNING',results:[]});if(mode==='slow-success')await new Promise(resolve=>setTimeout(resolve,50));queries++;return Response.json({status:mode==='failed'?'FAILED':mode==='missing-output'?'SUCCESS':mode==='running'?'RUNNING':'SUCCESS',usage:queries===1?{consumeMoney:'0.01',consumeCoins:'0',taskCostTime:'9',thirdPartyConsumeMoney:'0.02'}:{consumeMoney:null,consumeCoins:null,taskCostTime:'0',thirdPartyConsumeMoney:null},results:mode==='missing-output'?[]:[{outputType:queries===1?'mp4':'video',url:mode==='foreign-output'?'https://output.example/video.mp4':'https://rh-images-1252422369.cos.ap-beijing.myqcloud.com/video.mp4'}]});}
+  }
+  if(url==='https://rh-images-1252422369.cos.ap-beijing.myqcloud.com/video.mp4'||url==='https://output.example/video.mp4'){
+   transfers++;return new Response(new Uint8Array([0,0,0,16,102,116,121,112,109,112,52,50,0,0,0,0]),{headers:{'Content-Type':'video/mp4'}});
+  }
+  throw Error('unexpected outbound request');
+ }
+ export default {async fetch(request,env){
+  const path=new URL(request.url).pathname;
+  if(path==='/__test_mode'){mode=await request.text();return Response.json({uploads,runs,queries,transfers});}
+  if(path==='/__test_counts')return Response.json({uploads,runs,queries,transfers});
+  return mediaWorker.fetch(request,env);
+ }};
+ `;
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-03',script:source,r2Buckets:['MEDIA'],bindings:{TICKET_KEY:secret,TOOLS_ENABLED:'true',TOOLS_BRIDGE_SECRET:bridge,TOOLS_ADMIN_SECRET:admin,RH_CONFIG_ENCRYPTION_KEY:master,RUNNINGHUB_API_KEY:legacyKey}}));
+ try{
+  const bucket=await mf.getR2Bucket('MEDIA'),now=Math.floor(Date.now()/1000),id='a'.repeat(32);
+  let configured=await mf.dispatchFetch('https://www.piknoai.com/media/v1/tools/config',{method:'POST',headers:{Authorization:'Bearer '+admin,'Content-Type':'application/json'},body:JSON.stringify({api_key:activeKey,expected_version:''})});
+  assert.equal(configured.status,200,await configured.clone().text());
+  await bucket.put('tool-jobs/task_legacy',JSON.stringify({id:'task_legacy',uid:9,kind:'depth',status:'queued',provider_task_id:'legacy-upstream'}));
+  const legacy=await mf.dispatchFetch('https://www.piknoai.com/media/v1/tools/task_legacy',{headers:{Authorization:'Bearer '+bridge}});
+  assert.equal(legacy.status,200);assert.equal((await legacy.json()).status,'processing','pre-managed jobs retain the legacy credential');
+  const png=Uint8Array.from([137,80,78,71,13,10,26,10,0,0,0,0,0,0,0,0]),wav=Uint8Array.from([82,73,70,70,0,0,0,0,87,65,86,69,0,0,0,0]),mp4=Uint8Array.from([0,0,0,16,102,116,121,112,109,112,52,50,0,0,0,0]);
+  const refs={};
+  for(const [n,mime,bytes]of [[0,'image/png',png],[1,'audio/wav',wav],[2,'video/mp4',mp4]]){
+   const asset=(String(n+1)).repeat(32),claims={v:1,aud:'pikno-relay-media',uid:7,id:asset,op:'read',iat:now,exp:now+3600,mime,size:16};
+   const payload=Buffer.from(JSON.stringify(claims)).toString('base64url'),token=payload+'.'+createHmac('sha256',secret).update(payload).digest('base64url');
+   await bucket.put('input/7/'+asset,bytes,{httpMetadata:{contentType:mime},customMetadata:{uid:'7',expires:String(now+86400)}});
+   refs[n]={url:'https://www.piknoai.com/media/v1/assets/'+asset+'?ticket='+token,...(n===1?{durationSeconds:4}:{})};
+  }
+  const body={request_id:'task_digital',kind:'digital',images:[refs[0]],audios:[{...refs[1],durationSeconds:30}]};
+  const send=(value,key=bridge)=>mf.dispatchFetch('https://www.piknoai.com/media/v1/tools',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(value)});
+  const poll=task=>mf.dispatchFetch('https://www.piknoai.com/media/v1/tools/'+task,{headers:{Authorization:'Bearer '+bridge}});
+  const counts=async()=> (await mf.dispatchFetch('https://www.piknoai.com/__test_counts')).json();
+  const mode=value=>mf.dispatchFetch('https://www.piknoai.com/__test_mode',{method:'POST',body:value});
+  assert.equal((await send(body,'customer-sk-key')).status,401);
+  for(const durationSeconds of [0,30.01]){
+   const invalid={...body,request_id:'task_duration_'+String(durationSeconds).replace('.','_'),audios:[{...refs[1],durationSeconds}]};
+   assert.equal((await send(invalid)).status,400);
+   assert.equal(await bucket.get('tool-jobs/'+invalid.request_id),null);
+  }
+  assert.deepEqual(await counts(),{uploads:0,runs:0,queries:0,transfers:0});
+  let response=await send(body);assert.equal(response.status,200,await response.clone().text());assert.equal((await response.json()).status,'queued',await(await bucket.get('tool-jobs/task_digital')).text());
+  await send(body);assert.equal((await counts()).runs,1);
+  assert.equal((await send({...body,kind:'depth',images:[],audios:[],videos:[refs[2]]})).status,409);
+  response=await poll('task_digital');const completed=await response.json();assert.equal(completed.status,'completed');assert.doesNotMatch(JSON.stringify(completed),/upstream-|upstream-only-secret|runninghub|consumeMoney|thirdPartyConsumeMoney/);
+  assert.equal(new URL(completed.outputs[0].url).origin,'https://www.piknoai.com');
+  assert.equal((await mf.dispatchFetch(completed.outputs[0].url)).status,200);
+  await poll('task_digital');assert.equal((await counts()).transfers,1);
+  await mode('foreign-output');const foreign={request_id:'task_foreign_output',kind:'depth',videos:[refs[2]]};
+  await send(foreign);const beforeForeign=await counts();
+  assert.equal((await(await poll(foreign.request_id)).json()).status,'unknown');
+  assert.equal((await counts()).transfers,beforeForeign.transfers,'non-RH output host is never fetched');
+  await mode('slow-success');const concurrentTask={request_id:'task_concurrent_poll',kind:'depth',videos:[refs[2]]};
+  await send(concurrentTask);const beforeConcurrent=await counts();
+  const concurrentPolls=await Promise.all([poll(concurrentTask.request_id),poll(concurrentTask.request_id)]);
+  const concurrentStates=await Promise.all(concurrentPolls.map(item=>item.json()));
+  assert.ok(concurrentStates.some(item=>item.status==='completed'));
+  const afterConcurrent=await counts();assert.equal(afterConcurrent.queries,beforeConcurrent.queries+1);assert.equal(afterConcurrent.transfers,beforeConcurrent.transfers+1);
+  const content='https://www.piknoai.com/media/v1/tools/task_digital/content',beforeDownload=await counts();
+  assert.equal((await mf.dispatchFetch(content)).status,401);
+  const download=await mf.dispatchFetch(content,{headers:{Authorization:'Bearer '+bridge,Range:'bytes=4-7'}});
+  assert.equal(download.status,206);assert.equal(download.headers.get('Content-Range'),'bytes 4-7/16');assert.equal(new TextDecoder().decode(await download.arrayBuffer()),'ftyp');
+  const head=await mf.dispatchFetch(content,{method:'HEAD',headers:{Authorization:'Bearer '+bridge}});assert.equal(head.status,200);assert.equal(head.headers.get('Content-Length'),'16');assert.equal((await head.arrayBuffer()).byteLength,0);
+  for(const Range of ['bytes=999-','bytes=5-4','bytes=0-1,3-4','bytes=-0'])assert.equal((await mf.dispatchFetch(content,{headers:{Authorization:'Bearer '+bridge,Range}})).status,416);
+  assert.deepEqual(await counts(),beforeDownload,'result delivery cannot query or rerun RH');
+  await mode('ambiguous');const uncertain={request_id:'task_ambiguous',kind:'depth',videos:[refs[2]]},beforeAmbiguous=(await counts()).runs;
+  assert.equal((await(await send(uncertain)).json()).status,'unknown');
+  await send(uncertain);await poll('task_ambiguous');assert.equal((await counts()).runs,beforeAmbiguous+1);
+  await mode('missing-output');await send({...uncertain,request_id:'task_no_output'});
+  assert.equal((await(await poll('task_no_output')).json()).status,'unknown');
+  await mode('failed');await send({...uncertain,request_id:'task_failed'});
+  assert.equal((await(await poll('task_failed')).json()).status,'failed');
+  assert.equal((await(await poll('task_missing')).json()).status,'unknown');
+  const stored=await bucket.get('tool-jobs/task_digital');assert.doesNotMatch(await stored.text(),/secret|ticket|https:\/\/|Bearer/);
+  for(const [testMode,expected] of [['rejected','failed'],['failed-submit','failed'],['timeout-status','unknown'],['server-error','unknown']]){
+   await mode(testMode);
+   const value={...uncertain,request_id:'task_'+testMode.replaceAll('-','_')};
+   const previousRuns=(await counts()).runs;
+   assert.equal((await(await send(value)).json()).status,expected);
+   assert.equal((await(await send(value)).json()).status,expected);
+   assert.equal((await counts()).runs,previousRuns+1,'repeated client request must never repeat a charged operation');
+  }
+ }finally{await mf.dispose();}
+});

@@ -1,0 +1,28 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const destination=path.join(__dirname,'dev/public/fonts');
+const inputs=[
+ ['InterVariable.woff2','https://raw.githubusercontent.com/rsms/inter/e3a3d4c57d5ecc01453a575621882a384c1995a3/docs/font-files/InterVariable.woff2',352240],
+ ['LICENSE-Inter.txt','https://raw.githubusercontent.com/rsms/inter/e3a3d4c57d5ecc01453a575621882a384c1995a3/LICENSE.txt'],
+ ['JetBrainsMono-Regular.woff2','https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts/webfonts/JetBrainsMono-Regular.woff2',92164],
+ ['LICENSE-JetBrainsMono.txt','https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/OFL.txt'],
+ ['Roboto-Regular.ttf','https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/src/hinted/Roboto-Regular.ttf',515100],
+ ['LICENSE-Roboto.txt','https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/LICENSE'],
+];
+(async()=>{
+ fs.mkdirSync(destination,{recursive:true});
+ const files=await Promise.all(inputs.map(async([name,url,bytes])=>{
+  const file=path.join(destination,name);
+  let data;
+  if(fs.existsSync(file))data=fs.readFileSync(file);
+  else {const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(60000)});assert.equal(response.status,200);data=Buffer.from(await response.arrayBuffer());}
+  assert(data.length>100&&data.length<1024*1024);if(bytes)assert.equal(data.length,bytes);
+  if(name.endsWith('.woff2'))assert.equal(data.toString('ascii',0,4),'wOF2');
+  if(name.endsWith('.ttf'))assert.equal(data.readUInt32BE(),0x10000);
+  if(name.startsWith('LICENSE-'))assert.match(data.toString('utf8'),/SIL OPEN FONT LICENSE|Apache License/);
+  if(!fs.existsSync(file))fs.writeFileSync(file,data,{flag:'wx'});
+  return {name,source:url,bytes:data.length,sha256:crypto.createHash('sha256').update(data).digest('hex')};
+ }));
+ fs.writeFileSync(path.join(__dirname,'font-inputs.json'),JSON.stringify({fontsEmbedded:true,externalRuntimeFontRequests:false,byteNumber:'local-only-with-fallback',files},null,2)+'\n');
+ console.log(JSON.stringify({fontFiles:3,licenseFiles:3,bytes:files.reduce((sum,f)=>sum+f.bytes,0)}));
+})().catch(error=>{console.error(JSON.stringify({failed:true,error:error.code||error.name,message:error.message}));process.exitCode=1;});

@@ -1,0 +1,7 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const file=path.join(__dirname,'qa-installed.cjs');let code=fs.readFileSync(file,'utf8');
+const start=code.indexOf('   const mediaSelector='),end=code.indexOf('\n',code.indexOf('check.globalPreviews.canvasModalKeyboard=true;',start))+1;
+assert(start>0&&end>start);const block=code.slice(start,end);code=code.slice(0,start)+code.slice(end);
+const frame=code.split('\n').find(line=>line.trimStart().startsWith('const frameBox=await run('));assert(frame);code=code.replace(frame+'\n','');
+const at=code.indexOf("   const box=await evaluate(`globalThis.__browserQA.child('canvas',");assert(at>0);
+code=code.slice(0,at)+frame+'\n'+block+code.slice(at);fs.writeFileSync(file,code);

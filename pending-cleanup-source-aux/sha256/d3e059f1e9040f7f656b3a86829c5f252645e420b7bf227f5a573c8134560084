@@ -1,0 +1,108 @@
+// Exact packaged account modules, isolated synthetic HTTPS; --check-only never launches Electron.
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),crypto=require('node:crypto'),vm=require('node:vm'),{execFileSync}=require('node:child_process');
+const archive=require('@electron/asar');
+const workspace=path.resolve(__dirname,'../..');
+const defaults={asar:path.join(workspace,'output/hamster-release-1.7.68/win-unpacked/resources/app.asar'),output:path.join(workspace,'output/current-release-qa/account-window-faults'),version:'1.7.68','asar-sha256':'971dc30f8cfe8781f98c9674ebdde180b7b6d78f16abefd1709cb980b02db266',openssl:'C:/Program Files/Git/usr/bin/openssl.exe'};
+const options={...defaults};let checkOnly=false;
+for(let i=2;i<process.argv.length;i++){
+ const flag=process.argv[i];if(flag==='--check-only'){checkOnly=true;continue;}
+ const key=flag.replace(/^--/,'');assert(flag.startsWith('--')&&Object.hasOwn(defaults,key)&&process.argv[i+1]&&!process.argv[i+1].startsWith('--'),'Unknown or incomplete argument: '+flag);options[key]=process.argv[++i];
+}
+const asar=path.resolve(options.asar),out=path.resolve(options.output),version=options.version,expectedSHA256=options['asar-sha256'],openssl=path.resolve(options.openssl);
+assert(/^1\.7\.\d+$/.test(version)&&/^[a-f0-9]{64}$/.test(expectedSHA256),'Explicit version and SHA256 required');
+const sha256=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+function checkReferences(){
+ assert(fs.statSync(asar).isFile());assert.equal(sha256(asar),expectedSHA256,'Packaged ASAR differs from the declared release');
+ assert.equal(JSON.parse(archive.extractFile(asar,'package.json')).version,version);
+ const files=['account-desktop.cjs','account-service.cjs','app-events.cjs','account-status.html','account-status.js','account-status.css'];
+ const moduleSHA256={};
+ for(const file of files){const bytes=archive.extractFile(asar,'electron/'+file);assert(bytes.length>0);moduleSHA256[file]=crypto.createHash('sha256').update(bytes).digest('hex');}
+ assert.match(archive.extractFile(asar,'electron/account-desktop.cjs').toString(),/loadTimeoutMs=25000/);
+ const helper=path.join(__dirname,'qa-account-window-faults-main.cjs');assert(fs.statSync(helper).isFile());new vm.Script(fs.readFileSync(helper,'utf8'),{filename:helper});
+ assert(fs.statSync(openssl).isFile(),'OpenSSL fixture generator missing');assert(fs.statSync(require('electron')).isFile(),'Electron runtime missing');require.resolve('playwright-core');
+ return {ok:true,checkOnly:true,launchedElectron:false,customerProfileUsed:false,productionRequests:0,version,asar,asarSHA256:expectedSHA256,moduleSHA256,helperSHA256:sha256(helper),scenarios:['drain','load'],productionDeadlineMs:25000,testDeadlineMs:1500};
+}
+let _electron;
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function observed(app){return app.evaluate(()=>global.__accountWindowFaultQA.observed);}
+async function waitObserved(app,predicate){const until=Date.now()+10000;while(Date.now()<until){const value=await observed(app);if(predicate(value))return value;await delay(25);}throw Error('Expected native observation did not arrive');}
+async function scenario(mode){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hamster-account-window-fault-'));
+  execFileSync(openssl,['req','-x509','-newkey','rsa:2048','-nodes','-keyout',path.join(root,'key.pem'),'-out',path.join(root,'cert.pem'),'-days','1','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1'],{stdio:'ignore',windowsHide:true});
+  const app=await _electron.launch({executablePath:require('electron'),args:[path.join(__dirname,'qa-account-window-faults-main.cjs')],env:{...require('../codex-local.cjs').nativeEnvironment(),HAMSTER_ACCOUNT_WINDOW_QA_ROOT:root,HAMSTER_ACCOUNT_WINDOW_QA_MODE:mode,HAMSTER_ACCOUNT_WINDOW_QA_ASAR:asar,HAMSTER_ACCOUNT_WINDOW_QA_SHA256:expectedSHA256,HAMSTER_ACCOUNT_WINDOW_QA_VERSION:version},timeout:30000});
+  const errors=[];
+  try{
+    app.on('window',page=>page.on('pageerror',error=>errors.push(error.message)));
+    const page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',error=>errors.push(error.message));
+    await page.locator('#registerLocalAccount').waitFor({state:'visible'});
+    await waitObserved(app,value=>value.refreshRequests===1);
+    if(mode==='load'){
+      await page.waitForFunction(()=>window.qa.snapshot!==null);
+      await page.evaluate(()=>{window.qa.sentinel='pending';void fetch('/sentinel').then(response=>response.text()).then(value=>window.qa.sentinel=value);});
+      await waitObserved(app,value=>value.sentinelRequests===1);
+    }
+    const [child]=await Promise.all([app.waitForEvent('window'),page.locator('#registerLocalAccount').click()]);
+    await page.waitForFunction(()=>window.qa.opens.length===1);
+    const opened=await page.evaluate(()=>window.qa.opens[0]);assert.deepEqual(opened.result,{ok:true});assert.ok(opened.elapsedMs<1200,`IPC took ${opened.elapsedMs}ms`);
+    if(mode==='drain'){
+      await child.locator('#title').waitFor({state:'visible'});
+      assert.equal(await child.locator('#title').innerText(),'正在打开安全账户页面');
+    }else{
+      // Locator actions wait for pending navigation; CDP observes the already visible local document.
+      await waitObserved(app,value=>value.remoteAuthRequests===1);
+      const cdp=await child.context().newCDPSession(child);
+      const title=await cdp.send('Runtime.evaluate',{expression:"document.getElementById('title')?.textContent",returnByValue:true});
+      assert.equal(title.result.value,'正在打开安全账户页面');await cdp.detach();
+    }
+    const initial=await app.evaluate(()=>global.__accountWindowFaultQA.facts());
+    const secure=initial.windows.find(window=>window.contentsId!==initial.mainContentsId);
+    assert.equal(secure.visible,true);assert.equal(secure.preload,null);assert.equal(secure.sandbox,true);assert.equal(secure.contextIsolation,true);assert.equal(secure.nodeIntegration,false);
+    assert.deepEqual(initial.cookieFlags,[{httpOnly:true,secure:true,sameSite:'strict'}]);
+    if(mode==='drain')await child.screenshot({path:path.join(out,'drain-loading.png')});
+    if(mode==='drain')assert.equal((await observed(app)).remoteAuthRequests,0);
+    else await waitObserved(app,value=>value.remoteAuthRequests===1);
+    await child.waitForFunction(()=>document.body.classList.contains('failed'));
+    assert.match(await child.locator('#message').innerText(),/关闭此窗口后重试/);
+    await child.screenshot({path:path.join(out,mode+'-failed.png')});
+    const failed=await observed(app);
+    assert.deepEqual(failed.failures,[{code:'ACCOUNT_CONNECT_FAILED',httpStatus:0}]);
+    assert.deepEqual(failed.stops,[secure.contentsId]);assert.equal(failed.stops.includes(initial.mainContentsId),false);
+    assert.equal(failed.blockedExternal,0);assert.equal(failed.strictCookieReceived,true);assert.equal(failed.originMatched,true);
+    if(mode==='drain'){
+      assert.equal(failed.refreshAbortedBeforeRelease,false);
+      await app.evaluate(()=>global.__accountWindowFaultQA.releaseRefresh());
+      await page.waitForFunction(()=>window.qa.snapshot!==null);
+      assert.equal((await page.evaluate(()=>window.qa.snapshot)).code,'ACCOUNT_CHANGED');
+    }else{
+      await waitObserved(app,value=>value.remoteAbortedBeforeRelease);
+      assert.equal(failed.sentinelClosedBeforeRelease,false);
+      await app.evaluate(()=>{global.__accountWindowFaultQA.releaseRemote();global.__accountWindowFaultQA.releaseSentinel();});
+      await page.waitForFunction(()=>window.qa.sentinel==='sentinel completed');
+    }
+    await delay(300);
+    assert.match(child.url(),/account-status\.html\?state=failed$/);
+    assert.equal(await child.locator('#title').innerText(),'暂时无法打开账户页面');
+    const afterLate=await observed(app);assert.equal(afterLate.remoteAuthRequests,mode==='drain'?0:1);
+    await child.close();await page.waitForFunction(()=>window.qa.updates===1);
+    assert.equal(await page.locator('#registerLocalAccount').isEnabled(),true);
+    const [retry]=await Promise.all([app.waitForEvent('window'),page.locator('#registerLocalAccount').click()]);
+    await retry.locator('#synthetic-auth').waitFor({state:'visible'});
+    await page.waitForFunction(()=>window.qa.opens.length===2);
+    assert.equal((await page.evaluate(()=>window.qa.opens[1])).result.ok,true);
+    await retry.close();assert.deepEqual(errors,[]);
+    const finalObserved=await observed(app),finalFacts=await app.evaluate(()=>global.__accountWindowFaultQA.facts());
+    assert.equal(finalObserved.remoteAuthRequests,mode==='drain'?1:2);assert.equal(finalObserved.blockedExternal,0);assert.equal(finalFacts.mainAlive,true);
+    const result={ok:true,mode,profile:root,packagedModules:asar,productionDeadlineMs:25000,testDeadlineMs:1500,ipcElapsedMs:opened.elapsedMs,immediateLocalWindow:true,timeoutFailureVisible:true,noLateNavigation:true,remoteRequestsBeforeExplicitRetry:afterLate.remoteAuthRequests,closeAllowsExplicitRetry:true,strictSecureHttpOnlyCookie:true,onlyFailedWindowStopped:true,observed:finalObserved,pageErrors:errors};
+    fs.writeFileSync(path.join(out,mode+'.json'),JSON.stringify(result,null,2));return result;
+  }catch(error){fs.writeFileSync(path.join(out,mode+'-failure.json'),JSON.stringify({ok:false,error:String(error),profile:root,observed:await observed(app).catch(()=>null),pages:app.windows().map(page=>page.url()),pageErrors:errors},null,2));throw error;}
+  finally{await app.close();}
+}
+(async()=>{
+ const references=checkReferences();fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'reference-check.json'),JSON.stringify(references,null,2)+'\n');
+ if(checkOnly){console.log(JSON.stringify(references));return;}
+ ({_electron}=require('playwright-core'));
+ const results=[];for(const mode of ['drain','load'])results.push(await scenario(mode));assert.equal(sha256(asar),expectedSHA256);
+ const result={ok:true,synthetic:true,network:'only exact loopback servers and fixed packaged status resources',version,asar,asarSHA256:expectedSHA256,productionDeadlineMs:25000,testDeadlineMs:1500,scenarios:results};
+ fs.writeFileSync(path.join(out,'verification.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify({ok:true,scenarios:results.map(({mode,ipcElapsedMs})=>({mode,ipcElapsedMs})),asarSHA256:expectedSHA256}));
+})().catch(error=>{console.error(error);process.exitCode=1;});

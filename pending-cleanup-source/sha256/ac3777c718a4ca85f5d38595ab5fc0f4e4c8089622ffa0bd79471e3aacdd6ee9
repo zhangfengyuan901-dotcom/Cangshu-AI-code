@@ -1,0 +1,103 @@
+const path = require('node:path');
+const {ORIGIN,createAccountService} = require('./account-service.cjs');
+const PARTITION = 'persist:hamster-relay-account';
+const CHANNEL = 'hamster-desktop-account';
+const PAYMENT_ORIGIN = 'https://2347637.pay.lanjingzf.com';
+const parsed = value => { try { const url=new URL(value);return url.username||url.password?null:url; } catch { return null; } };
+
+function createDesktopAccount({window:win,electron,appUrl,journalFile,connectCreatedKey,getConnectedAccountId=()=>null,onConfigured=()=>{},reportFailure=()=>{},origin=ORIGIN,allowLoopbackForTests=false,timers={setTimeout,clearTimeout},loadTimeoutMs=25000}) {
+  const local=parsed(appUrl);
+  if(!local || local.protocol!=='http:' || local.hostname!=='127.0.0.1' || local.pathname!=='/' || local.search || local.hash)throw Error('Invalid local app');
+  const remoteSession=electron.session.fromPartition(PARTITION), windows=new Set();
+  let disposed=false;
+  const statusFile=path.join(__dirname,'account-status.html');
+  const reportConnectionFailure=()=>{try{reportFailure({code:'ACCOUNT_CONNECT_FAILED',httpStatus:0});}catch{}};
+  const trusted = event => {
+    try { return !disposed && !win.isDestroyed() && event.sender===win.webContents && event.senderFrame===win.webContents.mainFrame && parsed(event.senderFrame.url)?.href===local.href; } catch { return false; }
+  };
+  const updated=()=>{if(!disposed&&!win.webContents.isDestroyed())win.webContents.send('hamster-account-updated');};
+  const service=createAccountService({fetchImpl:(...args)=>remoteSession.fetch(...args),journalFile,connectCreatedKey,getConnectedAccountId,openPayment,onConfigured,onFailure:reportFailure,isCurrent:()=>!disposed&&parsed(win.webContents.getURL())?.href===local.href,origin,allowLoopbackForTests});
+  const preferences={partition:PARTITION,contextIsolation:true,nodeIntegration:false,nodeIntegrationInSubFrames:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false};
+  const blockDownload=event=>event.preventDefault();
+  remoteSession.on('will-download',blockDownload);
+  remoteSession.setPermissionRequestHandler((contents,permission,callback,details)=>callback(permission==='clipboard-sanitized-write'&&parsed(contents.getURL())?.origin===origin&&details?.isMainFrame!==false&&parsed(details?.requestingUrl||contents.getURL())?.origin===origin));
+  remoteSession.setPermissionCheckHandler((contents,permission,requestOrigin)=>permission==='clipboard-sanitized-write'&&requestOrigin===origin&&parsed(contents?.getURL())?.origin===origin);
+  function own(child) {
+    windows.add(child);
+    const contents=child.webContents;
+    const guard=(event,url,_inPlace,isMain)=>{
+      const target=parsed(event.url??url),main=(event.isMainFrame??isMain)!==false;
+      if(main&&target?.origin===origin&&target.pathname==='/account-lite/index.html') { event.preventDefault();queueMicrotask(()=>{if(!child.isDestroyed())child.close();});return; }
+      if(!target || !(target.origin===origin&&target.pathname==='/pay/lanjing/epay/submit.php'&&!target.search&&!target.hash || target.origin===PAYMENT_ORIGIN))event.preventDefault();
+    };
+    contents.on('will-frame-navigate',guard);contents.on('will-redirect',guard);contents.on('will-navigate',guard);
+    contents.on('will-attach-webview',event=>event.preventDefault());
+    contents.setWindowOpenHandler(()=>({action:'deny'}));
+    child.on('closed',()=>{windows.delete(child);if(!windows.size&&!disposed){service.resume();updated();}});
+  }
+  function openPayment(handoff) {
+    if(!handoff||handoff.action!==origin+'/pay/lanjing/epay/submit.php'||!handoff.fields||typeof handoff.fields!=='object'||Array.isArray(handoff.fields)
+      ||Object.entries(handoff.fields).some(([key,value])=>!key||key.length>64||typeof value!=='string'||value.length>4096))return {ok:false,code:'INVALID_REQUEST'};
+    if(windows.size){const child=Array.from(windows).at(-1);if(!child.isDestroyed()){child.show();child.focus();}return {ok:true};}
+    if(disposed)return {ok:false,code:'FORBIDDEN'};
+    let child;
+    try {
+      // Suspend immediately, but let the customer see the window while old requests drain.
+      const drained=service.suspend().then(()=>true,()=>false);
+      child=new electron.BrowserWindow({parent:win,width:820,height:800,minWidth:480,minHeight:600,show:false,autoHideMenuBar:true,title:'仓鼠AI · 安全支付',backgroundColor:'#f4f5f2',webPreferences:preferences});
+      own(child);
+      let active=true,timer;
+      const current=()=>active&&!disposed&&!child.isDestroyed();
+      const finish=()=>{active=false;if(timer!==undefined){timers.clearTimeout(timer);timer=undefined;}};
+      const closeFailed=()=>{
+        if(child.isDestroyed())return;
+        try{child.close();}catch{try{child.destroy();}catch{}}
+      };
+      const fail=()=>{
+        if(!current())return;
+        finish();
+        try{child.webContents.stop();}catch{}
+        reportConnectionFailure();
+        // Only this fixed local page can be displayed after an attempt fails.
+        try{void child.loadFile(statusFile,{query:{state:'failed'}}).catch(closeFailed);}catch{closeFailed();}
+      };
+      child.once('closed',finish);
+      timer=timers.setTimeout(fail,loadTimeoutMs);
+      const statusLoaded=child.loadFile(statusFile).then(()=>true,()=>false);
+      child.show();child.focus();
+      const target=handoff.action,body=Buffer.from(new URLSearchParams(handoff.fields).toString());
+      void (async()=>{
+        try {
+          const [safe,shown]=await Promise.all([drained,statusLoaded]);
+          if(!current())return;
+          if(!safe||!shown){fail();return;}
+          await child.loadURL(target,{postData:[{type:'rawData',bytes:body}],extraHeaders:'Content-Type: application/x-www-form-urlencoded'});
+          if(current())finish();
+        } catch {fail();}finally{body.fill(0);}
+      })();
+      // This acknowledges only window creation, never authentication or payment success.
+      return {ok:true};
+    } catch {
+      if(child&&!child.isDestroyed())child.destroy();
+      if(!windows.size)service.resume();
+      reportConnectionFailure();
+      return {ok:false,code:'NETWORK'};
+    }
+  }
+  electron.ipcMain.handle(CHANNEL,async(event,action,value={})=>{
+    if(!trusted(event))return {ok:false,code:'FORBIDDEN'};
+    if(!value||typeof value!=='object'||Array.isArray(value))return {ok:false,code:'INVALID_REQUEST'};
+    return service.command(action,value);
+  });
+  const invalidate=()=>service.invalidate();
+  win.webContents.on('did-start-loading',invalidate);
+  win.webContents.on('render-process-gone',invalidate);
+  function dispose(){
+    if(disposed)return;disposed=true;service.dispose();electron.ipcMain.removeHandler(CHANNEL);
+    remoteSession.removeListener('will-download',blockDownload);
+    for(const child of windows)if(!child.isDestroyed())child.destroy();windows.clear();
+  }
+  win.on('closed',dispose);
+  return {dispose};
+}
+module.exports={CHANNEL,PARTITION,createDesktopAccount};

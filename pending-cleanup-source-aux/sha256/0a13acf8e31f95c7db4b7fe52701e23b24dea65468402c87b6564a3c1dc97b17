@@ -1,0 +1,77 @@
+// Stage the official source tree and its pinned release resources.
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict'),cp=require('node:child_process');
+const app=path.resolve(__dirname,'..'),root=path.dirname(app);
+const specification=JSON.parse(fs.readFileSync(path.join(app,'release/current.json'),'utf8'));
+const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+function within(parent,name){
+ const target=path.resolve(parent,name),relative=path.relative(parent,target);
+ assert(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative),'Path must stay inside its declared root');
+ let current=target;
+ while(current!==parent){if(fs.existsSync(current))assert(!fs.lstatSync(current).isSymbolicLink(),'Links are not build inputs');current=path.dirname(current);}
+ return target;
+}
+function verified(file,expected){
+ const stat=fs.statSync(file);assert(stat.isFile(),'Build input is not a file');
+ const bytes=fs.readFileSync(file);if(expected.bytes!==undefined)assert.equal(bytes.length,expected.bytes,'Build input size changed');
+ assert.equal(hash(bytes),expected.sha256,'Build input changed: '+path.relative(app,file));return bytes;
+}
+function main(){
+ assert.equal(specification.format,1);assert.equal(specification.sourceIsOfficial,true);assert.match(specification.version,/^1\.7\.\d+$/);
+ const manifest=JSON.parse(fs.readFileSync(within(app,specification.sourceManifest),'utf8'));
+ assert.equal(manifest.format,1);assert.equal(manifest.version,specification.version);assert.equal(manifest.baselineASARSHA256,specification.asarSHA256);
+ const release=within(root,specification.releaseDirectory),resources=within(release,'win-unpacked/resources');
+ verified(path.join(resources,'app.asar'),{sha256:specification.asarSHA256});
+ verified(within(root,specification.portable.path),{sha256:specification.portable.sha256});
+ const pkg=JSON.parse(fs.readFileSync(path.join(app,'package.json'),'utf8'));
+ const runtimePackage=Object.fromEntries(Object.keys(manifest.runtimePackage).map(key=>[key,pkg[key]]));
+ assert.deepEqual(runtimePackage,manifest.runtimePackage,'Official runtime package fields changed');
+ const runtimePackageBytes=Buffer.from(JSON.stringify(runtimePackage,null,2)+'\n');
+ assert.equal(hash(runtimePackageBytes),manifest.runtimePackageSHA256);
+ assert.equal(pkg.name,'hamster-ai');assert.equal(pkg.main,'electron/main.cjs');
+ const applicationInputs=new Map(),resourceInputs=new Map();
+ for(const[name,expected]of Object.entries(manifest.files))applicationInputs.set(name,verified(within(app,name),expected));
+ for(const[name,expected]of Object.entries(manifest.dependencies)){
+  if(expected.generatedContentBase64){
+   verified(within(app,name),{sha256:expected.sourceSHA256});
+   const bytes=Buffer.from(expected.generatedContentBase64,'base64');assert.equal(bytes.length,expected.bytes);assert.equal(hash(bytes),expected.sha256);
+   applicationInputs.set(name,bytes);
+  }else applicationInputs.set(name,verified(within(app,name),expected));
+ }
+ applicationInputs.set('package.json',runtimePackageBytes);
+ for(const[name,expected]of Object.entries(specification.resources)){
+  verified(within(resources,name),expected);
+  resourceInputs.set(name,verified(manifest.resourceSources[name]?within(app,manifest.resourceSources[name]):within(resources,name),expected));
+ }
+ const args=process.argv.slice(2),check=args.length===1&&args[0]==='--check';
+ if(check){console.log(JSON.stringify({ok:true,version:pkg.version,source:'official-workspace-source',applicationFiles:Object.keys(manifest.files).length+1,runtimeDependencyFiles:Object.keys(manifest.dependencies).length,sourceResources:Object.keys(manifest.resourceSources).length,resources:Object.keys(specification.resources).length,historicalReleaseDependencies:0}));return;}
+ const build=args.includes('--build'),other=args.filter(arg=>arg!=='--build');
+ assert(other.length===0||other.length===2&&other[0]==='--out','Use --check or [--build] [--out <new-output-directory>]');
+ const out=within(path.join(root,'output'),other[1]||'release-build-current');
+ assert(!fs.existsSync(out),'Preserve existing stage; use a new output directory');
+ const stage=path.join(out,'source'),artifacts=path.join(out,'artifacts'),stagedResources=path.join(out,'resource-inputs'),buildInputs=path.join(out,'build-inputs');
+ const expand=value=>{
+  if(typeof value==='string'){
+   const expanded=value.replace(/^@resources(?=\/|$)/,stagedResources).replace(/^@stage(?=\/|$)/,stage).replace(/^@artifacts(?=\/|$)/,artifacts).replace(/^@app(?=\/|$)/,app);
+   return /^@(?:resources|stage|artifacts|app)(?=\/|$)/.test(value)?path.normalize(expanded):expanded;
+  }
+  if(Array.isArray(value))return value.map(expand);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,expand(item)]));return value;
+ };
+ const builder=expand(specification.builder);assert.equal(builder.appId,'com.hamster.ai');assert.equal(builder.nsis.deleteAppDataOnUninstall,false);
+ const icon=within(app,path.relative(app,builder.win.icon)),iconBytes=fs.readFileSync(icon);
+ builder.directories.buildResources=buildInputs;builder.win.icon=path.join(buildInputs,'icon.ico');
+ function write(parent,name,bytes){const target=within(parent,name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes,{flag:'wx'});assert.equal(hash(fs.readFileSync(target)),hash(bytes));}
+ fs.mkdirSync(out,{recursive:true});
+ for(const[name,bytes]of applicationInputs)write(stage,name,bytes);
+ for(const[name,bytes]of resourceInputs)write(stagedResources,name,bytes);
+ write(buildInputs,'icon.ico',iconBytes);assert.equal(builder.nsis.include,path.join(stage,'electron/installer.nsh'));
+ const config=path.join(out,'builder.json');fs.writeFileSync(config,JSON.stringify(builder,null,2)+'\n',{flag:'wx'});
+ const result={format:1,ok:true,version:pkg.version,source:'official-workspace-source',sourceManifest:specification.sourceManifest,sourceASARSHA256:specification.asarSHA256,stage,artifacts,applicationFiles:applicationInputs.size,runtimeDependencyFiles:Object.keys(manifest.dependencies).length,resources:resourceInputs.size,historicalReleaseDependencies:0,developmentTreePackaged:false,copiedResourceInputs:stagedResources,copiedBuildInputs:buildInputs,selfContainedApplicationInputs:true,explicitToolchain:{electronDist:builder.electronDist,electronVersion:builder.electronVersion},config};
+ fs.writeFileSync(path.join(out,'stage.json'),JSON.stringify(result,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify(result));
+ if(build){
+  const cli=path.join(app,'node_modules/electron-builder/cli.js');assert(fs.statSync(cli).isFile());
+  const run=cp.spawnSync(process.execPath,[cli,'--config',config,'--win','portable','--publish','never'],{cwd:stage,stdio:'inherit',windowsHide:true});assert.equal(run.status,0,'Official release build failed');
+ }
+}
+try{main();}catch(error){console.error(error.message);process.exitCode=1;}

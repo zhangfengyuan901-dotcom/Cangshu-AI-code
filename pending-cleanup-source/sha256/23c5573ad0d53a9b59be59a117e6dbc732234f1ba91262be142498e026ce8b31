@@ -1,0 +1,391 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {EventEmitter}=require('node:events');
+const fs=require('node:fs');
+const path=require('node:path');
+const os=require('node:os');
+const {pathToFileURL}=require('node:url');
+const vm=require('node:vm');
+const {randomUUID}=require('node:crypto');
+const {createDesktopAccount,CHANNEL,PARTITION}=require('../electron/account-desktop.cjs');
+const {createAccountPayment}=require('../electron/account-payment.cjs');
+
+const APP='http://127.0.0.1:19862/';
+const REMOTE='https://www.piknoai.com';
+const BRIDGE=REMOTE+'/pay/lanjing/epay/submit.php';
+const reply=(data,status=200)=>({ok:status>=200&&status<300,status,headers:{get:()=>null},json:async()=>data});
+function fixture(t,{fetchImpl,loadImpl,statusLoadImpl,appUrl=APP,...options}={}){
+  const calls=[],windows=[],handlers=new Map(),session=new EventEmitter();
+  session.setPermissionRequestHandler=handler=>session.requestPermission=handler;
+  session.setPermissionCheckHandler=handler=>session.checkPermission=handler;
+  session.fetch=async(url,init)=>{calls.push({url,init});return fetchImpl?fetchImpl(url,init):reply({success:false},401);};
+  class Contents extends EventEmitter{
+    constructor(url=''){super();this.url=url;this.mainFrame={url};this.sent=[];this.destroyed=false;}
+    getURL(){return this.url;}
+    setURL(url){this.url=url;this.mainFrame.url=url;}
+    isDestroyed(){return this.destroyed;}
+    send(...values){this.sent.push(values);}
+    stop(){this.stops=(this.stops||0)+1;}
+    setWindowOpenHandler(handler){this.popup=handler;}
+  }
+  class Window extends EventEmitter{
+    constructor(prefs={}){super();this.options=prefs;this.webContents=new Contents();this.destroyed=false;windows.push(this);}
+    async loadURL(url,options){this.webContents.setURL(url);this.loaded=url;this.navigation=options?{...options,postData:options.postData?.map(row=>({...row,bytes:Buffer.from(row.bytes)}))}:null;return loadImpl?.(this,url,options);}
+    async loadFile(file,options){this.statusLoads??=[];this.statusLoads.push({file,options});this.webContents.setURL(pathToFileURL(file).href+(options?.query?'?'+new URLSearchParams(options.query):''));return statusLoadImpl?.(this,file,options);}
+    isDestroyed(){return this.destroyed;}
+    show(){this.shown=true;}
+    focus(){this.focused=true;}
+    close(){if(this.destroyed)return;this.destroyed=true;this.webContents.destroyed=true;this.emit('closed');}
+    destroy(){this.close();}
+  }
+  const win=new EventEmitter();win.destroyed=false;win.webContents=new Contents(APP);win.isDestroyed=()=>win.destroyed;
+  const electron={BrowserWindow:Window,session:{fromPartition:partition=>{assert.equal(partition,PARTITION);return session;}},ipcMain:{handle:(name,handler)=>handlers.set(name,handler),removeHandler:name=>handlers.delete(name)}};
+  const journalFile=path.join(os.tmpdir(),`hamster-desktop-boundary-${randomUUID()}.json`);
+  const controller=createDesktopAccount({window:win,electron,appUrl,journalFile,connectCreatedKey:async()=>{throw Error('Unexpected key import');},...options});
+  t.after(()=>{controller.dispose();for(const suffix of ['', '.payment','.auth']){const target=path.resolve(journalFile+suffix);assert.equal(path.dirname(target),path.resolve(os.tmpdir()));fs.rmSync(target,{force:true});}});
+  const event=()=>({sender:win.webContents,senderFrame:win.webContents.mainFrame});
+  const invoke=(action,value={},senderEvent=event())=>handlers.get(CHANNEL)(senderEvent,action,value);
+  return {calls,windows,handlers,session,win,Window,Contents,controller,invoke,event};
+}
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
+function fakeTimers(){
+  const pending=new Map();let next=0;
+  return {pending,setTimeout(fn,ms){const id=++next;pending.set(id,{fn,ms});return id;},clearTimeout(id){pending.delete(id);},fire(){const callbacks=[...pending.values()];pending.clear();for(const {fn} of callbacks)fn();}};
+}
+function navigation(contents,url,{main=true,eventName='will-frame-navigate'}={}){
+  let prevented=false;contents.emit(eventName,{url,isMainFrame:main,preventDefault(){prevented=true;}},url,false,main);return !prevented;
+}
+const signedFetch=async(url,init={})=>{
+  const route=new URL(url).pathname;
+  if(route==='/api/user/auth/refresh')return reply({success:true,data:{access_token:'fixture-private-access',access_expires_at:Date.now()/1000+120,user:{id:12},session:{sid:'fixture-private-session'}}});
+  if(route==='/api/user/self')return reply({success:true,data:{id:12,username:'fixture',email:'fixture@example.test',quota:1000,used_quota:10,request_count:3,key:'private-should-not-cross'}});
+  if(route==='/api/status')return reply({success:true,data:{quota_per_unit:100,usd_exchange_rate:1}});
+  if(route==='/api/user/self/groups')return reply({success:true,data:{'image-standard':{},'chat-standard':{}}});
+  if(route==='/api/user/topup/info')return reply({success:true,data:{fixed_cny_topup:true,enable_online_topup:true,payment_compliance_confirmed:true,amount_options:[50,100,200],pay_methods:[{type:'alipay'},{type:'wxpay'}]}});
+  if(route==='/api/user/amount')return reply({message:'success',data:JSON.parse(init.body).amount.toFixed(2)});
+  if(route==='/api/user/pay'){const body=JSON.parse(init.body);return reply({message:'success',url:BRIDGE,data:{pid:'2347637',type:body.payment_method,out_trade_no:'USR12NOSYNTHETIC1',notify_url:REMOTE+'/api/user/epay/notify',return_url:REMOTE+'/account-lite/index.html',name:'TUC'+body.amount,money:body.amount.toFixed(2),sign:'c'.repeat(32),sign_type:'MD5'}});}
+  if(route==='/api/user/topup/self')return reply({success:true,data:{total:1,items:[{user_id:12,trade_no:'USR12NOSYNTHETIC1',money:50,payment_method:'alipay',status:'pending',create_time:1700000000}]}});
+  if(route==='/api/user/auth/logout')return reply({success:true});
+  throw Error('Unexpected request');
+};
+const cashierFixture=(t,options={})=>fixture(t,{fetchImpl:signedFetch,...options});
+async function prepareCashier(f){
+  const quote=await f.invoke('payment-quote',{accountId:12,amount:50,method:'alipay'});assert.equal(quote.ok,true);
+  const created=await f.invoke('payment-create',{accountId:12,quoteId:quote.quoteId,confirmed:true});assert.equal(created.ok,true);
+  return quote;
+}
+async function openCashier(f){
+  await prepareCashier(f);const result=await f.invoke('payment-open',{accountId:12});assert.deepEqual(result,{ok:true,pending:true,paymentOpened:true});return result;
+}
+
+test('local account IPC accepts only the owned exact local main frame',async t=>{
+  const f=fixture(t);
+  for(const senderEvent of [{sender:{},senderFrame:f.win.webContents.mainFrame},{sender:f.win.webContents,senderFrame:{url:APP}},{sender:f.win.webContents,senderFrame:null}])assert.deepEqual(await f.invoke('snapshot',{},senderEvent),{ok:false,code:'FORBIDDEN'});
+  for(const url of [APP+'?x=1',APP+'#account',APP+'other','http://localhost:19862/','http://127.0.0.1:19863/',REMOTE+'/account-lite/index.html']){f.win.webContents.setURL(url);assert.deepEqual(await f.invoke('snapshot'),{ok:false,code:'FORBIDDEN'});}
+  f.win.webContents.setURL(APP);assert.deepEqual(await f.invoke('snapshot'),{ok:true,signedIn:false});assert.equal(f.calls.length,1);
+});
+
+test('account IPC has no arbitrary URL, legacy auth window or generic request contract',async t=>{
+  const f=fixture(t);
+  for(const [action,value] of [['fetch',{url:REMOTE}],['auth',{mode:'login'}],['auth',{mode:'register'}],['auth',[]],['payment',{}],['payment-open',{accountId:12,url:REMOTE}],['snapshot',{access_token:'fixture'}],['snapshot',null]])assert.deepEqual(await f.invoke(action,value),{ok:false,code:'INVALID_REQUEST'});
+  assert.equal(f.windows.length,0);assert.equal(f.calls.length,0);
+});
+
+test('snapshot returns display metadata without bearer, session or key material',async t=>{
+  const f=cashierFixture(t),result=await f.invoke('snapshot');assert.equal(result.ok,true);assert.equal(result.balance,10);assert.equal(result.user.email,'fixture@example.test');assert.equal(result.accountMatched,true);
+  assert.doesNotMatch(JSON.stringify(result),/fixture-private|private-should-not-cross|access_token|session|key/);
+  assert.ok(f.calls.every(call=>call.init.credentials==='include'&&call.init.headers.Origin===REMOTE&&call.init.headers.Referer===REMOTE+'/account-lite/index.html'));
+});
+
+test('local-key owner mismatch is visible and blocks recharge without replacing stored keys',async t=>{
+  const f=cashierFixture(t,{getConnectedAccountId:()=>99});assert.equal((await f.invoke('snapshot')).accountMatched,false);
+  assert.deepEqual(await f.invoke('payment-options',{accountId:12}),{ok:false,code:'ACCOUNT_MISMATCH'});assert.equal(f.windows.length,0);assert.equal(f.calls.some(call=>new URL(call.url).pathname==='/api/user/pay'),false);
+});
+
+test('native login state is queried through JSON and never opens a remote account document',async t=>{
+  const f=fixture(t,{fetchImpl:async(url,init)=>new URL(url).pathname==='/api/status'?reply({success:true,data:{turnstile_check:false,password_login_enabled:true,password_register_enabled:true,register_enabled:true,email_verification:true,password_login_encryption_enabled:true}}):signedFetch(url,init)});
+  const result=await f.invoke('auth-status');assert.equal(result.ok,true);assert.equal(f.windows.length,0);
+  assert.ok(f.calls.every(call=>new URL(call.url).pathname.startsWith('/api/')));assert.doesNotMatch(JSON.stringify(result),/fixture-private|private-should-not-cross/);
+});
+
+test('cashier opens only after explicit quote and create in a sandbox without a privileged preload',async t=>{
+  const f=cashierFixture(t);await openCashier(f);await flush();
+  const child=f.windows[0],prefs=child.options.webPreferences;assert.equal(child.loaded,BRIDGE);assert.equal(child.options.parent,f.win);assert.equal(prefs.partition,PARTITION);
+  assert.deepEqual({contextIsolation:prefs.contextIsolation,nodeIntegration:prefs.nodeIntegration,nodeIntegrationInSubFrames:prefs.nodeIntegrationInSubFrames,sandbox:prefs.sandbox,webSecurity:prefs.webSecurity,webviewTag:prefs.webviewTag},{contextIsolation:true,nodeIntegration:false,nodeIntegrationInSubFrames:false,sandbox:true,webSecurity:true,webviewTag:false});
+  assert.equal(prefs.preload,undefined);assert.equal(prefs.allowRunningInsecureContent,false);assert.equal(child.navigation.extraHeaders,'Content-Type: application/x-www-form-urlencoded');
+  const form=new URLSearchParams(child.navigation.postData[0].bytes.toString());assert.equal(form.get('out_trade_no'),'USR12NOSYNTHETIC1');assert.equal(form.get('money'),'50.00');assert.equal(form.has('access_token'),false);assert.equal(form.has('session'),false);
+  const before=f.calls.length;assert.deepEqual(await f.invoke('snapshot'),{ok:false,code:'WINDOW_OPEN'});assert.equal(f.calls.length,before);
+  assert.equal(navigation(child.webContents,REMOTE+'/account-lite/index.html?tab=topup'),false);await Promise.resolve();assert.equal(child.isDestroyed(),true);
+  assert.deepEqual(f.win.webContents.sent,[['hamster-account-updated']]);assert.equal((await f.invoke('snapshot')).signedIn,true);
+});
+
+test('cashier navigation rejects account pages, local files, foreign origins and privileged frames',async t=>{
+  const f=cashierFixture(t);await openCashier(f);await flush();const contents=f.windows[0].webContents;
+  for(const eventName of ['will-frame-navigate','will-navigate','will-redirect']){
+    for(const url of ['file:///C:/private','javascript:alert(1)',APP,'http://www.piknoai.com/','https://www.piknoai.com.evil.test/','https://u:p@www.piknoai.com/','https://challenges.cloudflare.com/',REMOTE+'/auth-lite/index.html',BRIDGE+'?order=x',BRIDGE+'#x'])assert.equal(navigation(contents,url,{eventName}),false,url);
+    assert.equal(navigation(contents,BRIDGE,{eventName}),true);assert.equal(navigation(contents,'https://2347637.pay.lanjingzf.com/pay/',{eventName}),true);
+    assert.equal(navigation(contents,REMOTE+'/account-lite/index.html',{main:false,eventName}),false);
+  }
+  let blocked=false;contents.emit('will-attach-webview',{preventDefault(){blocked=true;}});assert.equal(blocked,true);
+  for(const url of [BRIDGE,REMOTE+'/account-lite/index.html','https://2347637.pay.lanjingzf.com/pay/','https://evil.test/'])assert.equal(contents.popup({url}).action,'deny');
+});
+
+test('an owned cashier blocks repeated UI actions and never creates a second order or window',async t=>{
+  const f=cashierFixture(t);await openCashier(f);await flush();const count=f.calls.length;
+  for(const action of ['payment-open','payment-options','payment-quote'])assert.deepEqual(await f.invoke(action,{accountId:12}),{ok:false,code:'WINDOW_OPEN'});
+  assert.equal(f.windows.length,1);assert.equal(f.calls.length,count);assert.equal(f.calls.filter(call=>new URL(call.url).pathname==='/api/user/pay').length,1);
+});
+
+test('navigating the owned main frame invalidates an in-flight native payment quote',async t=>{
+  let release,started;const ready=new Promise(resolve=>started=resolve);
+  const f=cashierFixture(t,{fetchImpl:async(url,init)=>{if(new URL(url).pathname==='/api/user/amount'){started();return new Promise(resolve=>release=()=>resolve(reply({message:'success',data:'50.00'})));}return signedFetch(url,init);}});
+  const quoting=f.invoke('payment-quote',{accountId:12,amount:50,method:'alipay'});await ready;f.win.webContents.emit('did-start-loading');release();
+  assert.equal((await quoting).code,'ACCOUNT_CHANGED');assert.equal(f.windows.length,0);assert.equal(f.calls.some(call=>new URL(call.url).pathname==='/api/user/pay'),false);
+});
+
+test('cashier load failures use a fixed local failure page and retain suspension until closed',async t=>{
+  const failures=[],timers=fakeTimers(),f=cashierFixture(t,{timers,reportFailure:value=>failures.push(value),loadImpl:async()=>{throw Error('secret-private-origin');}});
+  await openCashier(f);await flush();const child=f.windows[0];assert.equal(child.isDestroyed(),false);assert.equal(child.webContents.stops,1);assert.deepEqual(child.statusLoads.at(-1).options,{query:{state:'failed'}});assert.equal(timers.pending.size,0);
+  assert.deepEqual(failures,[{code:'ACCOUNT_CONNECT_FAILED',httpStatus:0}]);assert.deepEqual(await f.invoke('snapshot'),{ok:false,code:'WINDOW_OPEN'});child.close();assert.equal((await f.invoke('snapshot')).signedIn,true);
+});
+
+test('prepare timeout prevents navigation when the local status page finishes too late',async t=>{
+  let release;const delayed=new Promise(resolve=>release=resolve),timers=fakeTimers(),failures=[];
+  const f=cashierFixture(t,{timers,reportFailure:value=>failures.push(value),statusLoadImpl:(_window,_file,options)=>options?undefined:delayed});
+  await openCashier(f);const child=f.windows[0];assert.equal(child.loaded,undefined);assert.equal([...timers.pending.values()][0].ms,25000);
+  timers.fire();await flush();assert.equal(child.webContents.stops,1);assert.deepEqual(child.statusLoads.at(-1).options,{query:{state:'failed'}});
+  release();await flush();assert.equal(child.loaded,undefined);assert.equal(failures.length,1);
+});
+
+test('cashier remote timeout stops only its window and late load completion cannot replace failure',async t=>{
+  let release;const delayed=new Promise(resolve=>release=resolve),timers=fakeTimers();
+  const f=cashierFixture(t,{timers,loadTimeoutMs:1234,loadImpl:()=>delayed});await openCashier(f);await flush();const child=f.windows[0];assert.equal(child.loaded,BRIDGE);
+  assert.equal([...timers.pending.values()][0].ms,1234);timers.fire();await flush();const failureURL=child.webContents.getURL();assert.match(failureURL,/account-status\.html\?state=failed$/);
+  release();await flush();assert.equal(child.webContents.getURL(),failureURL);assert.equal(timers.pending.size,0);assert.equal(child.webContents.stops,1);
+});
+
+test('closing a preparing cashier cancels its old navigation while a new explicit order can open',async t=>{
+  let release;const delayed=new Promise(resolve=>release=resolve),timers=fakeTimers();
+  const f=cashierFixture(t,{timers,statusLoadImpl:()=>delayed});await openCashier(f);const old=f.windows[0];old.close();assert.equal(timers.pending.size,0);
+  assert.equal((await f.invoke('payment-resolve',{accountId:12,confirmed:true})).ok,true);await openCashier(f);const fresh=f.windows[1];assert.equal(timers.pending.size,1);
+  release();await flush();assert.equal(old.loaded,undefined);assert.equal(fresh.loaded,BRIDGE);assert.equal(timers.pending.size,0);
+});
+
+test('local loading must finish before cashier navigation and dispose cancels its deadline',async t=>{
+  let release;const delayed=new Promise(resolve=>release=resolve),timers=fakeTimers();
+  const f=cashierFixture(t,{timers,statusLoadImpl:()=>delayed});await openCashier(f);await flush();const child=f.windows[0];assert.equal(child.shown,true);assert.equal(child.loaded,undefined);assert.equal(timers.pending.size,1);
+  f.controller.dispose();assert.equal(timers.pending.size,0);release();await flush();assert.equal(child.loaded,undefined);
+});
+
+test('closing an in-flight cashier ignores its resulting load rejection and refreshes the account',async t=>{
+  let reject;const delayed=new Promise((_resolve,rejectLoad)=>reject=rejectLoad),timers=fakeTimers(),failures=[];
+  const f=cashierFixture(t,{timers,loadImpl:()=>delayed,reportFailure:value=>failures.push(value)});await openCashier(f);await flush();const child=f.windows[0];child.close();assert.equal(timers.pending.size,0);reject(Error('navigation-aborted-private'));await flush();
+  assert.equal(failures.length,0);assert.equal(child.statusLoads.length,1);assert.equal((await f.invoke('snapshot')).signedIn,true);
+});
+
+test('a missing local status page closes the cashier and releases account suspension',async t=>{
+  const timers=fakeTimers(),failures=[],f=cashierFixture(t,{timers,statusLoadImpl:async()=>{throw Error('private-file-path');},reportFailure:value=>failures.push(value)});await openCashier(f);await flush();
+  assert.equal(f.windows[0].loaded,undefined);assert.equal(f.windows[0].isDestroyed(),true);assert.equal(timers.pending.size,0);assert.deepEqual(failures,[{code:'ACCOUNT_CONNECT_FAILED',httpStatus:0}]);assert.equal((await f.invoke('snapshot')).signedIn,true);
+});
+
+test('a synchronous stop failure cannot suppress the cashier local failure page',async t=>{
+  const timers=fakeTimers(),failures=[],f=cashierFixture(t,{timers,loadImpl:()=>new Promise(()=>{}),reportFailure:value=>failures.push(value)});await openCashier(f);await flush();const child=f.windows[0];child.webContents.stop=()=>{throw Error('native-stop-private');};
+  assert.doesNotThrow(()=>timers.fire());await flush();assert.deepEqual(child.statusLoads.at(-1).options,{query:{state:'failed'}});assert.equal(child.isDestroyed(),false);assert.deepEqual(failures,[{code:'ACCOUNT_CONNECT_FAILED',httpStatus:0}]);assert.equal(timers.pending.size,0);
+});
+
+test('synchronous failure-page load errors close the cashier and release suspension',async t=>{
+  const timers=fakeTimers(),f=cashierFixture(t,{timers,loadImpl:()=>new Promise(()=>{})});await openCashier(f);await flush();const child=f.windows[0];child.loadFile=()=>{throw Error('native-load-file-private');};
+  assert.doesNotThrow(()=>timers.fire());await flush();assert.equal(child.isDestroyed(),true);assert.equal(timers.pending.size,0);assert.equal((await f.invoke('snapshot')).signedIn,true);
+});
+
+test('failure-page rejection falls back to destroy when cashier close throws',async t=>{
+  const timers=fakeTimers(),f=cashierFixture(t,{timers,loadImpl:()=>new Promise(()=>{})});await openCashier(f);await flush();const child=f.windows[0],close=child.close.bind(child);let destroyed=false;
+  child.loadFile=()=>Promise.reject(Error('native-load-file-private'));child.close=()=>{throw Error('native-close-private');};child.destroy=()=>{destroyed=true;close();};
+  assert.doesNotThrow(()=>timers.fire());await flush();assert.equal(destroyed,true);assert.equal(child.isDestroyed(),true);assert.equal(timers.pending.size,0);assert.equal((await f.invoke('snapshot')).signedIn,true);
+});
+
+test('local status page has no privileged bridge, external content, forms or raw error interpolation',()=>{
+  const html=fs.readFileSync(path.join(__dirname,'../electron/account-status.html'),'utf8'),script=fs.readFileSync(path.join(__dirname,'../electron/account-status.js'),'utf8');
+  assert.match(html,/default-src 'none'/);assert.match(html,/connect-src 'none'/);assert.match(html,/form-action 'none'/);assert.doesNotMatch(html,/<(?:a|form|iframe)\b|https?:/);assert.doesNotMatch(script,/innerHTML|require\(|fetch\(|ipcRenderer|hamsterDesktopAccount/);
+  const elements={title:{},message:{},hint:{}},classes=[];vm.runInNewContext(script,{URLSearchParams,window:{location:{search:'?state=failed&error=secret-value'}},document:{body:{classList:{add:value=>classes.push(value)}},getElementById:id=>elements[id]}});
+  assert.deepEqual(classes,['failed']);assert.match(elements.message.textContent,/关闭此窗口后重试/);assert.doesNotMatch(JSON.stringify(elements),/secret-value/);
+});
+
+test('cashier permissions and download boundaries remain narrow and dispose closes only owned windows',async t=>{
+  const f=cashierFixture(t);await openCashier(f);await flush();const child=f.windows[0],contents=child.webContents;contents.setURL(BRIDGE);
+  assert.equal(f.session.checkPermission(contents,'clipboard-sanitized-write',REMOTE),true);for(const permission of ['clipboard-read','media','geolocation','openExternal'])assert.equal(f.session.checkPermission(contents,permission,REMOTE),false);
+  let allowed=true;f.session.requestPermission(contents,'clipboard-sanitized-write',value=>allowed=value,{isMainFrame:false,requestingUrl:REMOTE});assert.equal(allowed,false);f.session.requestPermission(contents,'clipboard-sanitized-write',value=>allowed=value,{isMainFrame:true,requestingUrl:'https://evil.test/'});assert.equal(allowed,false);
+  let prevented=false;f.session.emit('will-download',{preventDefault(){prevented=true;}});assert.equal(prevented,true);const handler=f.handlers.get(CHANNEL);f.controller.dispose();assert.equal(f.handlers.has(CHANNEL),false);assert.equal(child.isDestroyed(),true);assert.equal(f.session.listenerCount('will-download'),0);assert.deepEqual(await handler(f.event(),'snapshot',{}),{ok:false,code:'FORBIDDEN'});
+});
+
+test('preload exposes only fixed local account commands and payload-free notifications',async()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../electron/app-events.cjs'),'utf8');
+  function preload(main){const exposed={},handlers=new Map(),calls=[],events=[],ipcRenderer={on:(name,handler)=>handlers.set(name,handler),invoke:async(...args)=>{calls.push(args);return {ok:true};}};vm.runInNewContext(source,{require:name=>{assert.equal(name,'electron');return {ipcRenderer,contextBridge:{exposeInMainWorld:(key,value)=>exposed[key]=value}};},process:{isMainFrame:main},window:{dispatchEvent:event=>events.push(event)},Event:class{constructor(type){this.type=type;}}});return {exposed,handlers,calls,events};}
+  const f=preload(true);assert.deepEqual(Object.keys(f.exposed),['hamsterDesktopAccount']);assert.deepEqual(Object.keys(f.exposed.hamsterDesktopAccount),['command']);await f.exposed.hamsterDesktopAccount.command('snapshot');assert.deepEqual(f.calls[0].slice(0,2),[CHANNEL,'snapshot']);
+  const invalid=await f.exposed.hamsterDesktopAccount.command('fetch',{url:REMOTE});assert.equal(invalid.code,'INVALID_REQUEST');assert.equal(f.calls.length,1);
+  f.handlers.get('hamster-account-updated')({},'private');f.handlers.get('hamster-relay-configured')({},'private');assert.deepEqual(f.events.map(event=>event.type),['hamster-account-updated','hamster-relay-native-configured','hamster-relay-configured']);assert.ok(f.events.every(event=>Object.keys(event).join(',')==='type'));assert.deepEqual(Object.keys(preload(false).exposed),[]);
+});
+
+function paymentFixture(t,{handler,journalFile,connected=12}={}){
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'hamster-native-payment-'));
+  const file=journalFile||path.join(directory,'operations.json');
+  const state={userId:12,sid:'synthetic-private-session',connected,now:1700000000000,status:'pending',calls:[],opened:[],offers:{fixed_cny_topup:true,enable_online_topup:true,payment_compliance_confirmed:true,amount_options:[50,100,200],pay_methods:[{type:'alipay'},{type:'wxpay'}]}};
+  const signed=(amount=50,method='alipay',userId=12)=>({message:'success',url:REMOTE+'/pay/lanjing/epay/submit.php',data:{pid:'2347637',type:method,out_trade_no:`USR${userId}NOSYNTHETIC1`,notify_url:REMOTE+'/api/user/epay/notify',return_url:REMOTE+'/account-lite/index.html',name:'TUC'+amount,money:amount.toFixed(2),sign:'c'.repeat(32),sign_type:'MD5',device:'pc'}});
+  const request=async(route,options={})=>{
+    state.calls.push({route,options});
+    const intercepted=await handler?.(route,options,{state,signed,file});if(intercepted!==undefined)return intercepted;
+    if(route==='/api/user/self')return {success:true,data:{id:state.userId,email:'synthetic@example.test',private:'should-not-cross'}};
+    if(route==='/api/user/topup/info')return {success:true,data:state.offers};
+    if(route==='/api/user/amount')return {message:'success',data:options.body.amount.toFixed(2)};
+    if(route==='/api/user/pay'){
+      const saved=JSON.parse(fs.readFileSync(file+'.payment','utf8'));
+      assert.equal(saved.entries.at(-1).action,'pending');assert.equal(saved.entries.at(-1).order,'');
+      return signed(options.body.amount,options.body.payment_method,state.userId);
+    }
+    if(route.startsWith('/api/user/topup/self'))return {success:true,data:{total:1,items:[{user_id:state.userId,trade_no:`USR${state.userId}NOSYNTHETIC1`,status:state.status,money:50,payment_method:'alipay',create_time:1700000000,complete_time:state.status==='success'?1700000001:0,private:'should-not-cross'}]}};
+    throw Error('Unexpected synthetic payment route');
+  };
+  const controller=createAccountPayment({request,journalFile:file,getIdentity:()=>({userId:state.userId,sid:state.sid}),getConnectedAccountId:()=>state.connected,openPayment:async payment=>{state.opened.push(JSON.parse(JSON.stringify(payment)));return {ok:true};},now:()=>state.now});
+  const command=(name,value={})=>controller.command(name,{accountId:12,...value});
+  t.after(()=>{controller.dispose();const resolved=fs.realpathSync(directory);assert.equal(path.dirname(resolved),fs.realpathSync(os.tmpdir()));assert.match(path.basename(resolved),/^hamster-native-payment-/);fs.rmSync(resolved,{recursive:true,force:true});});
+  return {state,file,controller,command,signed,request};
+}
+
+test('native recharge offers only supported server-enabled amounts and methods without private fields',async t=>{
+  const f=paymentFixture(t);f.state.offers.amount_options.push(1000);f.state.offers.pay_methods.push({type:'arbitrary',secret:'private'});
+  assert.deepEqual(await f.command('payment-options'),{ok:true,available:true,amounts:[50,100,200],methods:['alipay','wxpay'],pending:null});
+  f.state.offers.payment_compliance_confirmed=false;
+  assert.deepEqual(await f.command('payment-options'),{ok:true,available:false,amounts:[],methods:[],pending:null});
+  assert.equal(f.state.calls.filter(call=>call.options.method==='POST').length,0);
+});
+
+test('native recharge durably binds an explicit quote before one create and never exposes its signed handoff',async t=>{
+  const f=paymentFixture(t),quote=await f.command('payment-quote',{amount:50,method:'alipay'});
+  assert.equal(quote.ok,true);assert.match(quote.quoteId,/^[a-f0-9-]{36}$/);assert.equal(quote.expiresAt,f.state.now+120000);
+  const result=await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});
+  assert.deepEqual(result,{ok:true,pending:true,canContinue:true,amount:50,method:'alipay'});
+  assert.doesNotMatch(JSON.stringify(result),/https|USR12|sign|synthetic-private/);
+  const journal=JSON.parse(fs.readFileSync(f.file+'.payment','utf8'));
+  assert.deepEqual(Object.keys(journal.entries[0]).sort(),['action','amount','at','method','order','userId']);
+  assert.equal(journal.entries[0].userId,12);assert.equal(journal.entries[0].order,'USR12NOSYNTHETIC1');
+  assert.deepEqual(f.state.calls.find(call=>call.route==='/api/user/pay').options.body,{amount:50,payment_method:'alipay'});
+  assert.deepEqual(await f.command('payment-open'),{ok:true,pending:true,paymentOpened:true});
+  assert.equal(f.state.opened.length,1);assert.equal(f.state.opened[0].action,REMOTE+'/pay/lanjing/epay/submit.php');
+  assert.equal((await f.command('payment-open')).code,'PENDING_OPERATION');
+  const orders=await f.command('payment-orders');assert.equal(orders.pending.orderKnown,true);assert.equal(orders.items[0].status,'pending');
+  assert.doesNotMatch(JSON.stringify(orders),/USR12|https|sign|private|user_id/);
+});
+
+test('duplicate confirmed native recharge clicks produce only one upstream order',async t=>{
+  const f=paymentFixture(t),quote=await f.command('payment-quote',{amount:50,method:'alipay'});
+  const results=await Promise.all([f.command('payment-create',{quoteId:quote.quoteId,confirmed:true}),f.command('payment-create',{quoteId:quote.quoteId,confirmed:true})]);
+  assert.equal(results.filter(row=>row.ok).length,1);assert.equal(results[1].code,'PENDING_OPERATION');
+  assert.equal(f.state.calls.filter(call=>call.route==='/api/user/pay').length,1);
+});
+
+test('native recharge checks original order remains payable before opening its cashier',async t=>{
+  const f=paymentFixture(t),quote=await f.command('payment-quote',{amount:50,method:'alipay'});await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});
+  f.state.sid='different-synthetic-session';assert.equal((await f.command('payment-options')).pending.canContinue,false);
+  f.state.sid='synthetic-private-session';f.state.status='expired';
+  assert.equal((await f.command('payment-open')).code,'PENDING_OPERATION');assert.equal(f.state.opened.length,0);
+  assert.equal((await f.command('payment-options')).pending,null);
+  assert.equal(JSON.parse(fs.readFileSync(f.file+'.payment','utf8')).entries[0].action,'expired');
+});
+
+test('native recharge rejects account, local-key owner, session and expired quote mismatches before creation',async t=>{
+  const f=paymentFixture(t);f.state.connected=99;
+  assert.equal((await f.command('payment-options')).code,'ACCOUNT_MISMATCH');
+  f.state.connected=12;assert.equal((await f.command('payment-options',{accountId:99})).code,'ACCOUNT_CHANGED');
+  let quote=await f.command('payment-quote',{amount:50,method:'alipay'});f.state.sid='different-synthetic-session';
+  assert.equal((await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true})).code,'QUOTE_EXPIRED');
+  quote=await f.command('payment-quote',{amount:50,method:'alipay'});f.state.now=quote.expiresAt;
+  assert.equal((await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true})).code,'QUOTE_EXPIRED');
+  assert.equal(f.state.calls.filter(call=>call.route==='/api/user/pay').length,0);
+  f.state.connected=null;assert.equal((await f.command('payment-options')).ok,true);
+});
+
+test('native recharge keeps unknown creation pending across restart and does not replay it',async t=>{
+  const f=paymentFixture(t,{handler:async route=>{if(route==='/api/user/pay')throw Error('synthetic connection lost');}});
+  const quote=await f.command('payment-quote',{amount:50,method:'alipay'});
+  assert.equal((await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true})).code,'PAYMENT_UNKNOWN');
+  f.controller.dispose();
+  const restarted=createAccountPayment({request:f.request,journalFile:f.file,getIdentity:()=>({userId:12,sid:f.state.sid}),getConnectedAccountId:()=>12,openPayment:()=>{throw Error('No original signed handoff');},now:()=>f.state.now});t.after(()=>restarted.dispose());
+  assert.equal((await restarted.command('payment-quote',{accountId:12,amount:50,method:'alipay'})).code,'PENDING_OPERATION');
+  assert.equal((await restarted.command('payment-open',{accountId:12})).code,'PENDING_OPERATION');
+  const rows=await restarted.command('payment-orders',{accountId:12});assert.equal(rows.pending.orderKnown,false);
+  assert.equal(f.state.calls.filter(call=>call.route==='/api/user/pay').length,1);
+});
+
+test('native recharge validates order owner, amount, signature structure, callback and payment destination',async t=>{
+  const mutations=[
+    value=>value.url='https://evil.test/pay',value=>value.data.out_trade_no='USR99NOSYNTHETIC1',value=>value.data.money='100.00',
+    value=>value.data.sign='invalid',value=>value.data.notify_url='https://evil.test/notify',value=>value.data.return_url='https://evil.test/return',
+    value=>value.data.injected='untrusted',value=>value.data.type='wxpay',value=>value.url=REMOTE+'/pay/lanjing/epay/submit.php?extra=1',
+  ];
+  for(const mutate of mutations){
+    const f=paymentFixture(t,{handler:async(route,options,{signed})=>{if(route==='/api/user/pay'){const value=signed(options.body.amount,options.body.payment_method);mutate(value);return value;}}});
+    const quote=await f.command('payment-quote',{amount:50,method:'alipay'});
+    assert.equal((await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true})).code,'PAYMENT_UNKNOWN');
+    assert.equal((await f.command('payment-open')).code,'PENDING_OPERATION');assert.equal(f.state.opened.length,0);
+    assert.equal((await f.command('payment-options')).pending.orderKnown,false);
+  }
+});
+
+test('native recharge invalidation during submission preserves its original account record and clears payment capability',async t=>{
+  let release,started;const ready=new Promise(resolve=>started=resolve);
+  const f=paymentFixture(t,{handler:async(route,options,{signed})=>{if(route==='/api/user/pay'){started();return new Promise(resolve=>release=()=>resolve(signed(options.body.amount,options.body.payment_method)));}}});
+  const quote=await f.command('payment-quote',{amount:50,method:'alipay'});
+  const submitting=f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});await ready;
+  f.controller.invalidate();f.state.userId=99;release();
+  assert.equal((await submitting).code,'ACCOUNT_CHANGED');f.state.userId=12;
+  assert.equal((await f.command('payment-open')).code,'PENDING_OPERATION');assert.equal((await f.command('payment-options')).pending.orderKnown,true);
+  assert.equal(f.state.calls.filter(call=>call.route==='/api/user/pay').length,1);
+});
+
+test('native recharge resolves only the exact original order using authoritative account-filtered status',async t=>{
+  let queriedOriginal=false;
+  const f=paymentFixture(t,{handler:async(route)=>{
+    if(route.startsWith('/api/user/topup/self')){
+      if(route.includes('keyword=')){queriedOriginal=true;return {data:{items:[{user_id:12,trade_no:'USR12NOSYNTHETIC1',status:'success'}]}};}
+      return {data:{total:1,items:[{user_id:12,trade_no:'USR12NOOTHER',money:50,payment_method:'alipay',status:'success'}]}};
+    }
+  }});
+  const quote=await f.command('payment-quote',{amount:50,method:'alipay'});await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});
+  const orders=await f.command('payment-orders');assert.equal(queriedOriginal,true);assert.equal(orders.pending,null);
+  const journal=JSON.parse(fs.readFileSync(f.file+'.payment','utf8'));assert.equal(journal.entries[0].action,'success');assert.equal(journal.entries[0].order,'USR12NOSYNTHETIC1');
+  assert.equal((await f.command('payment-quote',{amount:100,method:'wxpay'})).ok,true);
+});
+
+test('native recharge does not trust another account or an unknown status as payment completion',async t=>{
+  const f=paymentFixture(t),quote=await f.command('payment-quote',{amount:50,method:'alipay'});await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});
+  f.state.status='paid';assert.equal((await f.command('payment-orders')).pending.orderKnown,true);
+  f.state.userId=99;assert.equal((await f.command('payment-orders')).code,'ACCOUNT_CHANGED');
+  f.state.userId=12;assert.equal(JSON.parse(fs.readFileSync(f.file+'.payment','utf8')).entries[0].action,'pending');
+});
+
+test('native recharge explicit local resolution keeps order history and never cancels, refunds or creates payment',async t=>{
+  const f=paymentFixture(t),quote=await f.command('payment-quote',{amount:50,method:'alipay'});await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});
+  const before=f.state.calls.filter(call=>call.route!=='/api/user/self').length;
+  assert.equal((await f.command('payment-resolve',{confirmed:false})).code,'INVALID_REQUEST');
+  assert.deepEqual(await f.command('payment-resolve',{confirmed:true}),{ok:true,resolved:true});
+  const journal=JSON.parse(fs.readFileSync(f.file+'.payment','utf8'));assert.equal(journal.entries.length,1);assert.equal(journal.entries[0].action,'resolved');assert.equal(journal.entries[0].order,'USR12NOSYNTHETIC1');
+  assert.equal(f.state.calls.filter(call=>call.route!=='/api/user/self').length,before);assert.equal((await f.command('payment-open')).code,'PENDING_OPERATION');
+});
+
+test('native recharge rejects unsafe contracts and stops before upstream when its write-ahead journal fails',async t=>{
+  const f=paymentFixture(t);
+  for(const [action,value] of [['fetch',{}],['__proto__',{}],['payment-options',{url:'https://evil.test'}],['payment-quote',{amount:1,method:'alipay'}],['payment-quote',{amount:50,method:'unknown'}],['payment-create',{quoteId:'x',confirmed:1}],['payment-orders',{page:0}],['payment-resolve',{confirmed:'true'}]])assert.equal((await f.command(action,value)).code,'INVALID_REQUEST');
+  assert.equal(f.state.calls.length,0);
+  const quote=await f.command('payment-quote',{amount:50,method:'alipay'});
+  t.mock.method(fs.promises,'rename',async()=>{throw Error('Synthetic disk failure');});
+  assert.equal((await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true})).code,'STORAGE_UNAVAILABLE');
+  assert.equal(f.state.calls.filter(call=>call.route==='/api/user/pay').length,0);
+});
+
+test('native recharge corrupt journals block replay and invalidation never clears an existing pending order',async t=>{
+  const f=paymentFixture(t),quote=await f.command('payment-quote',{amount:50,method:'alipay'});await f.command('payment-create',{quoteId:quote.quoteId,confirmed:true});
+  f.controller.invalidate();assert.equal((await f.command('payment-open')).code,'PENDING_OPERATION');assert.equal((await f.command('payment-options')).pending.orderKnown,true);
+  f.controller.dispose();fs.writeFileSync(f.file+'.payment','corrupt');
+  const broken=createAccountPayment({journalFile:f.file,request:f.request,getIdentity:()=>({userId:12,sid:f.state.sid})});t.after(()=>broken.dispose());
+  const count=f.state.calls.length;assert.equal((await broken.command('payment-options',{accountId:12})).code,'STORAGE_UNAVAILABLE');assert.equal(f.state.calls.length,count);
+});

@@ -1,0 +1,30 @@
+"""Verify normal public asset URLs, relay version and cashier health, without an account or order."""
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+from urllib.request import build_opener, ProxyHandler, Request
+
+here = Path(__file__).resolve().parent
+manifest = json.loads((here / "build73.json").read_text(encoding="utf8"))
+origin = "https://www.piknoai.com"
+opener = build_opener(ProxyHandler({}))
+checks = {}
+
+
+def get(path):
+    req = Request(origin + path, headers={"Cache-Control": "no-cache", "Accept-Encoding": "identity", "User-Agent": "Mozilla/5.0"})
+    with opener.open(req, timeout=30) as response:
+        assert response.status == 200 and response.geturl() == origin + path
+        return response.read()
+
+
+checks["relay_version"] = json.loads(get("/api/status"))["data"]["version"] == manifest["version"]
+checks["bridge_configured"] = json.loads(get("/pay/lanjing/health"))["paymentConfigured"] is True
+checks["portal_entry"] = b'<html' in get("/hub/billing").lower()
+for asset, expected in manifest["portal_overlay"].items():
+    checks[asset] = hashlib.sha256(get("/" + asset)).hexdigest() == expected
+assert all(checks.values()), [key for key, passed in checks.items() if not passed]
+record = {"passed": True, "checks": checks, "at": datetime.now(timezone.utc).isoformat(), "real_orders": 0, "customer_login": False}
+(here / "public-verification.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf8")
+print(json.dumps(record))

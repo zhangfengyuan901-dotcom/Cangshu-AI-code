@@ -1,0 +1,70 @@
+"""Freeze only the reviewed checkout overlay on the deployed .72 build inputs."""
+from pathlib import Path
+from datetime import datetime, timezone
+import gzip
+import hashlib
+import json
+import shutil
+import subprocess
+
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+PREVIOUS = HERE.parent / "relay-model-gif-current"
+BACKEND = ROOT / "deploy/new-api/backend"
+PORTAL = ROOT / "build/hamster-trim44-web"
+VERSION = "v1.0.0-rc.41-hamster.74"
+TOOLCHAIN = "golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039"
+GO = ["controller/topup.go", "controller/topup_lanjing.go", "router/api-router.go"]
+WEB = ["account-lite/account.mjs", "account-lite/client.mjs"]
+
+
+def digest(file):
+    with file.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def main():
+    source = HERE / "source"
+    frozen = PREVIOUS / "backend72-source"
+    if not source.exists():
+        shutil.copytree(frozen, source)
+    old = json.loads((PREVIOUS / "business-source-verification.json").read_text(encoding="utf8"))["current_hashes"]
+    assets = json.loads((PREVIOUS / "embedded-resources.json").read_text(encoding="utf8"))["current_hashes"]
+    for name in GO:
+        assert name in old and digest(frozen / name) == old[name]
+        shutil.copyfile(BACKEND / name, source / name)
+    for name in WEB:
+        assert name in assets and digest(frozen / "web/dist" / name) == assets[name]
+        assert digest(PORTAL / "dist" / name) == digest(BACKEND / "web/dist" / name)
+        shutil.copyfile(BACKEND / "web/dist" / name, source / "web/dist" / name)
+    assert {name for name in old if digest(source / name) != old[name]} == set(GO)
+    assert {name for name in assets if digest(source / "web/dist" / name) != assets[name]} == set(WEB)
+    bridge = HERE / "server.mjs"
+    shutil.copyfile(ROOT / "deploy/lanjing-bridge/server.mjs", bridge)
+    command = ["docker", "run", "--rm", "--network", "none", "--label", "codex.task=relay-checkout74",
+               "--mount", f"type=bind,source={source},target=/workspace,readonly",
+               "--mount", f"type=bind,source={HERE},target=/out",
+               "-v", "relay-portal-gomod:/go/pkg/mod", "-v", "relay-portal-gobuild:/root/.cache/go-build",
+               "-e", "CGO_ENABLED=0", "-e", "GOMAXPROCS=2", "-w", "/workspace", TOOLCHAIN,
+               "go", "build", "-p", "2", "-ldflags", "-s -w -X github.com/QuantumNous/new-api/common.Version=" + VERSION,
+               "-o", "/out/backend74-new-api"]
+    with (HERE / "backend-build.log").open("wb") as log:
+        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=900)
+    binary = HERE / "backend74-new-api"
+    compressed = binary.with_suffix(".gz")
+    with binary.open("rb") as stream, compressed.open("wb") as raw:
+        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as zipped:
+            shutil.copyfileobj(stream, zipped)
+    manifest = dict(version=VERSION, built_at=datetime.now(timezone.utc).isoformat(),
+                    go_overlay={name: digest(source / name) for name in GO},
+                    portal_overlay={name: digest(source / "web/dist" / name) for name in WEB},
+                    bridge_source_sha256=digest(bridge), binary_sha256=digest(binary),
+                    binary_bytes=binary.stat().st_size, gzip_sha256=digest(compressed), gzip_bytes=compressed.stat().st_size,
+                    frozen_baseline="relay-model-gif-current/backend72-source")
+    (HERE / "build74.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf8")
+    print(json.dumps({"built": True, "version": VERSION, "go_files": len(GO), "portal_files": len(WEB)}))
+
+
+if __name__ == "__main__":
+    main()

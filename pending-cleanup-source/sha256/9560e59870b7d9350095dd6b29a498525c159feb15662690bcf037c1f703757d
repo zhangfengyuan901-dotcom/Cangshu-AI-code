@@ -1,0 +1,20 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const asar=require('../../仓鼠AI/node_modules/@electron/asar');
+const root=__dirname,resources=path.join(root,'artifacts/win-unpacked/resources'),archive=path.join(resources,'app.asar');
+const staged=JSON.parse(fs.readFileSync(path.join(root,'candidate-source-verification.json'),'utf8'));
+const official=JSON.parse(fs.readFileSync(path.join(root,'dev/release/source-manifest.json'),'utf8'));
+const originalResources=JSON.parse(fs.readFileSync(path.join(root,'dev/release/current.json'),'utf8')).resources;
+const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+const fileHash=file=>new Promise((resolve,reject)=>{const h=crypto.createHash('sha256');fs.createReadStream(file).on('error',reject).on('data',d=>h.update(d)).on('end',()=>resolve(h.digest('hex')));});
+let verifying='';
+(async()=>{
+ for(const [name,value]of Object.entries({...official.dependencies,...staged.files})){verifying=name;assert.equal(hash(asar.extractFile(archive,path.normalize(name))),value.sha256,name);}
+ const expected={...Object.fromEntries(Object.entries(originalResources).filter(([name])=>!name.startsWith('hamster-canvas/dist/'))),...staged.resources};
+ for(const [name,value]of Object.entries(expected))assert.equal(await fileHash(path.join(resources,name)),value.sha256,name);
+ const names=asar.listPackage(archive).map(n=>n.replaceAll('\\','/').replace(/^\//,''));
+ assert(!names.some(n=>/(^|\/)(tests|\.venv|\.git|\.env|config\.json|pikno-keys\.bin|tasks\.json)(\/|$)/.test(n)),'excluded_private_or_dev_inputs');
+ const exe=path.join(root,'artifacts/仓鼠AI-1.7.81-安装包.exe');
+ const result={version:'1.7.81',passed:true,installer:path.relative(root,exe).replaceAll('\\','/'),installerSHA256:await fileHash(exe),asarSHA256:await fileHash(archive),applicationFiles:Object.keys(staged.files).length,runtimeDependencyFiles:Object.keys(official.dependencies).length,resources:Object.keys(expected).length,published:false,realCustomerDataIncluded:false};
+ fs.writeFileSync(path.join(root,'package-verification.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+})().catch(e=>{const relative=e.path&&path.relative(root,e.path);console.error(JSON.stringify({passed:false,error:e.code||e.name,verifying,file:relative&&!relative.startsWith('..')?relative:undefined}));process.exitCode=1;});

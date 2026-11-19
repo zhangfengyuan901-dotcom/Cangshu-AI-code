@@ -1,0 +1,49 @@
+// Current packaged workflow upgrade and cache-policy contract. This does not reproduce an old browser cache.
+'use strict';
+const fs=require('node:fs'),fsp=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict'),vm=require('node:vm'),Module=require('node:module');
+const archive=require('@electron/asar'),workspace=path.resolve(__dirname,'../..');
+const defaults={resources:path.join(workspace,'output/hamster-release-1.7.68/win-unpacked/resources'),portable:path.join(workspace,'output/hamster-release-1.7.68/仓鼠AI-1.7.68-便携版.exe'),'portable-sha256':'aeee235a317df22561436615d07cf0908496e75c3dec403af7da3988e2a4e455','baseline-resources':path.join(workspace,'output/hamster-release-1.7.66/win-unpacked/resources'),output:path.join(workspace,'output/current-release-qa/chat-cache-upgrade'),version:'1.7.68','from-version':'1.7.66','asar-sha256':'971dc30f8cfe8781f98c9674ebdde180b7b6d78f16abefd1709cb980b02db266','baseline-asar-sha256':'b003ee70b19e9c3f1f46403c6482ca2bc944416ffb8a7408fe85feef5ecb17f8'};
+const options={...defaults};let checkOnly=false;
+for(let i=2;i<process.argv.length;i++){
+ const flag=process.argv[i];if(flag==='--check-only'){checkOnly=true;continue;}
+ const key=flag.replace(/^--/,'');assert(flag.startsWith('--')&&Object.hasOwn(defaults,key)&&process.argv[i+1]&&!process.argv[i+1].startsWith('--'),'Unknown or incomplete argument: '+flag);options[key]=process.argv[++i];
+}
+const resources=path.resolve(options.resources),baselineResources=path.resolve(options['baseline-resources']),out=path.resolve(options.output);
+const source=path.join(resources,'smart-video-agent'),original=path.join(baselineResources,'smart-video-agent'),asar=path.join(resources,'app.asar'),baselineAsar=path.join(baselineResources,'app.asar');
+const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex'),fileSHA=file=>sha(fs.readFileSync(file));
+const sourceHashes={'chat.py':'71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb','studio.py':'8af9274967196ed14b1acabf5d560790f4654e3680b38804da4128de4a6ca801','.hamster-workflow-version':'ddb5c6d217ea442d92dcdead04dade6263ea482787904ab5c50a86d142b3c07d'};
+function checkReferences(){
+ assert.equal(options.version,'1.7.68','This resource contract targets the retained 1.7.68 release');
+ assert(/^[a-f0-9]{64}$/.test(options['portable-sha256']));assert.equal(fileSHA(path.resolve(options.portable)),options['portable-sha256'],'Declared portable artifact changed');
+ for(const [file,expected,version] of [[asar,options['asar-sha256'],options.version],[baselineAsar,options['baseline-asar-sha256'],options['from-version']]]){
+  assert(/^[a-f0-9]{64}$/.test(expected));assert(fs.statSync(file).isFile());assert.equal(fileSHA(file),expected,'Declared ASAR differs from retained release');assert.equal(JSON.parse(archive.extractFile(file,'package.json')).version,version);
+ }
+ for(const [name,expected] of Object.entries(sourceHashes))assert.equal(fileSHA(path.join(source,name)),expected,'Current workflow resource changed: '+name);
+ assert(fs.statSync(path.join(original,'chat.py')).isFile());assert(fs.statSync(path.join(original,'.hamster-workflow-version')).isFile());
+ assert.notEqual(fileSHA(path.join(original,'chat.py')),sourceHashes['chat.py'],'Choose an older packaged workflow with a real code difference');
+ const synchronizer=archive.extractFile(asar,'electron/workflow-sync.cjs');
+ assert.equal(sha(synchronizer),'03e60127b43d40354298c1d1e74e0055428302f029f2e65bf3b1769ad0c12a37');new vm.Script(synchronizer.toString('utf8'));
+ const studio=fs.readFileSync(path.join(source,'studio.py'),'utf8');assert.match(studio,/response\.headers\['Cache-Control'\] = 'no-store'/);assert.match(studio,/frame-ancestors/);
+ return {ok:true,checkOnly:true,launchedApplication:false,customerProfileUsed:false,productionRequests:0,fromVersion:options['from-version'],toVersion:options.version,portable:path.resolve(options.portable),portableSHA256:options['portable-sha256'],asar,asarSHA256:options['asar-sha256'],baselineAsar,baselineAsarSHA256:options['baseline-asar-sha256'],synchronizerSHA256:sha(synchronizer),sourceHashes,cachePolicySourceVerified:true,oldBrowserFreshCacheMigrationVerified:false};
+}
+async function main(){
+ const references=checkReferences();await fsp.mkdir(out,{recursive:true});await fsp.writeFile(path.join(out,'reference-check.json'),JSON.stringify(references,null,2)+'\n');
+ if(checkOnly){console.log(JSON.stringify(references));return;}
+ const filename=path.join(asar,'electron/workflow-sync.cjs'),compiled=new Module(filename,module);compiled.filename=filename;compiled.paths=Module._nodeModulePaths(path.dirname(filename));compiled._compile(archive.extractFile(asar,'electron/workflow-sync.cjs').toString('utf8'),filename);
+ const {syncWorkflow}=compiled.exports;assert.equal(typeof syncWorkflow,'function');
+ const run=await fsp.mkdtemp(path.join(out,'synthetic-')),target=path.join(run,'workflow');
+ await fsp.cp(original,target,{recursive:true,preserveTimestamps:true});await fsp.writeFile(path.join(target,'.hamster-workflow-app-version'),options['from-version']+'\n');
+ const preserved=['config.yaml','.env','chat-data/conversations.sqlite3','chat-data/session/image.png','creative-data/history.json','studio-data/asset.png','merged_videos/export.mp4','.venv/runtime.txt'],before={};
+ for(const name of preserved){const file=path.join(target,name),bytes=Buffer.from('synthetic-existing-profile-fixture:'+name);await fsp.mkdir(path.dirname(file),{recursive:true});await fsp.writeFile(file,bytes);before[name]=sha(bytes);}
+ const beforeChat=fileSHA(path.join(target,'chat.py')),beforeMarker=await fsp.readFile(path.join(target,'.hamster-workflow-version'),'utf8');
+ assert.equal(await syncWorkflow(source,target,options.version),true);
+ for(const [name,expected] of Object.entries(sourceHashes))assert.equal(fileSHA(path.join(target,name)),expected);
+ assert.notEqual(fileSHA(path.join(target,'chat.py')),beforeChat);
+ for(const name of preserved)assert.equal(fileSHA(path.join(target,name)),before[name]);
+ const afterMarker=await fsp.readFile(path.join(target,'.hamster-workflow-version'),'utf8');assert.equal(afterMarker,await fsp.readFile(path.join(source,'.hamster-workflow-version'),'utf8'));
+ assert.equal((await fsp.readFile(path.join(target,'.hamster-workflow-app-version'),'utf8')).trim(),options.version);
+ assert.equal(await syncWorkflow(source,target,options.version),false);
+ const result={ok:true,synthetic:true,customerProfileUsed:false,launchedApplication:false,productionRequests:0,fromVersion:options['from-version'],toVersion:options.version,protectedFixtures:preserved.length,allProtectedBytesUnchanged:true,chatCodeUpdated:true,workflowMarkerUnchanged:beforeMarker===afterMarker,repeatLaunchSkipsRedundantCopy:true,cachePolicySourceVerified:true,oldBrowserFreshCacheMigrationVerified:false,sourceReferences:references};
+ await fsp.writeFile(path.join(out,'verification.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

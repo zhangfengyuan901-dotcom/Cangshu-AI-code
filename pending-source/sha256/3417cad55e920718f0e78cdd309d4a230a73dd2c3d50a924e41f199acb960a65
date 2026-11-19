@@ -1,0 +1,94 @@
+// Only the two server-selected local service entry points may be embedded.
+export function safeLocalWorkspaceUrl(kind,value,appOrigin=globalThis.location?.origin) {
+  if(typeof value!=='string'||value.length>2048||!/^http:\/\/127\.0\.0\.1:\d+\//.test(value))return null;
+  try {
+    const url=new URL(value);
+    if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!/^\d+$/.test(url.port)||Number(url.port)<1024||Number(url.port)>65535||url.origin===appOrigin||url.username||url.password||url.hash)return null;
+    if(kind==='chat')return /^http:\/\/127\.0\.0\.1:\d+\/chat\/(?:\?instance=[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})?$/.test(value)&&url.pathname==='/chat/'?url.href:null;
+    if(kind!=='canvas'||url.pathname!=='/')return null;
+    const keys=[...url.searchParams.keys()];
+    if(keys.some(key=>!['token','project'].includes(key))||url.searchParams.getAll('token').length!==1||! /^[a-f0-9]{64}$/.test(url.searchParams.get('token')||'')||url.searchParams.getAll('project').length>1)return null;
+    if(url.searchParams.has('project')&&!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(url.searchParams.get('project')))return null;
+    return url.href;
+  } catch {return null;}
+}
+
+export function mountLocalWorkspace(container,{kind,title,open,waitForReady=false,document=container?.ownerDocument||globalThis.document,appOrigin=globalThis.location?.origin,loadTimeout=30000,setTimer=setTimeout,clearTimer=clearTimeout}={}) {
+  if(!container||!document||typeof open!=='function'||!['chat','canvas'].includes(kind))throw new TypeError('Local workspace is required');
+  const status=document.createElement('p');status.className='local-workspace-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.textContent='首次打开时准备本地页面。';
+  const retry=document.createElement('button');retry.className='plain-button local-workspace-retry';retry.type='button';retry.textContent='重新打开';retry.hidden=true;
+  const host=document.createElement('div');host.className='local-workspace-host';
+  const confirmation=document.createElement('dialog');confirmation.className='local-workspace-confirmation';confirmation.setAttribute('aria-label','确认重新连接本地页面');
+  const heading=document.createElement('h2');heading.textContent='重新连接本地页面？';
+  const warning=document.createElement('p');warning.textContent='页面会重新加载，尚未保存的输入或编辑可能丢失。已提交的任务不会因此取消，也不会自动重新提交。';
+  const actions=document.createElement('div');actions.className='local-workspace-actions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='取消';
+  const accept=document.createElement('button');accept.type='button';accept.textContent='确认重新连接';
+  actions.append(cancel,accept);confirmation.append(heading,warning,actions);
+  container.append(status,retry,host,confirmation);
+  let frame=null,pending=null,loaded=false,destroyed=false,finishLoading=null;
+  function state(text,failed=false) {status.textContent=text;status.hidden=!text;retry.hidden=!failed;retry.disabled=false;container.setAttribute('aria-busy',String(Boolean(text)&&!failed));}
+  async function launch() {
+    if(destroyed)return false;
+    if(loaded)return true;
+    if(pending)return pending;
+    pending=(async()=>{
+      state('正在准备本地页面…');retry.disabled=true;
+      try {
+        const result=await open();
+        if(destroyed)return false;
+        const url=safeLocalWorkspaceUrl(kind,result?.url,appOrigin);
+        if(!url||kind==='chat'&&result?.status!=='ready')throw Error('invalid_local_page');
+        frame=document.createElement('iframe');frame.className='local-workspace-frame';frame.title=title;
+        frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-modals allow-downloads');
+        frame.setAttribute('allow','clipboard-write');frame.setAttribute('referrerpolicy','no-referrer');
+        state('正在加载本地页面…');retry.disabled=true;
+        const complete=new Promise(resolve=>{
+          const timer=setTimer(()=>finish(false),loadTimeout);
+          const current=frame;
+          const needsReady=kind==='chat'&&waitForReady;
+          const messageWindow=needsReady?document.defaultView:null;
+          const frameOrigin=new URL(url).origin;
+          const finish=success=>{
+            if(finishLoading!==finish)return;
+            finishLoading=null;clearTimer(timer);
+            current.removeEventListener('load',onLoad);current.removeEventListener('error',onError);
+            messageWindow?.removeEventListener('message',onMessage);
+            resolve(success);
+          };
+          const onMessage=event=>{
+            if(event.source!==current.contentWindow||event.origin!==frameOrigin||event.data?.type!=='hamster-chat-startup-result')return;
+            if(typeof event.data.ready==='boolean')finish(event.data.ready);
+          };
+          const onLoad=()=>{
+            if(!needsReady)finish(true);
+            else if(!messageWindow||!current.contentWindow)finish(false);
+            else current.contentWindow.postMessage({type:'hamster-chat-startup-status'},frameOrigin);
+          };
+          const onError=()=>finish(false);
+          messageWindow?.addEventListener('message',onMessage);
+          finishLoading=finish;current.addEventListener('load',onLoad);current.addEventListener('error',onError);
+        });
+        frame.src=url;host.replaceChildren(frame);
+        loaded=await complete;
+        if(destroyed)return false;
+        if(!loaded)throw Error('local_page_load_failed');
+        state('');retry.hidden=false;retry.textContent='重新连接';retry.className='plain-button local-workspace-retry is-connected';return true;
+      } catch {
+        if(!destroyed){host.replaceChildren();frame=null;loaded=false;retry.textContent='重新打开';retry.className='plain-button local-workspace-retry';state('本地页面未能打开，请重试。已提交的任务不会因此取消或重新提交。',true);}
+        return false;
+      } finally {pending=null;container.setAttribute('aria-busy','false');}
+    })();
+    return pending;
+  }
+  retry.addEventListener('click',()=>{
+    if(destroyed||pending)return;
+    if(!loaded){void launch();return;}
+    try{if(typeof confirmation.showModal!=='function'||typeof confirmation.close!=='function')return;confirmation.showModal();cancel.focus();}catch{}
+  });
+  const closeConfirmation=()=>{if(confirmation.open)confirmation.close();};
+  cancel.addEventListener('click',closeConfirmation);
+  confirmation.addEventListener('cancel',event=>{event.preventDefault();closeConfirmation();});
+  accept.addEventListener('click',()=>{if(!confirmation.open||destroyed||pending||!loaded)return;closeConfirmation();loaded=false;void launch();});
+  return {open:launch,destroy(){destroyed=true;closeConfirmation();finishLoading?.(false);host.replaceChildren();frame=null;container.replaceChildren();}};
+}

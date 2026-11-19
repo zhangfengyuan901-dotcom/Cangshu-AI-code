@@ -1,0 +1,33 @@
+{
+  "name": "hamster-ai",
+  "version": "1.7.77",
+  "description": "仓鼠AI本地版",
+  "author": "仓鼠AI",
+  "private": true,
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
+    "lucide": "^1.45.0",
+    "yauzl": "3.4.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "electron": "electron .",
+    "runtime:build": "node scripts/build-python-runtime.cjs",
+    "canvas:build": "node scripts/build-canvas.cjs",
+    "hypit:setup:internal": "node scripts/setup-hypit-internal.cjs --internal-only",
+    "dist": "node scripts/stage-current-release.cjs --build",
+    "release:check": "node scripts/stage-current-release.cjs --check",
+    "release:stage": "node scripts/stage-current-release.cjs",
+    "test": "node --test --test-timeout=20000 tests/*.test.js tests/*.test.mjs",
+    "test:release": "node scripts/test-release.cjs"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.63.0"
+  }
+}

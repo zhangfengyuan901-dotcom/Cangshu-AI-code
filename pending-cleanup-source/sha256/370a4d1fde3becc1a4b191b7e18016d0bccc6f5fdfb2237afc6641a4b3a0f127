@@ -1,0 +1,214 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {spawn,spawnSync}=require('node:child_process');
+const {isolate,childEnvironment,reservePort,waitFor,verifyMedia,connectInspector,processGone,readEvents}=require('./qa-helpers.cjs');
+const root=path.join(__dirname,'qa-installed-profile',require('node:crypto').randomUUID());
+const chosen=path.join(root,'chosen-workspace');
+const output=path.join(__dirname,'qa-installed.json');
+const result={version:'1.7.82',scope:'installed-executable-synthetic-isolated',realCustomerData:false,realGenerationCalls:0,realPayments:0,checks:[]};
+function browserFixture(load,root,chosen){
+ const {app,BrowserWindow,dialog}=load('electron'),path=load('node:path');
+ globalThis.__browserErrors=[];
+ app.on('browser-window-created',(_event,window)=>window.webContents.on('console-message',(_event,level,message,line,source)=>{if(level>=2)globalThis.__browserErrors.push({level,line,file:source?path.basename(source).split('?')[0]:'',reason:/MIME/.test(message)?'mime':/SyntaxError/.test(message)?'syntax':/ReferenceError/.test(message)?'reference':/Failed to fetch|Failed to load/.test(message)?'load':/TypeError/.test(message)?'type':'other'});}));
+ // A synthetic configured identity permits the persisted-page recovery path.
+ // The outer isolation guard has already blocked all outgoing Node/Electron requests.
+ const store=load(path.join(app.getAppPath(),'pikno-key-store.cjs'));
+ const original=store.createPiknoKeyStore;
+ store.createPiknoKeyStore=(options)=>{const actual=original(options);return {...actual,read:()=>({...actual.read(),piknoUserId:7,piknoChatKey:'sk-'+ 'a'.repeat(32)})};};
+ dialog.showOpenDialog=async()=>({canceled:false,filePaths:[chosen]});
+ const win=()=>BrowserWindow.getAllWindows()[0];
+ globalThis.__browserQA={
+   run:script=>win().webContents.executeJavaScript(script),
+   child:(kind,script)=>{const frame=win().webContents.mainFrame.frames.find(f=>{try{const url=new URL(f.url);return url.protocol==='http:'&&url.hostname==='127.0.0.1'&&(kind==='chat'?url.pathname.startsWith('/chat'):!url.pathname.startsWith('/chat'));}catch{return false;}});if(!frame)return null;return frame.executeJavaScript(script);},
+   frameCount:()=>win().webContents.mainFrame.frames.length,
+   async screenshot(){load('node:fs').writeFileSync(path.join(root,'canvas-before-drag.png'),(await win().webContents.capturePage()).toPNG());return true;},
+   async fontScreenshot(name){if(!['account','chat','canvas','narrow'].includes(name))throw Error('qa_name');load('node:fs').writeFileSync(path.join(root,'typography-'+name+'.png'),(await win().webContents.capturePage()).toPNG());return true;},
+   resize(width,height){win().setSize(width,height);return true;},
+   async nativeControls(){
+    const window=win(),delay=()=>new Promise(resolve=>setTimeout(resolve,180));
+    const before=window.getBounds();window.maximize();await delay();const maximized=window.isMaximized();
+    window.unmaximize();await delay();window.minimize();await delay();const minimized=window.isMinimized();
+    window.restore();await delay();window.setBounds(before);window.focus();
+    return {maximized,minimized,restored:!window.isMinimized()&&!window.isMaximized(),resizable:window.isResizable()};
+   },
+   async drag(x,y){
+    const contents=win().webContents;
+    contents.focus();
+    contents.sendInputEvent({type:'mouseMove',x,y});contents.sendInputEvent({type:'mouseDown',x,y,button:'left',clickCount:1});
+    for(let i=1;i<=75;i++){await new Promise(resolve=>setTimeout(resolve,16));contents.sendInputEvent({type:'mouseMove',x:x+i,y:y+Math.round(Math.sin(i/12)*25),button:'left',modifiers:['leftButtonDown']});}
+    contents.sendInputEvent({type:'mouseUp',x:x+75,y:y+Math.round(Math.sin(75/12)*25),button:'left',clickCount:1});return true;
+   },
+ };
+ return true;
+}
+async function launch(exe,index){
+ result.stage='launch-'+index;
+ for(const name of ['appData','localAppData','userData','sessionData','desktop','home','temp','chosen-workspace'])fs.mkdirSync(path.join(root,name),{recursive:true});
+ fs.writeFileSync(path.join(root,'events.ndjson'),'');
+ const port=await reservePort();
+ const env={...childEnvironment(root),HTTP_PROXY:'http://127.0.0.1:1',HTTPS_PROXY:'http://127.0.0.1:1',ALL_PROXY:'http://127.0.0.1:1',NO_PROXY:'localhost,127.0.0.1'};
+ const child=spawn(exe,[`--inspect-brk=${port}`,'--disable-background-networking'],{cwd:root,windowsHide:true,env,stdio:'ignore'});
+ let exit=null,inspector;
+ child.once('exit',(code,signal)=>{exit={code,signal};});child.once('error',()=>{exit={code:-1};});
+ try{
+  const endpoint=await waitFor(async()=>{if(exit)throw Error('launch_exit');try{const r=await fetch(`http://127.0.0.1:${port}/json/list`,{signal:AbortSignal.timeout(300)});const u=(await r.json())[0]?.webSocketDebuggerUrl;return u?.startsWith(`ws://127.0.0.1:${port}/`)?u:null;}catch{return null;}},30000);
+  assert(endpoint,'inspector_ready');inspector=await connectInspector(endpoint);
+  await inspector.send('Debugger.enable');await inspector.send('Runtime.enable');await inspector.send('Runtime.runIfWaitingForDebugger');
+  const paused=await waitFor(inspector.paused,6000);assert(paused?.callFrames?.length,'main_paused');
+  for(const expression of [`(${isolate.toString()})(require,${JSON.stringify(root)})`,`(${browserFixture.toString()})(require,${JSON.stringify(root)},${JSON.stringify(chosen)})`]){
+   const r=await inspector.send('Debugger.evaluateOnCallFrame',{callFrameId:paused.callFrames[0].callFrameId,expression,returnByValue:true});assert(!r.exceptionDetails,'isolation_injection');
+  }
+  await inspector.send('Debugger.resume');
+  const evaluate=async(expression,awaitPromise=true)=>{const r=await inspector.send('Runtime.evaluate',{expression,awaitPromise,returnByValue:true});if(r.exceptionDetails){const detail=r.exceptionDetails.exception?.description||'';result.exceptionClass=r.exceptionDetails.exception?.className;result.exceptionReason=detail.split('\n')[0].replace(/https?:\/\/\S+|[A-Z]:[\\/][^\s]+/gi,'[redacted]').slice(0,140);}assert(!r.exceptionDetails,'runtime_evaluation');return r.result?.value;};
+  const run=script=>evaluate(`globalThis.__browserQA.run(${JSON.stringify(script)})`);
+  assert(await waitFor(async()=>{try{return await run(`document.body.dataset.startupState==='ready'`);}catch{return false;}},45000),'ui_ready');
+  delete result.exceptionClass;delete result.exceptionReason;
+  const check={launch:index,startView:await run(`document.querySelector('.view.active')?.dataset.panel`)};result.currentCheck=check;
+  const fontProbe=`(async()=>{
+    const fonts={};for(const family of ['Inter','JetBrains Mono','Roboto']){const loaded=await document.fonts.load('400 14px "'+family+'"','Hamster 0123456789');fonts[family]=loaded.length>0&&loaded.every(face=>face.status==='loaded');}
+    const sample=document.createElement('span');sample.textContent='0123456789 中文';sample.style.cssText='font-family:var(--font-numeric);font-variant-numeric:tabular-nums;display:inline-block;position:fixed;visibility:hidden;font-size:20px';document.body.append(sample);
+    const numeric=getComputedStyle(sample).fontFamily;sample.textContent='11111111';const narrow=sample.getBoundingClientRect().width;sample.textContent='88888888';const wide=sample.getBoundingClientRect().width;sample.remove();
+    return {body:getComputedStyle(document.body).fontFamily,fonts,numeric,tabularDigits:Math.abs(narrow-wide)<.1,externalFontRequests:performance.getEntriesByType('resource').filter(r=>/\\.(woff2?|ttf)(?:$|\\?)/.test(r.name)&&!r.name.startsWith(location.origin+'/')).length};
+  })()`;
+  if(index===1){check.typography={shell:await run(fontProbe)};assert(Object.values(check.typography.shell.fonts).every(Boolean));assert(check.typography.shell.tabularDigits);assert.equal(check.typography.shell.externalFontRequests,0);}
+  if(index===1){
+   check.nativeWindow=await evaluate('globalThis.__browserQA.nativeControls()');assert(Object.values(check.nativeWindow).every(Boolean));
+   check.topTabs=await run(`(()=>{
+    const tabs=[...document.querySelectorAll('[role="tablist"] [role="tab"]')].filter(tab=>!tab.hidden),area=navigator.windowControlsOverlay?.getTitlebarAreaRect();
+    const panel=document.querySelector('.view.active'),bar=document.querySelector('[role="tablist"]'),rect=bar?.getBoundingClientRect();
+    return {count:tabs.length,views:tabs.map(tab=>tab.dataset.view),selected:tabs.filter(tab=>tab.getAttribute('aria-selected')==='true').length,overlayVisible:navigator.windowControlsOverlay?.visible===true,tabbarFits:rect&&area&&rect.right<=area.x+area.width+1,fullWidth:panel.getBoundingClientRect().left<2,overlayHeight:area?.height};
+   })()`);
+   assert.equal(check.topTabs.count,9);assert.equal(check.topTabs.selected,1);assert(check.topTabs.overlayVisible&&check.topTabs.tabbarFits&&check.topTabs.fullWidth);
+  }
+  if(index===1&&process.env.HAMSTER_QA_NATIVE_UI==='1'){
+   result.stage='native-ui-check';
+   fs.writeFileSync(path.join(__dirname,'native-ui-ready.json'),JSON.stringify({pid:child.pid,version:'1.7.82',isolated:true})+'\n');
+   const nativeResultFile=path.join(__dirname,'native-ui-result.json');
+   assert(await waitFor(()=>fs.existsSync(nativeResultFile),600000),'native_ui_timeout');
+   check.nativeUi=JSON.parse(fs.readFileSync(nativeResultFile,'utf8'));assert.equal(check.nativeUi.status,'accessibility_inspected_mouse_not_tested');
+   await evaluate('globalThis.__browserQA.nativeControls()');await evaluate('globalThis.__browserQA.resize(1200,820)');
+   await run(`document.querySelector('.rail-item[data-view="chat"]').click()`);
+  }
+  result.stage='directory-status-'+index;
+  const readyStatus=await run('window.hamsterWorkDirectory.status()');assert(readyStatus.ok,'directory_status');
+  if(index===1){
+   assert.equal(readyStatus.activeDirectory,path.join(root,'desktop'));
+   result.stage='media';check.media=await verifyMedia(await evaluate('globalThis.__shutdownQA.origin()'),root);
+   result.stage='navigation';
+   check.navigation=await run(`(async()=>{
+    const pages=['generate','digital','depth','history','account','assets'];
+    const panelRefs=new Map([...document.querySelectorAll('.view')].map(n=>[n.dataset.panel,n]));
+    const prompt=document.getElementById('prompt');prompt.value='Synthetic QA draft';
+    const samples=[];const click=name=>document.querySelector('.rail-item[data-view="'+name+'"]').click();
+    for(let i=0;i<42;i++){const name=pages[i%pages.length],start=performance.now();click(name);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));samples.push(performance.now()-start);}
+    samples.sort((a,b)=>a-b);
+    return {samples:samples.length,switchPaintP95Ms:Math.round(samples[Math.ceil(samples.length*.95)-1]*100)/100,panelNodesPreserved:[...panelRefs].every(([k,n])=>document.querySelector('.view[data-panel="'+k+'"]')===n),draftPreserved:prompt.value==='Synthetic QA draft'};
+   })()`);
+   assert(check.navigation.panelNodesPreserved&&check.navigation.draftPreserved,'page_reuse');
+   result.stage='large-lists';check.stress=await run(`(async()=>{
+    const original=window.fetch.bind(window);let progress=15;
+    const tasks=Array.from({length:1000},(_,i)=>({id:i.toString(16).padStart(32,'0'),key:i.toString(16).padStart(32,'0'),source:'generate',type:'video',status:'processing',progress,prompt:'Synthetic task '+i,createdAt:'2026-01-01T00:00:00.000Z'}));
+    const items=Array.from({length:3000},(_,i)=>({id:(i+10000).toString(16).padStart(32,'0'),name:'Synthetic asset '+i,category:'talent',kind:'image',size:1024}));
+    window.fetch=(resource,options)=>{const url=new URL(typeof resource==='string'?resource:resource.url,location.href);if(url.pathname==='/api/tasks'&&(!options?.method||options.method==='GET'))return Promise.resolve(Response.json({tasks:tasks.map(t=>({...t,progress})),warnings:[]}));if(url.pathname==='/api/assets'&&(!options?.method||options.method==='GET'))return Promise.resolve(Response.json({root:'Synthetic fixture',items}));return original(resource,options);};
+    const click=name=>document.querySelector('.rail-item[data-view="'+name+'"]').click();
+    const frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const until=async(fn)=>{for(let i=0;i<100;i++){if(fn())return true;await frames();}return false;};
+    click('history');window.dispatchEvent(new Event('online'));if(!await until(()=>document.querySelector('#historyList .task-card')))throw Error('stress_tasks');
+    const card=document.querySelector('#historyList .task-card');progress=70;click('account');click('history');window.dispatchEvent(new Event('online'));await frames();await frames();
+    const retained=card===document.querySelector('#historyList .task-card');
+    const taskCards=document.querySelectorAll('#historyList .task-card').length;
+    click('assets');[...document.querySelectorAll('[data-panel="assets"] .asset-toolbar button')].find(b=>b.textContent==='刷新').click();
+    if(!await until(()=>document.querySelector('[data-panel="assets"] .asset-card')))throw Error('stress_assets');
+    for(let i=0;i<12;i++){document.querySelector('[data-panel="assets"] [data-asset-more]')?.click();await frames();}
+    const assetCards=document.querySelectorAll('[data-panel="assets"] .asset-card').length;
+    const timings=[];for(let i=0;i<30;i++){const start=performance.now();click(i%2?'assets':'history');await frames();timings.push(performance.now()-start);}
+    timings.sort((a,b)=>a-b);window.fetch=original;
+    return {taskInput:tasks.length,assetInput:items.length,taskCards,assetCards,taskNodeRetained:retained,switchPaintP95Ms:Math.round(timings[Math.ceil(timings.length*.95)-1]*100)/100};
+   })()`);
+   assert(check.stress.taskNodeRetained&&check.stress.taskCards<1000&&check.stress.assetCards<3000,'bounded_rendering');
+   result.stage='chat';await run(`document.querySelector('.rail-item[data-view="chat"]').click()`);
+   assert(await waitFor(()=>run(`Boolean(document.querySelector('[data-panel="chat"] iframe'))`),60000),'chat_frame');
+   const chatReady=await waitFor(()=>evaluate(`globalThis.__browserQA.child('chat',"Boolean(document.querySelector('textarea'))&&document.documentElement.dataset.workspaceActive==='true'")`),10000);
+   check.chatState=await evaluate(`globalThis.__browserQA.child('chat',"({activity:document.documentElement.dataset.workspaceActive||null,chatScript:document.querySelector('script[type=module]')?.getAttribute('src'),managedAncestor:Boolean(location.ancestorOrigins?.[0]),parentMatches:parent===top})")`);
+   check.mainViewAtChat=await run(`document.querySelector('.view.active')?.dataset.panel`);
+   check.rendererErrors=await evaluate('globalThis.__browserErrors');
+   assert(chatReady,'chat_ready');
+   check.typography.chat=await evaluate(`globalThis.__browserQA.child('chat',${JSON.stringify(fontProbe)})`);
+   assert(Object.values(check.typography.chat.fonts).every(Boolean));assert.equal(check.typography.chat.externalFontRequests,0);
+   check.typography.codeFamily=await evaluate(`globalThis.__browserQA.child('chat',"(()=>{const message=document.createElement('div');message.className='message-body';const code=document.createElement('pre');code.textContent='const total = 1234; // 中文注释';message.append(code);document.getElementById('welcome').hidden=true;document.getElementById('messages').append(message);document.getElementById('scrollArea').scrollTop=100000;return getComputedStyle(code).fontFamily;})()")`);
+   assert(check.typography.codeFamily.startsWith('"JetBrains Mono"'));await evaluate(`globalThis.__browserQA.fontScreenshot('chat')`);
+   await evaluate(`globalThis.__browserQA.child('chat',"globalThis.__qaIdentity='retained-chat';globalThis.__qaFetches=0;const originalFetch=fetch;window.fetch=(...args)=>{globalThis.__qaFetches++;return originalFetch(...args)};true")`);
+   const projectOrigin=await evaluate('globalThis.__shutdownQA.origin()');
+   const nodes=Array.from({length:200},(_,i)=>({id:i<100?'text-'+i:'gen-'+(i-100),type:i<100?'text':'generation',position:{x:(i%10)*400,y:Math.floor(i/10)*360},data:i<100?{text:'Synthetic canvas text '+i}:{channel:'image',prompt:'',model:'',options:{}}}));
+   const edges=Array.from({length:500},(_,i)=>({source:'text-'+Math.floor(i/5),target:'gen-'+((Math.floor(i/5)+i%5)%100)}));
+   const created=await fetch(projectOrigin+'/api/canvas/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Synthetic 200 nodes',nodes,edges,viewport:{x:20,y:20,zoom:1}})});assert.equal(created.status,201,'canvas_fixture_created');
+   const projectId=(await created.json()).id;
+   result.stage='canvas';await run(`document.querySelector('.rail-item[data-view="canvas"]').click()`);
+   assert(await waitFor(()=>run(`Boolean(document.querySelector('[data-panel="canvas"] iframe'))`),45000),'canvas_frame');
+   assert(await waitFor(()=>evaluate(`globalThis.__browserQA.child('canvas',"Boolean(document.querySelector('#root')?.children.length)")`),30000),'canvas_ready');
+   check.typography.canvas=await evaluate(`globalThis.__browserQA.child('canvas',${JSON.stringify(fontProbe)})`);
+   assert(Object.values(check.typography.canvas.fonts).every(Boolean));assert.equal(check.typography.canvas.externalFontRequests,0);
+   assert(await waitFor(()=>evaluate(`globalThis.__browserQA.child('canvas',"Boolean(document.querySelector('.react-flow__node[data-id=\\\"text-0\\\"]'))")`),15000),'canvas_nodes_rendered');
+   const box=await evaluate(`globalThis.__browserQA.child('canvas',"(()=>{const r=document.querySelector('.react-flow__node[data-id=\\\"text-0\\\"] .node-drag-handle').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()")`);
+   const frameBox=await run(`(()=>{const r=document.querySelector('[data-panel="canvas"] iframe').getBoundingClientRect();return {x:r.x,y:r.y};})()`);
+   check.dragTarget={box,frameBox};await evaluate('globalThis.__browserQA.screenshot()');
+   await evaluate(`globalThis.__browserQA.child('canvas',"globalThis.__qaFrameTimes=[];globalThis.__qaMeasure=true;globalThis.__qaLastTime=0;requestAnimationFrame(function tick(now){if(globalThis.__qaLastTime)globalThis.__qaFrameTimes.push(now-globalThis.__qaLastTime);globalThis.__qaLastTime=now;if(globalThis.__qaMeasure)requestAnimationFrame(tick)});true")`);
+   await evaluate(`globalThis.__browserQA.drag(${Math.round(box.x+frameBox.x)},${Math.round(box.y+frameBox.y)})`);
+   check.canvas=await evaluate(`globalThis.__browserQA.child('canvas',"(()=>{globalThis.__qaMeasure=false;const times=globalThis.__qaFrameTimes.slice(2).sort((a,b)=>a-b);return {nodes:200,edges:500,visibleNodeElements:document.querySelectorAll('.react-flow__node').length,measuredFrames:times.length,frameP95Ms:Math.round(times[Math.ceil(times.length*.95)-1]*100)/100,framesOver33Ms:times.filter(t=>t>33.3).length};})()")`);
+   assert(await waitFor(async()=>{const doc=await (await fetch(projectOrigin+'/api/canvas/projects/'+projectId)).json();return doc.nodes.find(n=>n.id==='text-0').position.x>30;},8000),'canvas_drag_saved');check.canvas.dragSaved=true;
+   await evaluate(`globalThis.__browserQA.child('canvas',"globalThis.__qaIdentity='retained-canvas';globalThis.__qaFetches=0;const originalFetch=fetch;window.fetch=(...args)=>{globalThis.__qaFetches++;return originalFetch(...args)};true")`);
+   await run(`document.querySelector('.rail-item[data-view="account"]').click()`);
+   assert(await waitFor(async()=>await evaluate(`globalThis.__browserQA.child('chat',"document.documentElement.dataset.workspaceActive")`)==='false',5000),'hidden_chat_suspended');
+   assert(await waitFor(async()=>await evaluate(`globalThis.__browserQA.child('canvas',"document.documentElement.dataset.workspaceActive")`)==='false',5000),'hidden_canvas_suspended');
+   await new Promise(resolve=>setTimeout(resolve,800));
+   const beforeHidden=await Promise.all(['chat','canvas'].map(kind=>evaluate(`globalThis.__browserQA.child('${kind}',"globalThis.__qaFetches")`)));
+   await new Promise(resolve=>setTimeout(resolve,6500));
+   const afterHidden=await Promise.all(['chat','canvas'].map(kind=>evaluate(`globalThis.__browserQA.child('${kind}',"globalThis.__qaFetches")`)));
+   assert.deepEqual(afterHidden,beforeHidden,'hidden_idle_polling');check.hiddenIdleRequestsIn6500Ms=0;
+   await run(`document.querySelector('.rail-item[data-view="chat"]').click()`);
+   assert.equal(await evaluate(`globalThis.__browserQA.child('chat',"globalThis.__qaIdentity")`),'retained-chat');
+   await run(`document.querySelector('.rail-item[data-view="canvas"]').click()`);
+   assert.equal(await evaluate(`globalThis.__browserQA.child('canvas',"globalThis.__qaIdentity")`),'retained-canvas');
+   check.chatAndCanvasRetained=true;
+   await run(`document.querySelector('.rail-item[data-view="account"]').click()`);
+   await run(`(()=>{document.getElementById('localAccountWallet').hidden=false;const balance=document.getElementById('localAccountBalance');balance.textContent='¥ 123,456,789.00';return true;})()`);await evaluate(`globalThis.__browserQA.fontScreenshot('account')`);
+   await evaluate('globalThis.__browserQA.resize(940,720)');await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+   check.typography.narrowLayout=await run(`(()=>{const balance=document.getElementById('localAccountBalance'),panel=document.querySelector('[data-panel="account"]'),box=balance.getBoundingClientRect(),outer=panel.getBoundingClientRect();return {balanceVisible:box.width>0&&box.height>0,balanceFits:box.right<=outer.right+1&&box.left>=outer.left-1,panelFits:panel.scrollWidth<=panel.clientWidth+1};})()`);
+   assert(check.typography.narrowLayout.balanceVisible&&check.typography.narrowLayout.balanceFits&&check.typography.narrowLayout.panelFits);
+   check.narrowTabs=await run(`(()=>{const tab=document.querySelector('[role="tab"][data-view="account"]');tab.scrollIntoView({block:'nearest',inline:'nearest'});const rect=tab.getBoundingClientRect(),area=navigator.windowControlsOverlay.getTitlebarAreaRect();return {accountAccessible:rect.left>=area.x&&rect.right<=area.x+area.width+1,pageFits:document.documentElement.scrollWidth<=innerWidth+1};})()`);
+   assert(check.narrowTabs.accountAccessible&&check.narrowTabs.pageFits);await evaluate(`globalThis.__browserQA.fontScreenshot('narrow')`);await evaluate('globalThis.__browserQA.resize(1200,820)');
+   const selected=await run('window.hamsterWorkDirectory.choose()');
+   assert(selected.ok&&selected.restartRequired,'directory_selection');assert.equal(selected.nextDirectory,chosen);assert.equal(selected.activeDirectory,path.join(root,'desktop'));
+   check.directoryChangeDeferred=true;
+   await run(`document.querySelector('.rail-item[data-view="history"]').click()`);
+   assert(await waitFor(async()=>{const origin=await evaluate('globalThis.__shutdownQA.origin()');const r=await fetch(origin+'/api/startup?light=1');return (await r.json()).uiPreferences?.lastView==='history';},5000),'last_page_saved');
+  }else{
+   assert.equal(check.startView,'history','last_page_restored');assert.equal(readyStatus.activeDirectory,chosen);assert.equal(readyStatus.restartRequired,false);check.directoryChangeApplied=true;
+   const origin=await evaluate('globalThis.__shutdownQA.origin()');
+   const assets=await (await fetch(origin+'/api/assets?category=scene')).json();
+   const list=Array.isArray(assets)?assets:assets.items||assets.assets;
+   assert(Array.isArray(list)&&list.length===1,'previous_assets_visible');
+   const preview=await fetch(origin+'/api/assets/'+list[0].id+'/file');assert.equal(preview.status,200);await preview.arrayBuffer();
+   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6q8AAAAASUVORK5CYII=','base64');
+   assert.equal((await fetch(origin+'/api/assets/import?category=scene&name=second.png',{method:'POST',body:png})).status,201);
+   check.previousAssetsReadable=true;check.newAssetDirectoryExists=fs.existsSync(path.join(chosen,'仓鼠AI资产库'));assert(check.newAssetDirectoryExists);
+  }
+   result.stage='exit-'+index;const mode=index===1?'window-close':'app-quit';await evaluate(`globalThis.__shutdownQA.trigger('${mode}')`);
+  assert(await waitFor(()=>readEvents(root).some(e=>e.event==='quit'),10000),'app_quit');
+  inspector.close();inspector=null;assert(await waitFor(()=>exit&&processGone(child.pid),15000),'process_exited');
+  const events=readEvents(root);check.exitCode=exit.code;check.uncaughtMain=events.filter(e=>e.event==='uncaught-main').length;check.errorDialogs=events.filter(e=>e.event==='error-dialog').length;
+  assert.equal(exit.code,0);assert.equal(check.uncaughtMain,0);assert.equal(check.errorDialogs,0);check.cleanExit=true;result.checks.push(check);
+ }finally{inspector?.close();if(child.pid&&!processGone(child.pid))spawnSync('taskkill',['/pid',String(child.pid),'/t','/f'],{windowsHide:true,stdio:'ignore'});}
+}
+(async()=>{
+ const exe=path.resolve(process.argv[2]);assert(fs.statSync(exe).isFile());
+ const hash=file=>require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+ const verification=JSON.parse(fs.readFileSync(path.join(__dirname,'package-verification.json'),'utf8'));
+ const inputs=JSON.parse(fs.readFileSync(path.join(__dirname,'candidate-source-verification.json'),'utf8'));
+ const resources=path.join(path.dirname(exe),'resources');
+ result.installerSHA256=verification.installerSHA256;
+ result.installedAsarSHA256=hash(path.join(resources,'app.asar'));assert.equal(result.installedAsarSHA256,verification.asarSHA256);
+ result.installedRuntimeSourcesVerified=['smart-video-agent/chat.py','smart-video-agent/chat-ui/chat.js','smart-video-agent/chat-ui/workspace-activity.mjs'];
+ for(const name of result.installedRuntimeSourcesVerified)assert.equal(hash(path.join(resources,name)),inputs.resources[name].sha256);
+ await launch(exe,1);await launch(exe,2);result.passed=true;result.stage='completed';delete result.currentCheck;
+})().catch(error=>{result.passed=false;result.failure=error?.code==='ERR_ASSERTION'?String(error.message).split('\n')[0].slice(0,100):'qa_runtime';process.exitCode=1;}).finally(()=>{fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));});

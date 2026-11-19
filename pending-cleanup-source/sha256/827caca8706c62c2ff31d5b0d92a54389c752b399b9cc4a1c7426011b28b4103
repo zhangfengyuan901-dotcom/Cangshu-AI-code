@@ -1,0 +1,50 @@
+// Explicit local candidate overlay. Does not modify the official release inputs.
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const root=__dirname,dev=path.join(root,'dev'),stage=path.join(root,'source');
+const manifest=JSON.parse(fs.readFileSync(path.join(dev,'release/source-manifest.json'),'utf8'));
+const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+function fileWithin(base,name){
+ const target=path.resolve(base,name),relative=path.relative(base,target);
+ assert(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative));
+ for(let current=target;current!==base;current=path.dirname(current))if(fs.existsSync(current))assert(!fs.lstatSync(current).isSymbolicLink());
+ return target;
+}
+function copy(from,to){const bytes=fs.readFileSync(from);fs.mkdirSync(path.dirname(to),{recursive:true});fs.writeFileSync(to,bytes);assert.equal(hash(fs.readFileSync(to)),hash(bytes));return {bytes:bytes.length,sha256:hash(bytes)};}
+function walk(base,rel=''){return fs.readdirSync(path.join(base,rel),{withFileTypes:true}).flatMap(entry=>{assert(!entry.isSymbolicLink());const name=path.posix.join(rel,entry.name);return entry.isDirectory()?walk(base,name):[name];});}
+const files={};
+for(const name of Object.keys(manifest.files))files[name]=copy(fileWithin(dev,name),fileWithin(stage,name));
+// New runtime modules must be named explicitly by the implementation before staging.
+const extras=process.argv.slice(2);
+for(const name of extras){assert(/^(?:[\w-]+\.cjs|(?:public|electron)\/[\w./-]+\.(?:cjs|mjs|js|css|html))$/.test(name));files[name]=copy(fileWithin(dev,name),fileWithin(stage,name));}
+const pkg={...manifest.runtimePackage,version:'1.7.80'};
+fs.writeFileSync(path.join(stage,'package.json'),JSON.stringify(pkg,null,2)+'\n');
+files['package.json']={sha256:hash(fs.readFileSync(path.join(stage,'package.json')))};
+const resources={};
+for(const [name,source]of Object.entries(manifest.resourceSources)){
+ if(name.startsWith('hamster-canvas/dist/'))continue;
+ resources[name]=copy(fileWithin(dev,source),fileWithin(path.join(root,'resource-inputs'),name));
+}
+for(const name of walk(path.join(dev,'smart-video-agent/chat-ui'))){
+ assert(/\.(?:mjs|js|css|html|svg)$/.test(name));
+ const target='smart-video-agent/chat-ui/'+name;
+ resources[target]=copy(fileWithin(dev,target),fileWithin(path.join(root,'resource-inputs'),target));
+}
+const canvasNames=walk(path.join(dev,'canvas/dist'));
+const canvasRevision=hash(Buffer.from(canvasNames.map(name=>name+':'+hash(fs.readFileSync(fileWithin(path.join(dev,'canvas/dist'),name)))).join('\n'))).slice(0,12);
+const canvasTarget=path.join(root,'candidate-canvas-'+canvasRevision);
+fs.mkdirSync(canvasTarget,{recursive:true});
+copy(path.join(dev,'canvas/server.mjs'),path.join(canvasTarget,'server.mjs'));
+for(const name of walk(path.join(dev,'canvas/dist')))resources['hamster-canvas/dist/'+name]=copy(fileWithin(path.join(dev,'canvas/dist'),name),fileWithin(canvasTarget,'dist/'+name));
+const configPath=path.join(root,'builder.json'),config=JSON.parse(fs.readFileSync(configPath,'utf8'));
+for(const name of extras)if(!name.includes('/')&&!config.files.includes(name))config.files.push(name);
+config.extraResources.find(entry=>entry.to==='hamster-canvas').from=canvasTarget;
+config.win.target=['nsis'];
+config.nsis.artifactName='仓鼠AI-${version}-安装包.exe';
+config.nsis.installerLanguages=['zh_CN'];
+config.nsis.language='2052';
+config.nsis.runAfterFinish=false;
+assert.equal(config.nsis.deleteAppDataOnUninstall,false);
+fs.writeFileSync(configPath,JSON.stringify(config,null,2)+'\n');
+fs.writeFileSync(path.join(root,'candidate-source-verification.json'),JSON.stringify({version:'1.7.80',published:false,files,resources,officialSourceModified:false,customerDataIncluded:false},null,2)+'\n');
+console.log(JSON.stringify({version:'1.7.80',applicationFiles:Object.keys(files).length,resources:Object.keys(resources).length,target:'nsis',published:false}));

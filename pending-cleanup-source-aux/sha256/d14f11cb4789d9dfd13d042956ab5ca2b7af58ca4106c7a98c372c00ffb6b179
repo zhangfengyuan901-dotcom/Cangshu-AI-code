@@ -1,0 +1,36 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawnSync}=require('node:child_process');
+const root=__dirname,base=path.join(root,'qa-core'),output=path.join(root,'qa-installer-core.json');
+const source=path.join(root,'dev/installer-ui/Setup.cs'),tests=path.join(root,'dev/installer-ui/CoreTests.cs'),info=path.join(root,'build-inputs/setup/BuildInfo.cs');
+const within=(parent,file)=>{const relative=path.relative(parent,file);return relative!==''&&relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);};
+const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const ensure=(value,code)=>{if(!value)throw Object.assign(Error(code),{code});};
+let stage='fixture';
+function safeDirectory(directory){ensure(within(root,directory),'FIXTURE_OUTSIDE_CANDIDATE');for(let current=directory;within(root,current);current=path.dirname(current))if(fs.existsSync(current))ensure(!fs.lstatSync(current).isSymbolicLink(),'FIXTURE_LINK_NOT_ALLOWED');fs.mkdirSync(directory,{recursive:true});ensure(within(fs.realpathSync(root),fs.realpathSync(directory)),'FIXTURE_LINK_OUTSIDE_CANDIDATE');}
+function compile(fixture){
+ const compiler=path.join(process.env.WINDIR||process.env.SystemRoot||'C:/Windows','Microsoft.NET/Framework64/v4.0.30319/csc.exe');ensure(fs.existsSync(compiler),'COMPILER_MISSING');
+ const original=fs.readFileSync(path.join(root,'build-inputs/setup/compiler.rsp'),'utf8').replace(/^\uFEFF/,'');
+ const references=original.split(/\r?\n/).filter(line=>/^\/reference:"[^"\r\n]+"$/.test(line));ensure(references.length>=10,'COMPILER_REFERENCES_MISSING');
+ const executable=path.join(fixture,'CoreTests.exe'),response=path.join(fixture,'core-compiler.rsp');
+ const args=['/nologo','/target:exe','/platform:x64','/optimize+','/utf8output','/codepage:65001','/langversion:5','/main:HamsterSetup.CoreTests','/out:"'+executable+'"',...references,'"'+source+'"','"'+info+'"','"'+tests+'"'];
+ fs.writeFileSync(response,'\ufeff'+args.join('\r\n')+'\r\n','utf8');
+ const result=spawnSync(compiler,['@'+response],{windowsHide:true,shell:false,encoding:'utf8',timeout:60000,maxBuffer:1024*1024});
+ if(result.error||result.status!==0){const error=Object.assign(Error('CORE_COMPILATION_FAILED'),{code:'CORE_COMPILATION_FAILED'});error.diagnostics=[...String(result.stdout||'').matchAll(/(?:^|\r?\n).*?(?:\((\d+),(\d+)\))?\s*:\s*error\s+(CS\d+)/g)].slice(0,12).map(match=>({code:match[3],line:match[1]?Number(match[1]):null,column:match[2]?Number(match[2]):null}));throw error;}
+ return executable;
+}
+function main(){
+ ensure(process.platform==='win32'&&process.arch==='x64','WINDOWS_X64_REQUIRED');ensure(process.argv.slice(2).every(arg=>arg==='--paths-only'),'INVALID_ARGUMENT');
+ safeDirectory(base);const fixture=path.join(base,crypto.randomUUID());ensure(!fs.existsSync(fixture),'FIXTURE_ALREADY_EXISTS');safeDirectory(fixture);
+ for(let attempt=0;attempt<2;attempt++){
+  const before={source:hash(source),buildInfo:hash(info),tests:hash(tests)};stage='compile';const executable=compile(fixture);
+  if(before.source!==hash(source)||before.buildInfo!==hash(info))continue;
+  stage='run';const result=spawnSync(executable,['--fixture='+fixture,...process.argv.slice(2)],{cwd:fixture,windowsHide:true,shell:false,encoding:'utf8',timeout:60000,maxBuffer:1024*1024});
+  if(before.source!==hash(source)||before.buildInfo!==hash(info))continue;
+  ensure(!result.error&&result.stdout,'CORE_TEST_PROCESS_FAILED');let testsResult;try{testsResult=JSON.parse(result.stdout.trim());}catch{throw Object.assign(Error('CORE_RESULT_INVALID'),{code:'CORE_RESULT_INVALID'});}
+  ensure(testsResult&&Array.isArray(testsResult.cases),'CORE_RESULT_INVALID');
+  const verification={...testsResult,sourceSHA256:before.source,buildInfoSHA256:before.buildInfo,testSourceSHA256:before.tests,assemblySHA256:hash(executable),checkedAt:new Date().toISOString(),sourceSnapshotStable:true};
+  fs.writeFileSync(output,JSON.stringify(verification,null,2)+'\n');console.log(JSON.stringify(verification));if(result.status!==0||!verification.passed)process.exitCode=1;return;
+ }
+ throw Object.assign(Error('CORE_SOURCE_CHANGED_DURING_TEST'),{code:'CORE_SOURCE_CHANGED_DURING_TEST'});
+}
+try{main();}catch(error){const result={format:1,passed:false,stage,code:/^[A-Z][A-Z0-9_]{1,80}$/.test(error.code||'')?error.code:'CORE_TEST_FAILED',diagnostics:error.diagnostics||[],innerEngineRuns:0,windowsUiCreated:false};fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n');console.error(JSON.stringify(result));process.exitCode=1;}

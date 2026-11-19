@@ -1,0 +1,56 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const root=path.resolve(__dirname,'../..');
+const official=path.join(root,'仓鼠AI');
+const stage=path.join(__dirname,'source');
+const account=path.join(root,'output/relay-account-browser-current/source');
+const video=path.join(root,'output/video-material-fix76-current/source');
+const asar=require(path.join(official,'node_modules/@electron/asar'));
+const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+const fileHash=file=>hash(fs.readFileSync(file));
+const manifest=JSON.parse(fs.readFileSync(path.join(official,'release/source-manifest.json')));
+const accountVerification=JSON.parse(fs.readFileSync(path.join(root,'output/relay-account-browser-current/package-verification.json')));
+const changedFiles=['electron/account-desktop.cjs','electron/account-service.cjs','electron/app-events.cjs','electron/main.cjs','public/account.mjs','server.js','electron/account-browser.cjs','public/app.js'];
+assert.equal(accountVerification.version,'1.7.75-internal.20261112.6');
+assert.deepEqual([...accountVerification.changed].sort(),changedFiles.filter(file=>file!=='public/app.js').sort());
+for(const file of changedFiles){
+  const from=path.join(file==='public/app.js'?video:account,file);
+  if(file==='public/app.js'){
+    const bytes=asar.extractFile(path.join(root,'output/hamster-release-1.7.76/win-unpacked/resources/app.asar'),file.replaceAll('/',path.sep));
+    assert.equal(fileHash(from),hash(bytes),'Approved video candidate source drift');
+  }else assert.equal(fileHash(from),accountVerification.sourceHashes[file],'Approved account source drift');
+  fs.copyFileSync(from,path.join(stage,file));
+}
+const pkg=JSON.parse(fs.readFileSync(path.join(stage,'package.json')));
+assert.deepEqual(pkg,manifest.runtimePackage);
+pkg.version='1.7.77';
+fs.writeFileSync(path.join(stage,'package.json'),JSON.stringify(pkg,null,2)+'\n');
+const builder=JSON.parse(fs.readFileSync(path.join(__dirname,'builder.json')));
+assert.equal(builder.appId,'com.hamster.ai');assert.equal(builder.productName,'仓鼠AI');
+assert.equal(builder.nsis.deleteAppDataOnUninstall,false);
+const output=path.join(root,'output/hamster-release-1.7.77');
+assert.equal(fs.existsSync(output),false,'Preserve previously created release artifact');
+builder.directories.output=output;
+fs.writeFileSync(path.join(__dirname,'builder-formal.json'),JSON.stringify(builder,null,2)+'\n',{flag:'wx'});
+const changed=[];
+for(const [file,expected] of Object.entries(manifest.files)){
+  assert.equal(fileHash(path.join(official,file)),expected.sha256,'Official runtime changed');
+  const actual=fileHash(path.join(stage,file));
+  if(actual!==expected.sha256)changed.push({file,before:expected.sha256,after:actual});
+}
+for(const file of changedFiles.filter(file=>!manifest.files[file]))changed.push({file,before:null,after:fileHash(path.join(stage,file))});
+assert.deepEqual(changed.map(row=>row.file).sort(),changedFiles.sort());
+const normalizedDifferences=Object.keys({...manifest.runtimePackage,...pkg}).filter(key=>JSON.stringify(pkg[key])!==JSON.stringify(manifest.runtimePackage[key]));
+assert.deepEqual(normalizedDifferences,['version']);
+assert.equal(Object.hasOwn(pkg,'hamsterInternalCandidate'),false);
+assert.equal(Object.hasOwn(pkg,'hamsterInternalProfile'),false);
+const record={passed:true,status:'formal_profile_candidate_not_promoted',version:pkg.version,baseVersion:manifest.version,
+  stage,artifacts:output,changedFiles:changed,normalizedPackageDifferences:normalizedDifferences,
+  normalizedPackageBefore:manifest.runtimePackage,normalizedPackageAfter:pkg,
+  applicationIdentity:{appId:builder.appId,productName:builder.productName,packageName:pkg.name,
+    main:pkg.main,internalCandidate:false,internalProfile:false,deleteAppDataOnUninstall:false},
+  officialRuntimeUnchanged:true,productionMutations:0,realPaymentCalls:0};
+fs.writeFileSync(path.join(__dirname,'source-verification.json'),JSON.stringify(record,null,2)+'\n');
+console.log(JSON.stringify({passed:true,version:pkg.version,sourceChanges:changed.length,packageChanges:normalizedDifferences,internalCandidate:false,artifacts:output}));

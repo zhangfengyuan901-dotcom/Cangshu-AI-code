@@ -1,0 +1,14 @@
+import {readFile} from 'node:fs/promises';
+// Inline the separate module for Miniflare's in-memory test entry point.
+// Production Wrangler bundles the real ESM import unchanged.
+export async function runtimeSource({toolFetch='fetch'}={}){
+  const configuration=(await readFile(new URL('./src/tools-config.mjs',import.meta.url),'utf8'))
+    .replaceAll('export async function','async function')
+    .replaceAll('await fetch(',`await ${toolFetch}(`);
+  const tool=(await readFile(new URL('./src/tools.mjs',import.meta.url),'utf8'))
+    .replace("import {toolCredential,toolConfiguration} from './tools-config.mjs';",`const {toolCredential,toolConfiguration}=(()=>{${configuration}\nreturn {toolCredential,toolConfiguration};})();`)
+    .replace('export async function tools','async function tools')
+    .replaceAll('await fetch(',`await ${toolFetch}(`);
+  return (await readFile(new URL('./src/worker.mjs',import.meta.url),'utf8'))
+    .replace("import {tools} from './tools.mjs';",`const tools=(()=>{${tool}\nreturn tools;})();`);
+}

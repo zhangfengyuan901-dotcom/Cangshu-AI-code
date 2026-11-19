@@ -1,0 +1,362 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {createPiknoClient,quoteParameters}=require('../pikno-client.cjs');
+const {syntheticQuote}=require('./support/relay-quote.cjs');
+const endpoint='https://www.piknoai.com',id='a'.repeat(32),url=endpoint+'/media/v1/assets/'+id;
+const cfg={piknoImageKey:'image-test-only',piknoVideoKey:'video-test-only'};
+const video={id:'pikno-video-sb-sd2_9img_seconds_720p_real',kind:'video',name:'PIKNO 视频产品',provider:'sanbao',upstream_model:'sd2_private',cost_cny:'0.01',resolutions:['720p'],ratios:['16:9'],durations:[4],max_images:9,max_videos:3,max_audio:3,price:123};
+const image={id:'pikno-image-flare',kind:'image',resolutions:['1024x1024'],max_images:5};
+const json=value=>new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}});
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZCr8AAAAASUVORK5CYII=','base64');
+const imageCfg={...cfg,piknoUserId:7};
+test('image quote canonical parameters match the Go guard: ratio is derived from size and omitted on the wire',()=>{
+  const parameters=quoteParameters({...image,qualities:['auto','high']},{size:'1024x1024',quality:'high',aspect_ratio:'1:1',concurrency:2,media_counts:{images:1,videos:0,audios:0}});
+  assert.deepEqual(parameters,{model:image.id,operation:'image_edit',resolution:'1024x1024',quality:'high',ratio:'',seconds:0,reference_images:1,reference_videos:0,reference_audio:0,quantity:2});
+  assert.deepEqual(quoteParameters({...image,qualities:['auto','high']},{size:'1024x1024',quality:'high',aspect_ratio:'1:1',concurrency:2,images:[{url:url+'?ticket=read'}]},{actualMedia:true}),parameters);
+});
+
+test('quote and submission use the balance header only for opted-in checks',async()=>{
+  const calls=[],payload={size:'1024x1024',concurrency:2};
+  let checked=false;
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{
+    calls.push({target,headers:init.headers,body:JSON.parse(init.body)});
+    if(!target.endsWith('/quote'))return json({data:[]});
+    const data=syntheticQuote(quoteParameters(image,payload));
+    return json({data:{...data,...(checked?{balance_checked:true}:{})}});
+  }});
+  const quote=await client.quote(cfg,image,payload);
+  assert.equal(calls[0].headers.get('X-Pikno-Check-Balance'),null);
+  await assert.rejects(client.quote(cfg,image,{...payload,check_balance:true}),error=>error.statusCode===503);
+  checked=true;
+  assert.equal((await client.quote(cfg,image,{...payload,check_balance:true})).balance_checked,true);
+  assert.equal(calls[2].headers.get('X-Pikno-Check-Balance'),'1');
+  assert.deepEqual(calls[2].body,calls[0].body);
+  await client.submit(cfg,image,{...payload,check_balance:true},{quote_id:quote.quote_id,index:0});
+  await client.submit(cfg,image,payload,{quote_id:quote.quote_id,index:1,balanceChecked:true});
+  assert.equal(calls[3].headers.get('X-Pikno-Check-Balance'),null);
+  assert.equal(calls[4].headers.get('X-Pikno-Check-Balance'),'1');
+  assert.equal(calls[4].headers.get('X-PIKNO-Quote-Index'),'1');
+});
+
+test('opted-in balance check distinguishes wallet shortage from generic 402 and Key limits',async()=>{
+  let status=402,code='insufficient_balance';
+  const client=createPiknoClient({fetchImpl:async()=>Response.json({error:{code,message:'private text'}},{status})});
+  const quote=()=>client.quote(cfg,image,{size:'1024x1024',check_balance:true});
+  await assert.rejects(quote(),error=>error.statusCode===402&&error.code==='insufficient_balance'&&!error.ambiguous&&!error.message.includes('private'));
+  code='some_provider_limit';
+  await assert.rejects(quote(),error=>error.statusCode===402&&error.code===undefined);
+  status=403;code='insufficient_user_quota';
+  await assert.rejects(quote(),error=>error.statusCode===403&&error.code===undefined);
+});
+
+test('relay catalogue intersects each Key permission, maps published names and strips private routing or untyped prices',async()=>{
+  const calls=[];
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{
+    calls.push({target,init});
+    if(target.endsWith('/api/pikno/catalog'))return json({data:{models:[video,image,{...video,id:'closed-line'}]}});
+    return json({data:[{id:new Headers(init.headers).get('authorization').includes('image-')?image.id:video.id}]});
+  }});
+  const data=await client.catalog(cfg);assert.equal(data.data.length,2);
+  assert.equal(data.data[0].name,video.name);
+  assert.doesNotMatch(JSON.stringify(data.data),/sanbao|sd2_|flare|"price":|123|image-test|video-test|cost_cny/);
+  assert.equal(data.data.find(m=>m.type==='video').max_media_files,15);
+  assert.deepEqual(data.data.find(m=>m.type==='image').aspect_ratios,['1:1']);
+  assert.equal(data.resolve(data.data[0].id).id,video.id);
+  assert.equal(new Headers(calls[0].init.headers).get('authorization'),null);
+});
+test('empty callable list never exposes cached or unauthorised lines',async()=>{
+  const client=createPiknoClient({fetchImpl:async target=>json(target.endsWith('/v1/models')?{data:[]}:{data:{models:[video]}})});
+  assert.deepEqual((await client.catalog({piknoVideoKey:cfg.piknoVideoKey})).data,[]);
+});
+test('one revoked Key leaves only the other Key callable lines; both failures reject without retry',async()=>{
+  const calls=[];
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{
+    calls.push(target);
+    if(target.endsWith('/api/pikno/catalog'))return json({data:{models:[image,video]}});
+    if(new Headers(init.headers).get('authorization')==='Bearer '+cfg.piknoVideoKey)return new Response('private upstream body',{status:401});
+    return json({data:[{id:image.id}]});
+  }});
+  const models=await client.catalog(cfg);assert.equal(models.data.length,1);assert.equal(models.data[0].type,'image');
+  assert.equal(models.resolve('tool-digital'),undefined);assert.equal(calls.length,3);
+  await assert.rejects(client.catalog({piknoVideoKey:cfg.piknoVideoKey}),error=>error.statusCode===401&&!/private/.test(error.message));
+  assert.equal(calls.length,4); // public capabilities were briefly reused; authorization was checked again
+});
+test('PIKNO account context enforces matching image/video group',async()=>{
+  const client=createPiknoClient({fetchImpl:async()=>json({user_id:7,group:'video-standard',token_id:4})});
+  assert.equal((await client.context(cfg,'video')).user_id,7);
+  await assert.rejects(client.context(cfg,'image'),e=>e.statusCode===403);
+});
+test('video maps the desktop payload, uses video Key, submits exactly once',async()=>{
+  const calls=[];
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{calls.push({target,init});return json({id:'task_1',status:'queued'});}});
+  await client.submit(cfg,video,{duration:4,resolution:'720p',ratio:'16:9',prompt:'test',reference:'all',price_version:100,concurrency:4,images:[{url:url+'?ticket=read'}]});
+  assert.equal(calls.length,1);assert.equal(calls[0].target,endpoint+'/v1/videos');
+  const body=JSON.parse(calls[0].init.body);assert.equal(body.seconds,4);assert.equal(body.aspect_ratio,'16:9');
+  assert.equal(body.model,video.id);assert.equal(body.image_urls.length,1);assert.equal(body.concurrency,undefined);assert.equal(body.price_version,undefined);
+  assert.equal(new Headers(calls[0].init.headers).get('authorization'),'Bearer '+cfg.piknoVideoKey);
+});
+test('image synchronous generation/edit streams original image multipart and exact declared size',async t=>{
+  const calls=[];
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{const form=target.endsWith('/edits')?await new Request(target,init).formData():null;calls.push({target,init,form});return json({data:[{url:'https://output.test/image.png'}]});}});
+  t.after(()=>client.stop());
+  const staged=await client.upload(imageCfg,png,{contentType:'image/png',kind:'image'});
+  assert.equal(calls.length,0);
+  await client.submit(imageCfg,image,{aspect_ratio:'1:1',prompt:'test'});
+  await client.submit(imageCfg,image,{aspect_ratio:'1:1',images:[{url:staged.url}]});
+  assert.equal(calls[0].target,endpoint+'/v1/images/generations');assert.equal(calls[1].target,endpoint+'/v1/images/edits');
+  assert.equal(JSON.parse(calls[0].init.body).n,1);assert.equal(JSON.parse(calls[0].init.body).size,'1024x1024');
+  assert.equal(new Headers(calls[0].init.headers).get('authorization'),'Bearer '+cfg.piknoImageKey);
+  assert.equal(calls[0].init.headers.get('X-Pikno-Media-Transport'),'direct-v1');
+  assert.deepEqual(Buffer.from(await calls[1].form.get('image').arrayBuffer()),png);
+  assert.equal(calls[1].form.get('n'),'1');
+  assert.equal(calls[1].form.get('response_format'),null);
+  assert.throws(()=>client.submit(cfg,image,{aspect_ratio:'16:9'}),/不支持/);
+});
+
+test('declared image sizes and qualities reach the catalogue without widening legacy capabilities',async()=>{
+  const advanced={...image,id:'pikno-image-new',resolutions:['auto','1024x1024','2048x2048','1536x864','2048x1152','3840x2160'],qualities:['auto','low','medium','high','secret-provider-quality']};
+  const client=createPiknoClient({fetchImpl:async target=>json(target.endsWith('/v1/models')?{data:[{id:image.id},{id:advanced.id}]}:{data:{models:[image,advanced]}})});
+  const {data}=await client.catalog({piknoImageKey:cfg.piknoImageKey});
+  assert.deepEqual(data[0].size_options,['1024x1024']);
+  assert.deepEqual(data[0].quality_options,['auto']);
+  assert.deepEqual(data[1].size_options,advanced.resolutions);
+  assert.deepEqual(data[1].aspect_ratios,['auto','1:1','16:9']);
+  assert.deepEqual(data[1].quality_options,['auto','low','medium','high']);
+  assert.doesNotMatch(JSON.stringify(data),/secret-provider|pikno-image|flare|"price":/);
+});
+
+test('image submissions preserve explicit same-ratio sizes, auto and quality for generation and edit',async t=>{
+  const calls=[],line={...image,resolutions:['auto','1024x1024','2048x2048','1536x864','3840x2160'],qualities:['auto','low','medium','high']};
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{const form=target.endsWith('/edits')?await new Request(target,init).formData():null;calls.push({target,body:form?{size:form.get('size'),quality:form.get('quality'),n:Number(form.get('n'))}:JSON.parse(init.body),form});return json({data:[]});}});
+  t.after(()=>client.stop());
+  const staged=await client.upload(imageCfg,png,{contentType:'image/png',kind:'image'});
+  await client.submit(imageCfg,line,{aspect_ratio:'1:1',size:'2048x2048',quality:'high'});
+  await client.submit(imageCfg,line,{aspect_ratio:'16:9',size:'3840x2160',quality:'medium',images:[{url:staged.url}]});
+  await client.submit(imageCfg,line,{aspect_ratio:'auto',size:'auto',quality:'low'});
+  assert.deepEqual(calls.map(call=>[call.body.size,call.body.quality,call.body.n]),[['2048x2048','high',1],['3840x2160','medium',1],['auto','low',1]]);
+  assert.equal(calls[0].target,endpoint+'/v1/images/generations');
+  assert.equal(calls[1].target,endpoint+'/v1/images/edits');
+  assert.deepEqual(Buffer.from(await calls[1].form.get('image').arrayBuffer()),png);
+});
+
+test('unsupported image size, mismatched ratio and undeclared quality fail before a paid call',()=>{
+  const client=createPiknoClient({fetchImpl:()=>assert.fail('must not fetch')});
+  for(const payload of [{size:'2048x2048'},{size:'auto'},{size:'1024x1024',aspect_ratio:'16:9'},{quality:'high'},{quality:'secret'}])assert.throws(()=>client.submit(cfg,image,payload));
+});
+test('invalid specs, unsigned media, foreign media and unsupported reference are rejected before submission',()=>{
+  const client=createPiknoClient({fetchImpl:()=>assert.fail('must not fetch')});
+  const base={duration:4,resolution:'720p',ratio:'16:9'};
+  for(const patch of [{duration:5},{reference:'startEnd'},{images:[{url:'https://evil.test/media'}]},{images:[{url}]},{images:Array(10).fill({url:url+'?ticket=read'})}])assert.throws(()=>client.submit(cfg,video,{...base,...patch}));
+});
+test('ambiguous failures are not retried and never expose provider body or credentials',async()=>{
+  for(const status of [408,500,502]){
+    let calls=0;
+    const client=createPiknoClient({fetchImpl:async()=>{calls++;return new Response('sanbao sk-leaked https://provider.test/private',{status});}});
+    await assert.rejects(client.submit(cfg,video,{duration:4,resolution:'720p',ratio:'16:9'}),e=>e.ambiguous&&!/sanbao|sk-|provider/.test(e.message));
+    assert.equal(calls,1);
+  }
+});
+test('malformed successful submission and network loss are ambiguous, not resubmitted',async()=>{
+  for(const fetchImpl of [async()=>new Response('not-json'),async()=>{throw Error('sk-do-not-print');}]){
+    const client=createPiknoClient({fetchImpl});
+    await assert.rejects(client.submit(cfg,video,{duration:4,resolution:'720p',ratio:'16:9'}),e=>e.ambiguous&&!/sk-/.test(e.message));
+  }
+});
+function uploadFixture(overrides={}){
+  const calls=[],expires=Math.floor(Date.now()/1000)+600;
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{
+    calls.push({target:String(target),init});
+    if(String(target).endsWith('/v1/media/uploads'))return json({id,method:'PUT',upload_url:url,upload_ticket:'upload-only',headers:{Authorization:'Bearer upload-only','Content-Type':'image/png'},expires_at:expires,...overrides});
+    if(String(target)===url)return new Response(null,{status:204});
+    return json({id,status:'ready',url:url+'?ticket=read-only',expires_at:expires});
+  }});
+  return {client,calls};
+}
+test('upload has three steps; PUT receives upload ticket only, complete receives original customer Key',async()=>{
+  const {client,calls}=uploadFixture();
+  const ready=await client.upload(cfg,Buffer.alloc(16),{contentType:'image/png',kind:'video'});
+  assert.equal(calls.length,3);assert.equal(ready.file.url,url+'?ticket=read-only');
+  assert.equal(new Headers(calls[0].init.headers).get('authorization'),'Bearer '+cfg.piknoVideoKey);
+  assert.equal(calls[1].init.headers.Authorization,'Bearer upload-only');assert.equal(calls[1].init.redirect,'error');
+  assert.equal(new Headers(calls[2].init.headers).get('authorization'),'Bearer '+cfg.piknoVideoKey);
+  assert.doesNotMatch(JSON.stringify(ready),/image-test|video-test|upload-only/);
+});
+
+test('PUT response cleanup cannot prevent completion or hide a failed upload status',async()=>{
+  for(const status of [200,503]){
+    const calls=[],expires=Math.floor(Date.now()/1000)+600;
+    const client=createPiknoClient({fetchImpl:async(target,init)=>{
+      calls.push({target:String(target),method:init.method});
+      if(String(target).endsWith('/v1/media/uploads'))return json({id,method:'PUT',upload_url:url,upload_ticket:'upload-only',headers:{Authorization:'Bearer upload-only','Content-Type':'image/png'},expires_at:expires});
+      if(init.method==='PUT')return new Response(new ReadableStream({cancel(){throw Error('private cleanup detail');}}),{status});
+      return json({id,status:'ready',url:url+'?ticket=read-only',expires_at:expires});
+    }});
+    if(status===200)assert.equal((await client.upload(cfg,Buffer.alloc(16),{contentType:'image/png',kind:'video'})).url,url+'?ticket=read-only');
+    else await assert.rejects(client.upload(cfg,Buffer.alloc(16),{contentType:'image/png',kind:'video'}),error=>error.statusCode===502&&error.message==='素材上传失败，请重新上传');
+    assert.equal(calls.filter(call=>call.method==='PUT').length,1,'cleanup never repeats the file transfer');
+    assert.equal(calls.length,status===200?3:2);
+  }
+});
+test('upload refuses foreign URL, stale ticket, query and header substitution before PUT',async()=>{
+  for(const overrides of [{upload_url:'https://evil.test/'+id},{expires_at:1},{upload_url:url+'?ticket=wrong'},{headers:{Authorization:'Bearer '+cfg.piknoImageKey,'Content-Type':'image/png'}}]){
+    const {client,calls}=uploadFixture(overrides);
+    await assert.rejects(client.upload(cfg,Buffer.alloc(16),{contentType:'image/png',kind:'video'}));assert.equal(calls.length,1);
+  }
+});
+test('bad mime/size and missing Key fail before file transfer',async()=>{
+  const client=createPiknoClient({fetchImpl:()=>assert.fail('must not fetch')});
+  for(const metadata of [{contentType:'text/html'},{contentType:'image/png',contentLength:11},{contentType:'image/png',contentLength:31<<20}])await assert.rejects(client.upload(cfg,Buffer.alloc(16),metadata));
+  await assert.rejects(client.upload({},Buffer.alloc(16),{contentType:'image/png',kind:'video'}),e=>e.statusCode===401);
+});
+
+test('tool submissions require exact reference types and bounded audio before a paid request',async()=>{
+  const calls=[],ref={url:url+'?ticket=read'};
+  const client=createPiknoClient({fetchImpl:async(target,init)=>{calls.push({target,init});return json({id:'task_tool',status:'queued'});}});
+  const digital={id:'pikno-tool-digital',kind:'video',max_images:1,max_videos:0,max_audio:1},depth={id:'pikno-tool-depth',kind:'video',max_images:0,max_videos:1,max_audio:0};
+  for(const body of [{images:[ref],audios:[ref]},{images:[ref],audios:[{...ref,durationSeconds:30.001}]},{images:[],audios:[{...ref,durationSeconds:1}]},{images:[ref],audios:[{...ref,durationSeconds:0}]}])assert.throws(()=>client.submit(cfg,digital,body));
+  assert.throws(()=>client.submit(cfg,depth,{videos:[]}));assert.throws(()=>client.submit(cfg,{...depth,id:'pikno-tool-unknown'},{videos:[ref]}));assert.equal(calls.length,0);
+  assert.throws(()=>client.submit(cfg,depth,{videos:[ref.url]}));
+  const tools={...cfg,piknoUserId:7,piknoToolKey:'tool-test-only'};
+  const directRef=kind=>({url:endpoint+'/media/v1/tool-inputs/'+id+'?ticket='+Buffer.from(JSON.stringify({v:1,aud:'pikno-tool-input',id,uid:7,mime:kind==='image'?'image/png':kind==='video'?'video/mp4':'audio/wav',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.synthetic'});
+  assert.throws(()=>client.submit(cfg,digital,{images:[ref],audios:[{...ref,durationSeconds:30}]}),error=>error.statusCode===401);
+  await client.submit(tools,digital,{images:[directRef('image')],audios:[{...directRef('audio'),durationSeconds:30}]});
+  await client.submit(tools,depth,{videos:[directRef('video')]});
+  assert.deepEqual(calls.map(call=>call.target),[endpoint+'/v1/tools/digital',endpoint+'/v1/tools/depth']);
+  assert.ok(calls.every(call=>new Headers(call.init.headers).get('authorization')==='Bearer '+tools.piknoToolKey));
+});
+test('redirects and absolute request routes cannot leak customer credentials',async()=>{
+  const client=createPiknoClient({fetchImpl:async(_target,init)=>{assert.equal(init.redirect,'error');throw Error('redirect');}});
+  for(const route of ['https://evil.test/v1/models','//evil.test/v1/models','/\\evil.test/v1/models'])await assert.rejects(client.request(cfg,'video',route));
+  await assert.rejects(client.request(cfg,'video','/v1/models'));
+  assert.throws(()=>createPiknoClient({endpoint:'http://evil.test'}));
+});
+
+test('CanSee audiovisual references require real duration and keep expiry metadata local',async()=>{
+  const calls=[],now=1800000000000,line={...video,provider:'canseedream'};
+  const client=createPiknoClient({now:()=>now,fetchImpl:async(target,init)=>{calls.push(JSON.parse(init.body));return json({id:'task_fixture',status:'queued'});}});
+  const base={duration:4,resolution:'720p',ratio:'16:9',prompt:'synthetic'};
+  const ref={url:url+'?ticket=read',expires_at:now/1000+7200};
+  for(const durationSeconds of [undefined,0,-1,NaN,Infinity,86401,'3']){
+    assert.throws(()=>client.submit(cfg,line,{...base,videos:[{...ref,durationSeconds}]}),error=>error.code==='media_duration_required');
+  }
+  assert.equal(calls.length,0);
+  await client.submit(cfg,line,{...base,videos:[{...ref,durationSeconds:2.5}],audios:[{...ref,durationSeconds:3.25}]});
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].video_urls[0].durationSeconds,2.5);
+  assert.equal(calls[0].audio_urls[0].durationSeconds,3.25);
+  assert.equal(JSON.stringify(calls[0]).includes('expires_at'),false);
+});
+
+test('reference expiry preflight uses the earliest bound and never extends a signed lifetime',()=>{
+  const now=1800000000000,client=createPiknoClient({now:()=>now,fetchImpl:()=>assert.fail('must not submit')});
+  const ticket=expiry=>Buffer.from(JSON.stringify({exp:expiry})).toString('base64url')+'.synthetic';
+  const body=expiry=>({images:[{url:url+'?ticket='+ticket(expiry)}]});
+  for(const seconds of [-1,0,60])assert.throws(()=>client.validateReferences(video,body(now/1000+seconds)),error=>error.code==='media_reference_expired');
+  client.validateReferences(video,body(now/1000+61));
+  for(const expires_at of [String(now/1000+7200),NaN,Infinity,0])
+    assert.throws(()=>client.validateReferences(video,{images:[{...body(now/1000+7200).images[0],expires_at}]}),error=>error.code==='media_reference_expired');
+  assert.throws(()=>client.validateReferences(video,{images:[{...body(now/1000+30).images[0],expires_at:now/1000+7200}]}),error=>error.code==='media_reference_expired');
+  assert.throws(()=>client.validateReferences(video,{images:[{...body(now/1000+7200).images[0],expires_at:now/1000+30}]}),error=>error.code==='media_reference_expired');
+});
+
+test('upload never returns missing or untyped expiration metadata',async()=>{
+  for(const expires_at of [undefined,null,'1800000000',NaN]){
+    const {client,calls}=uploadFixture({expires_at});
+    await assert.rejects(client.upload(cfg,Buffer.alloc(16),{contentType:'image/png',kind:'video'}),error=>error.statusCode===502);
+    assert.equal(calls.length,1,'invalid upload expiry prevents sending file bytes');
+  }
+});
+test('local image references reject changed account, revision, expired media and mismatched bytes without network',async t=>{
+  let time=Date.now(),calls=0;
+  const client=createPiknoClient({now:()=>time,fetchImpl:async()=>{calls++;throw Error('unexpected');}});
+  t.after(()=>client.stop());
+  const staged=await client.upload(imageCfg,png,{kind:'image',contentType:'image/png',revision:11});
+  const payload={images:[{url:staged.url}]};
+  assert.match(staged.url,/^https:\/\/local\.hamster\.invalid\/direct-media\/[a-f0-9]{32}$/);
+  assert.doesNotMatch(JSON.stringify(staged),/file:|Users|Temp|image-test-only|piknoUserId/);
+  assert.doesNotThrow(()=>client.validateReferences(image,payload,{cfg:imageCfg,revision:11}));
+  for(const context of [{cfg:{...imageCfg,piknoUserId:8},revision:11},{cfg:imageCfg,revision:12}])assert.throws(()=>client.validateReferences(image,payload,context));
+  await assert.rejects(client.upload(imageCfg,Buffer.alloc(16),{kind:'image',contentType:'image/png'}),error=>error.statusCode===415);
+  await assert.rejects(client.upload(imageCfg,png,{kind:'image',contentType:'image/png',contentLength:png.length+1}),error=>error.statusCode===415);
+  time+=86400000;
+  assert.throws(()=>client.validateReferences(image,payload,{cfg:imageCfg,revision:11}));
+  assert.equal(calls,0);
+});
+test('same-content images reuse an account-bound local reference before the distinct-file capacity check',async t=>{
+  const client=createPiknoClient({fetchImpl:()=>assert.fail('local staging never contacts a network')});
+  t.after(()=>client.stop());
+  const metadata={kind:'image',contentType:'image/png',revision:11};
+  const first=await client.upload(imageCfg,png,metadata);
+  const again=await client.upload(imageCfg,Buffer.from(png),metadata);
+  assert.equal(first.url,again.url);
+  const otherAccount=await client.upload({...imageCfg,piknoUserId:8},png,metadata);
+  const otherRevision=await client.upload(imageCfg,png,{...metadata,revision:12});
+  assert.notEqual(first.url,otherAccount.url);assert.notEqual(first.url,otherRevision.url);
+  const distinct=[];
+  for(let index=0;index<125;index++){
+    const bytes=Buffer.concat([png,Buffer.from([index])]);
+    distinct.push(await client.upload(imageCfg,bytes,metadata));
+  }
+  await assert.rejects(client.upload(imageCfg,Buffer.concat([png,Buffer.from([255])]),metadata),error=>error.statusCode===429);
+  assert.equal((await client.upload(imageCfg,png,metadata)).url,first.url);
+  assert.doesNotThrow(()=>client.validateReferences(image,{images:[{url:first.url}]},{cfg:imageCfg,revision:11}));
+});
+test('twenty original image references use one streamed multipart paid request with the original quote slot',async t=>{
+  const calls=[],line={...image,max_images:20,max_media_total:20};
+  const client=createPiknoClient({fetchImpl:async(target,options)=>{
+    const form=await new Request(target,options).formData();
+    calls.push({target,options,form});return json({data:[]});
+  }});
+  t.after(()=>client.stop());
+  const images=[];
+  for(let index=0;index<20;index++)images.push({url:(await client.upload(imageCfg,png,{contentType:'image/png',kind:'image',revision:11})).url});
+  await client.submit(imageCfg,line,{prompt:'synthetic',images},{quote_id:'original-quote-slot',index:2,revision:11,balanceChecked:true});
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].options.duplex,'half');
+  assert.equal(calls[0].options.headers.get('X-PIKNO-Quote'),'original-quote-slot');
+  assert.equal(calls[0].options.headers.get('X-PIKNO-Quote-Index'),'2');
+  assert.equal(calls[0].options.headers.get('X-Pikno-Check-Balance'),'1');
+  assert.equal(calls[0].form.getAll('image[]').length,20);
+  for(const input of calls[0].form.getAll('image[]'))assert.deepEqual(Buffer.from(await input.arrayBuffer()),png);
+});
+test('native image multipart streams above 128 MiB while each source stays within its published file limit',async t=>{
+  const {Readable}=require('node:stream');
+  const size=22*1024*1024,chunk=Buffer.alloc(1024*1024);
+  let received=0,parts=0,largest=0;
+  const client=createPiknoClient({fetchImpl:async(_target,options)=>{
+    assert.equal(options.duplex,'half');
+    assert(Number(options.headers.get('Content-Length'))>128*1024*1024);
+    for await(const bytes of options.body){
+      received+=bytes.length;largest=Math.max(largest,bytes.length);
+      if(bytes.length<1024&&bytes.includes(Buffer.from('name="image[]"')))parts++;
+    }
+    assert.equal(received,Number(options.headers.get('Content-Length')));
+    return json({data:[]});
+  }});
+  t.after(()=>client.stop());
+  const images=[];
+  for(let index=0;index<6;index++){
+    async function* source(){yield png;for(let left=size-png.length;left>0;left-=chunk.length)yield chunk.subarray(0,Math.min(left,chunk.length));}
+    images.push({url:(await client.upload(imageCfg,Readable.from(source()),{kind:'image',contentType:'image/png',contentLength:size})).url});
+  }
+  await client.submit(imageCfg,{...image,max_images:20,max_media_total:20},{images});
+  assert.equal(parts,6);assert(largest<=1024*1024);assert(received>6*size);
+});
+test('tool input uploads binary once without media tickets or R2 and binds returned reference to its account',async()=>{
+  const calls=[],tools={...imageCfg,piknoToolKey:'tool-only'},expires_at=Math.floor(Date.now()/1000)+3600;
+  const claims={v:1,aud:'pikno-tool-input',uid:7,id,mime:'image/png',size:png.length,exp:expires_at};
+  let responseUid=7;
+  const client=createPiknoClient({fetchImpl:async(target,options)=>{
+    calls.push({target,options});
+    const ticket=Buffer.from(JSON.stringify({...claims,uid:responseUid})).toString('base64url')+'.synthetic';
+    return json({url:endpoint+'/media/v1/tool-inputs/'+id+'?ticket='+ticket,expires_at});
+  }});
+  const ready=await client.upload(tools,png,{kind:'tool',contentType:'image/png'});
+  assert.equal(calls.length,1);assert.equal(calls[0].target,endpoint+'/v1/media/direct-uploads');
+  assert.equal(calls[0].options.headers.get('Authorization'),'Bearer tool-only');
+  assert.deepEqual(calls[0].options.body,png);
+  assert.doesNotThrow(()=>client.validateReferences({id:'pikno-tool-digital',kind:'video'},{images:[{url:ready.url}]},{cfg:tools}));
+  assert.throws(()=>client.validateReferences({id:'pikno-tool-digital',kind:'video'},{images:[{url:ready.url}]},{cfg:{...tools,piknoUserId:8}}));
+  responseUid=8;
+  await assert.rejects(client.upload(tools,png,{kind:'tool',contentType:'image/png'}));
+});

@@ -1,0 +1,48 @@
+// Exercise the real local Cloudflare runtime and R2 implementation, not the unit-test mock.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { runtimeSource } from './runtime-source.mjs';
+import { Miniflare, convertV4MiniflareOptions } from '../../tools/relay-cli/node_modules/miniflare/dist/src/index.js';
+test('Worker streams a direct upload into R2 and rejects overwrite', async () => {
+  const secret = 'local-runtime-only-ticket-key-1234567890';
+  const source = (await runtimeSource()).replace('export default {', 'const mediaWorker = {');
+  const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, compatibilityDate: '2026-10-03',
+    script: source + `
+export default {async fetch(request,env){
+  const reads=[],bucket=env.MEDIA;
+  const wrapped={...env,UPLOAD_LIMITER:{limit:async()=>({success:true})},MEDIA:new Proxy(bucket,{get(target,name){
+    const value=Reflect.get(target,name);
+    return typeof value==='function'?(...args)=>{if(name==='get'||name==='head')reads.push(name);return value.apply(target,args);}:value;
+  }})};
+  const response=await mediaWorker.fetch(request,wrapped);response.headers.set('X-Test-Storage-Reads',reads.join(','));return response;
+}}`,
+    r2Buckets: ['MEDIA'], bindings: { TICKET_KEY: secret } }));
+  try {
+    const id = 'b'.repeat(32), now = Math.floor(Date.now()/1000);
+    const data = new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,0,0,0,0,0]);
+    const claims = { v:1,aud:'pikno-relay-media',uid:7,id,op:'upload',iat:now,exp:now+300,mime:'image/png',size:data.length };
+    const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    const key = await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+    const token = payload+'.'+Buffer.from(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(payload))).toString('base64url');
+    const options = { method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'image/png','Content-Length':'16'},body:data };
+    const url = 'https://www.piknoai.com/media/v1/assets/'+id;
+    let response = await mf.dispatchFetch(url,options);
+    assert.equal(response.status,201,await response.text());
+    response = await mf.dispatchFetch(url,options);
+    assert.equal(response.status,409,await response.text());
+    const bucket = await mf.getR2Bucket('MEDIA');
+    const object = await bucket.get('input/7/'+id);
+    assert.equal(object.size,16);
+    const readPayload=Buffer.from(JSON.stringify({...claims,op:'read'})).toString('base64url');
+    const readToken=readPayload+'.'+Buffer.from(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(readPayload))).toString('base64url');
+    const readUrl=url+'?ticket='+readToken;
+    response=await mf.dispatchFetch(readUrl);
+    assert.equal(response.status,200);assert.equal(response.headers.get('x-test-storage-reads'),'get');
+    assert.equal(response.headers.get('content-length'),'16');assert.deepEqual(new Uint8Array(await response.arrayBuffer()),data);
+    response=await mf.dispatchFetch(readUrl,{method:'HEAD'});
+    assert.equal(response.status,200);assert.equal(response.headers.get('x-test-storage-reads'),'head');
+    response=await mf.dispatchFetch(readUrl,{headers:{Range:'bytes=-4'}});
+    assert.equal(response.status,206);assert.equal(response.headers.get('x-test-storage-reads'),'head,get');
+    assert.equal(response.headers.get('content-range'),'bytes 12-15/16');assert.deepEqual(new Uint8Array(await response.arrayBuffer()),data.slice(-4));
+  } finally { await mf.dispose(); }
+});

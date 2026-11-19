@@ -1,0 +1,74 @@
+const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
+const { randomUUID } = require('node:crypto');
+const { tmpdir } = require('node:os');
+const path = require('node:path');
+const { test } = require('node:test');
+const { CHANNEL, createDesktopAccount } = require('./source/electron/account-desktop.cjs');
+
+function fixture() {
+  const handlers = new Map();
+  let removals = 0;
+  let windowDestroyed = false;
+  let contentsDestroyed = false;
+  const contents = new EventEmitter();
+  contents.isDestroyed = () => contentsDestroyed;
+  contents.removeListener = function (name, listener) {
+    if (contentsDestroyed) throw new TypeError('Object has been destroyed');
+    return EventEmitter.prototype.removeListener.call(this, name, listener);
+  };
+  const win = new EventEmitter();
+  win.isDestroyed = () => windowDestroyed;
+  Object.defineProperty(win, 'webContents', { get() {
+    if (windowDestroyed) throw new TypeError('Object has been destroyed');
+    return contents;
+  } });
+  const session = { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} };
+  const controller = createDesktopAccount({
+    window: win,
+    appUrl: 'http://127.0.0.1:19862/',
+    journalFile: path.join(tmpdir(), `hamster-shutdown-${randomUUID()}.json`),
+    electron: {
+      session: { fromPartition: () => session },
+      ipcMain: {
+        handle: (name, handler) => handlers.set(name, handler),
+        removeHandler(name) { removals++; handlers.delete(name); },
+      },
+    },
+  });
+  assert.equal(handlers.has(CHANNEL), true);
+  return {
+    win, contents, controller, handlers, removals: () => removals,
+    destroyContents() { contentsDestroyed = true; },
+    closeWindow() { windowDestroyed = true; contentsDestroyed = true; win.emit('closed'); },
+  };
+}
+
+test('closed window releases the account IPC without touching destroyed Electron objects', () => {
+  const f = fixture();
+  f.closeWindow();
+  f.controller.dispose();
+  assert.equal(f.handlers.has(CHANNEL), false);
+  assert.equal(f.removals(), 1);
+});
+
+test('explicit app teardown removes listeners while the window is still alive', () => {
+  const f = fixture();
+  f.controller.dispose();
+  assert.equal(f.win.listenerCount('focus'), 0);
+  for (const event of ['did-start-loading', 'render-process-gone', 'did-finish-load']) {
+    assert.equal(f.contents.listenerCount(event), 0);
+  }
+  f.closeWindow();
+  assert.equal(f.handlers.has(CHANNEL), false);
+  assert.equal(f.removals(), 1);
+});
+
+test('explicit teardown can run after the web contents were destroyed', () => {
+  const f = fixture();
+  f.destroyContents();
+  f.controller.dispose();
+  assert.equal(f.win.listenerCount('focus'), 0);
+  assert.equal(f.handlers.has(CHANNEL), false);
+  assert.equal(f.removals(), 1);
+});

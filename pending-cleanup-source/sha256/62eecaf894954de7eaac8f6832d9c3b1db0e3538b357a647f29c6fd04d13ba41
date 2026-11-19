@@ -1,0 +1,17 @@
+{
+  "name": "hamster-ai",
+  "version": "1.7.75-internal.20261112.6",
+  "description": "仓鼠AI本地版",
+  "author": "仓鼠AI",
+  "private": true,
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
+    "lucide": "^1.45.0",
+    "yauzl": "3.4.0"
+  },
+  "hamsterInternalCandidate": true
+}

@@ -1,0 +1,152 @@
+const path = require('node:path');
+const {ORIGIN,createAccountService} = require('./account-service.cjs');
+const PARTITION = 'persist:hamster-relay-account';
+const CHANNEL = 'hamster-desktop-account';
+const PAYMENT_ORIGIN = 'https://2347637.pay.lanjingzf.com';
+const RETURN_PATHS = new Set(['/account-lite/index.html','/usage-logs']);
+const RECHECK_DELAYS = [2000,5000,10000];
+const parsed = value => { try { const url=new URL(value);return url.username||url.password?null:url; } catch { return null; } };
+
+function createDesktopAccount({window:win,electron,appUrl,journalFile,connectCreatedKey,getConnectedAccountId=()=>null,onConfigured=()=>{},reportFailure=()=>{},origin=ORIGIN,allowLoopbackForTests=false,timers={setTimeout,clearTimeout},loadTimeoutMs=25000}) {
+  const local=parsed(appUrl);
+  if(!local || local.protocol!=='http:' || local.hostname!=='127.0.0.1' || local.pathname!=='/' || local.search || local.hash)throw Error('Invalid local app');
+  const remoteSession=electron.session.fromPartition(PARTITION), windows=new Set();
+  let disposed=false,recheckVersion=0,recheckTimer;
+  const statusFile=path.join(__dirname,'account-status.html');
+  const reportConnectionFailure=()=>{try{reportFailure({code:'ACCOUNT_CONNECT_FAILED',httpStatus:0});}catch{}};
+  const trusted = event => {
+    try { return !disposed && !win.isDestroyed() && event.sender===win.webContents && event.senderFrame===win.webContents.mainFrame && parsed(event.senderFrame.url)?.href===local.href; } catch { return false; }
+  };
+  const current=()=>!disposed&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&parsed(win.webContents.getURL())?.href===local.href;
+  const paymentUpdated=()=>{if(current())win.webContents.send('hamster-payment-updated');};
+  const service=createAccountService({fetchImpl:(...args)=>remoteSession.fetch(...args),journalFile,connectCreatedKey,getConnectedAccountId,openPayment,onClosing:checkAfterCashier,onConfigured,onFailure:reportFailure,isCurrent:current,origin,allowLoopbackForTests});
+  const preferences={partition:PARTITION,contextIsolation:true,nodeIntegration:false,nodeIntegrationInSubFrames:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false};
+  const blockDownload=event=>event.preventDefault();
+  remoteSession.on('will-download',blockDownload);
+  remoteSession.setPermissionRequestHandler((contents,permission,callback,details)=>callback(permission==='clipboard-sanitized-write'&&parsed(contents.getURL())?.origin===origin&&details?.isMainFrame!==false&&parsed(details?.requestingUrl||contents.getURL())?.origin===origin));
+  remoteSession.setPermissionCheckHandler((contents,permission,requestOrigin)=>permission==='clipboard-sanitized-write'&&requestOrigin===origin&&parsed(contents?.getURL())?.origin===origin);
+  function clearRecheck() {
+    recheckVersion++;
+    if(recheckTimer!==undefined){timers.clearTimeout(recheckTimer);recheckTimer=undefined;}
+  }
+  function checkAfterCashier(order){
+    clearRecheck();
+    const ticket=recheckVersion;
+    const live=()=>current()&&ticket===recheckVersion&&!windows.size;
+    const check=async index=>{
+      if(!live())return;
+      const result=await service.reconcilePayment(order);
+      if(!live())return;
+      if(result.ok&&!['pending','closing'].includes(result.status)){
+        if(result.status!=='closed')paymentUpdated();
+        return;
+      }
+      if(!result.ok&&!['NETWORK','PAYMENT_UNKNOWN'].includes(result.code))return;
+      if(index<RECHECK_DELAYS.length){
+        recheckTimer=timers.setTimeout(()=>{recheckTimer=undefined;void check(index+1);},RECHECK_DELAYS[index]);
+        recheckTimer.unref?.();
+      }
+    };
+    void check(0);
+  }
+  function own(child,order,submitted) {
+    windows.add(child);
+    const contents=child.webContents;
+    const guard=(event,url,_inPlace,isMain)=>{
+      const target=parsed(event.url??url),main=(event.isMainFrame??isMain)!==false;
+      if(main&&target?.origin===origin&&RETURN_PATHS.has(target.pathname)) {
+        event.preventDefault();
+        queueMicrotask(()=>{
+          if(child.isDestroyed())return;
+          try{child.close();}catch{try{child.destroy();}catch{}}
+        });
+        return;
+      }
+      const paymentBridge=target?.origin===origin&&!target.hash&&(
+        target.pathname==='/pay/lanjing/epay/submit.php'&&!target.search ||
+        main&&target.pathname==='/pay/lanjing/return'
+      );
+      if(!paymentBridge&&target?.origin!==PAYMENT_ORIGIN)event.preventDefault();
+    };
+    contents.on('will-frame-navigate',guard);contents.on('will-redirect',guard);contents.on('will-navigate',guard);
+    contents.on('will-attach-webview',event=>event.preventDefault());
+    contents.setWindowOpenHandler(()=>({action:'deny'}));
+    child.on('closed',()=>{
+      windows.delete(child);
+      if(windows.size||disposed)return;
+      service.resume();
+      if(!current())return;
+      win.focus?.();
+      paymentUpdated();
+      if(submitted())checkAfterCashier(order);
+    });
+  }
+  function openPayment(handoff) {
+    if(!handoff||handoff.action!==origin+'/pay/lanjing/epay/submit.php'||!handoff.fields||typeof handoff.fields!=='object'||Array.isArray(handoff.fields)
+      ||Object.entries(handoff.fields).some(([key,value])=>!key||key.length>64||typeof value!=='string'||value.length>4096))return {ok:false,code:'INVALID_REQUEST'};
+    if(windows.size){const child=Array.from(windows).at(-1);if(!child.isDestroyed()){child.show();child.focus();}return {ok:true};}
+    if(disposed)return {ok:false,code:'FORBIDDEN'};
+    clearRecheck();
+    let child;
+    try {
+      // Suspend immediately, but let the customer see the window while old requests drain.
+      const drained=service.suspend().then(()=>true,()=>false);
+      child=new electron.BrowserWindow({parent:win,width:820,height:800,minWidth:480,minHeight:600,show:false,autoHideMenuBar:true,title:'仓鼠AI · 安全支付',backgroundColor:'#f4f5f2',webPreferences:preferences});
+      let submitted=false;
+      own(child,handoff.order,()=>submitted);
+      let active=true,timer;
+      const current=()=>active&&!disposed&&!child.isDestroyed();
+      const finish=()=>{active=false;if(timer!==undefined){timers.clearTimeout(timer);timer=undefined;}};
+      const closeFailed=()=>{
+        if(child.isDestroyed())return;
+        try{child.close();}catch{try{child.destroy();}catch{}}
+      };
+      const fail=()=>{
+        if(!current())return;
+        finish();
+        try{child.webContents.stop();}catch{}
+        reportConnectionFailure();
+        // Only this fixed local page can be displayed after an attempt fails.
+        try{void child.loadFile(statusFile,{query:{state:'failed'}}).catch(closeFailed);}catch{closeFailed();}
+      };
+      child.once('closed',finish);
+      timer=timers.setTimeout(fail,loadTimeoutMs);
+      const statusLoaded=child.loadFile(statusFile).then(()=>true,()=>false);
+      child.show();child.focus();
+      const target=handoff.action,body=Buffer.from(new URLSearchParams(handoff.fields).toString());
+      void (async()=>{
+        try {
+          const [safe,shown]=await Promise.all([drained,statusLoaded]);
+          if(!current())return;
+          if(!safe||!shown){fail();return;}
+          submitted=true;
+          await child.loadURL(target,{postData:[{type:'rawData',bytes:body}],extraHeaders:'Content-Type: application/x-www-form-urlencoded'});
+          if(current())finish();
+        } catch {fail();}finally{body.fill(0);}
+      })();
+      // This acknowledges only window creation, never authentication or payment success.
+      return {ok:true};
+    } catch {
+      if(child&&!child.isDestroyed())child.destroy();
+      if(!windows.size)service.resume();
+      reportConnectionFailure();
+      return {ok:false,code:'NETWORK'};
+    }
+  }
+  electron.ipcMain.handle(CHANNEL,async(event,action,value={})=>{
+    if(!trusted(event))return {ok:false,code:'FORBIDDEN'};
+    if(!value||typeof value!=='object'||Array.isArray(value))return {ok:false,code:'INVALID_REQUEST'};
+    return service.command(action,value);
+  });
+  const invalidate=()=>{clearRecheck();service.invalidate();};
+  win.webContents.on('did-start-loading',invalidate);
+  win.webContents.on('render-process-gone',invalidate);
+  function dispose(){
+    if(disposed)return;disposed=true;clearRecheck();service.dispose();electron.ipcMain.removeHandler(CHANNEL);
+    remoteSession.removeListener('will-download',blockDownload);
+    for(const child of windows)if(!child.isDestroyed())child.destroy();windows.clear();
+  }
+  win.on('closed',dispose);
+  return {dispose};
+}
+module.exports={CHANNEL,PARTITION,createDesktopAccount};

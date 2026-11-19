@@ -1,0 +1,42 @@
+// Launch immutable candidate EXEs; install isolation before their main module.
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net'),assert=require('node:assert/strict');
+const {spawn}=require('node:child_process'),{chromium}=require('playwright-core');
+const output=path.resolve(process.argv[2]||''),version=process.argv[3];
+assert.match(version||'',/^\d+\.\d+\.\d+$/);assert.equal(path.basename(output),'hamster-release-'+version);
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function port(){const s=net.createServer();await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));const value=s.address().port;await new Promise(resolve=>s.close(resolve));return value;}
+async function run(tag,exe){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hamster-account-exe-')),inspect=await port(),debug=await port();
+  fs.mkdirSync(path.join(root,'profile'));fs.mkdirSync(path.join(root,'desktop'));fs.mkdirSync(path.join(root,'session'));
+  const child=spawn(exe,[`--inspect-brk=${inspect}`,`--remote-debugging-port=${debug}`,'--remote-debugging-address=127.0.0.1'],{windowsHide:true,env:require('../codex-local.cjs').nativeEnvironment(),stdio:['ignore','pipe','pipe']});
+  let stderr='',ws,browser,id=0,paused,wsReady,exited=false;const pending=new Map();child.stderr.on('data',data=>stderr+=data.toString());child.on('exit',()=>exited=true);
+  const send=(method,params={})=>new Promise((resolve,reject)=>{const n=++id,timer=setTimeout(()=>{pending.delete(n);reject(Error('Inspector timeout: '+method));},10000);pending.set(n,{resolve:value=>{clearTimeout(timer);resolve(value);},reject:error=>{clearTimeout(timer);reject(error);}});ws.send(JSON.stringify({id:n,method,params}));});
+  try{
+    let endpoint;for(let i=0;i<240;i++){endpoint=/Debugger listening on (ws:\/\/127\.0\.0\.1:[^\s]+)/.exec(stderr)?.[1];
+      // The portable launcher does not forward its child's inspector stderr.
+      if(!endpoint)try{const response=await fetch(`http://127.0.0.1:${inspect}/json/list`,{signal:AbortSignal.timeout(200)});if(response.ok)endpoint=(await response.json())[0]?.webSocketDebuggerUrl;}catch{}
+      if(endpoint)break;if(exited)throw Error('Candidate exited before inspector');await sleep(250);}
+    assert.ok(endpoint,'Inspector endpoint unavailable');ws=new WebSocket(endpoint);wsReady=new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
+    ws.addEventListener('message',event=>{const data=JSON.parse(String(event.data));if(data.method==='Debugger.paused')paused=data.params;if(data.id){const item=pending.get(data.id);if(item){pending.delete(data.id);data.error?item.reject(Error(data.error.message)):item.resolve(data.result);}}});
+    await wsReady;await send('Debugger.enable');await send('Runtime.enable');await send('Runtime.runIfWaitingForDebugger');
+    for(let i=0;i<100&&!paused;i++)await sleep(50);assert.ok(paused?.callFrames?.length,'Main did not pause');
+    const injection=`(()=>{const e=require('electron'),p=require('node:path');const root=${JSON.stringify(root)};e.app.setPath('userData',p.join(root,'profile'));e.app.setPath('sessionData',p.join(root,'session'));e.app.setPath('desktop',p.join(root,'desktop'));global.__accountExeQA={blocked:0,version:e.app.getVersion(),profile:e.app.getPath('userData'),quit:()=>e.app.quit()};const guard=s=>s.webRequest.onBeforeRequest((d,cb)=>{const u=new URL(d.url),allowed=u.hostname==='127.0.0.1'||['data:','blob:','devtools:'].includes(u.protocol);if(!allowed)global.__accountExeQA.blocked++;cb({cancel:!allowed});});e.app.on('session-created',guard);e.app.whenReady().then(()=>guard(e.session.defaultSession));return {version:e.app.getVersion(),packaged:e.app.isPackaged};})()`;
+    const result=await send('Debugger.evaluateOnCallFrame',{callFrameId:paused.callFrames[0].callFrameId,expression:injection,returnByValue:true});
+    assert.equal(result.exceptionDetails,undefined);assert.equal(result.result.value.version,version);assert.equal(result.result.value.packaged,true);
+    await send('Debugger.resume');
+    let endpointHTTP;for(let i=0;i<120;i++){try{const response=await fetch(`http://127.0.0.1:${debug}/json/version`,{signal:AbortSignal.timeout(500)});if(response.ok){endpointHTTP=(await response.json()).webSocketDebuggerUrl;break;}}catch{}await sleep(250);}
+    assert.ok(endpointHTTP);browser=await chromium.connectOverCDP(endpointHTTP);
+    let page;for(let i=0;i<80;i++){page=browser.contexts()[0]?.pages().find(p=>p.url().startsWith('http://127.0.0.1:'));if(page)break;await sleep(100);}assert.ok(page);await page.locator('#localAccountIdentity').waitFor();
+    const state=await page.evaluate(()=>({bridge:typeof window.hamsterDesktopAccount?.command,embedded:document.querySelectorAll('#relayAccountViewport,webview').length,node:typeof require,advancedOpen:document.querySelector('.relay-advanced')?.open,version:document.title}));
+    assert.equal(state.bridge,'function');assert.equal(state.embedded,0);assert.equal(state.node,'undefined');assert.equal(state.advancedOpen,false);
+    const facts=await send('Runtime.evaluate',{expression:'global.__accountExeQA',returnByValue:true});
+    assert.equal(facts.result.value.profile,path.join(root,'profile'));
+    fs.writeFileSync(path.join(output,`exe-${tag}-verification.json`),JSON.stringify({passed:true,version,tag,exe,isolatedProfile:root,immutablePackage:true,networkGuardBeforeMain:true,blockedExternalRequests:facts.result.value.blocked,ui:state,realCustomerData:false,paidRequests:0},null,2));
+    await send('Runtime.evaluate',{expression:'global.__accountExeQA.quit()'}).catch(()=>{});
+  }finally{
+    ws?.close();await browser?.close().catch(()=>{});
+    for(let i=0;i<30&&!exited;i++)await sleep(100);
+    if(!exited)child.kill();
+  }
+}
+(async()=>{await run('unpacked',path.join(output,'win-unpacked','仓鼠AI.exe'));await run('portable',path.join(output,`仓鼠AI-${version}-便携版.exe`));console.log(JSON.stringify({passed:true,version,actualExeStarts:2}));})().catch(error=>{console.error(error);process.exitCode=1;});

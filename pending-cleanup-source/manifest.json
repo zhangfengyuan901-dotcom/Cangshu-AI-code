@@ -1,0 +1,1538 @@
+{
+  "schema": 1,
+  "archive": ".agents/pending-cleanup-source.zip",
+  "sha256": "9ad7610813375f3e638db4ac7c6bdf1e7cb3ad0106f72cb9b614a1c8a84fb7b4",
+  "uniqueSourceFiles": 154,
+  "files": [
+    {
+      "path": "output/browser-shell-1.7.80-current/dev/canvas/src/main.jsx",
+      "sha256": "02be1583a58a7cf691964037d9336d4b0a4f331efaaef0bfc8f59d9945db0d10",
+      "bytes": 54180,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/dev/canvas/src/style.css",
+      "sha256": "bf2ee22d53e1482a1bdf1abcdb3c22da7ef967d0f351c3fb7f8528e7aee21d67",
+      "bytes": 14678,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/dev/smart-video-agent/test_chat.py",
+      "sha256": "76e42b07c5c0fa4a30502afa54c008d71c035e6932d2f05f247f8147a0429ade",
+      "bytes": 37329,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/build-inputs/setup/compiler.rsp",
+      "sha256": "d1ee98b91fd3ca827b3213d2c3d93fb4d0eebdb1358631e1fa81213cdbb33f5b",
+      "bytes": 1818,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/dev/canvas/src/main.jsx",
+      "sha256": "86afc3b269b077fdf92cbb9145783bb2d22a7e006063428a3d69ca976ef0f20a",
+      "bytes": 59538,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/dev/installer-ui/Shell.xaml",
+      "sha256": "b530fa96ec5b5493e8679d3d2f72533ee7791d7288fabbbd799891286da2395d",
+      "bytes": 26616,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/source/package.json",
+      "sha256": "b24bf3524eef3b5abe8c7b42c79dbf81338a5774ca5b45be7de34f4354524e60",
+      "bytes": 312,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/canvas/src/main.jsx",
+      "sha256": "27e060961d14469fe439d70eb7b0181a6f3901adc38960e25775178a5d18ddc4",
+      "bytes": 51614,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/canvas/src/style.css",
+      "sha256": "bf2ee22d53e1482a1bdf1abcdb3c22da7ef967d0f351c3fb7f8528e7aee21d67",
+      "bytes": 14678,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/smart-video-agent/test_chat.py",
+      "sha256": "13175f84062594d587de73d078cb471016c9664cf803ae7ad5320e5c9670fda4",
+      "bytes": 36391,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/smart-video-agent/test_chat_paid.py",
+      "sha256": "af4c4a2e4ee1c154eb81ffcc208a05078317190bce61b00c9198b767ebfbf56b",
+      "bytes": 71835,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/account-desktop.test.js",
+      "sha256": "89589c19beabd19f297b92e2fa07da2ecdae060c46e17b9affd72b50b4ec40b7",
+      "bytes": 28690,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/asset-cache.test.mjs",
+      "sha256": "a872c63c24b061fc55f157d11efb041836cd92b52dca39fecc74e4ff98d23dec",
+      "bytes": 1098,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/canvas-on-demand-quote.test.mjs",
+      "sha256": "c2a0fa5b341d946a2c0fc0b8a2ea71756cf6bc2ed97e97bf643760088f176d0d",
+      "bytes": 7166,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/canvas.test.js",
+      "sha256": "c831b2e006e979f8259e4064fb2ff5ce9a2412452a2910f287d6170ddf0c4a1d",
+      "bytes": 54538,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/chat-billing-ui.test.js",
+      "sha256": "e04794b7b626e7fd53f4b97d7187c942b510419d8c5e9fbe9d31be939c1e451a",
+      "bytes": 28310,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/chat-polling-ui.test.js",
+      "sha256": "eef1046450ba06b113b7432b5eb43a26cb4b041774bc863b7c905a9f9f93293e",
+      "bytes": 6675,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/local-account-ui.test.mjs",
+      "sha256": "ba69995a5911679da8799cd66b411139dd264528dc5198bd26b2b0a9e75bf81b",
+      "bytes": 19536,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/local-workspace.test.mjs",
+      "sha256": "7a3ed7f10f7f5b16715175ee40f1206e8ca61266d911d24345490b5f77a21451",
+      "bytes": 12347,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/media-capabilities74.test.mjs",
+      "sha256": "8a08e0c58417454ffd3e5ea34233e7458cc7ca5599a751e9cc257e4cbb230741",
+      "bytes": 19815,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/media-upload-queue-ui.test.mjs",
+      "sha256": "6f0f39dfc766f18ef9597e60e96d20c941357ab0c1c64d9dd86a7d6f52566eff",
+      "bytes": 6571,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/relay-default.test.js",
+      "sha256": "af821929886dea314a62479cea46c524964c2fa1ed79375ba60cf5b2ecc9b58f",
+      "bytes": 9812,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/relay-submit-ui.test.mjs",
+      "sha256": "11da15e9b33242931e4825b6c1e8f1fcfd1ec0834d00282743cc6ee76b5b6d72",
+      "bytes": 12001,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/task-refresh-ui.test.mjs",
+      "sha256": "90ada0b01307e1a270ab7000d7007b796a42b14f09e52904d1c0c13ca39f2b01",
+      "bytes": 10884,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/dev/tests/workbench-upload-purpose.test.mjs",
+      "sha256": "b1908fb2e015f4643886edc0c4717e5e91ab724e4ac6f13ed9568d6cfcbcdc93",
+      "bytes": 13072,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/dev/canvas/src/main.jsx",
+      "sha256": "86afc3b269b077fdf92cbb9145783bb2d22a7e006063428a3d69ca976ef0f20a",
+      "bytes": 59538,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/canvas/src/main.jsx",
+      "sha256": "80dcdd8435a1f4a9e203f2d5279e41933e77066b38abad6174b22add8856c03e",
+      "bytes": 54220,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/canvas/src/style.css",
+      "sha256": "254855a1d5f247ab767bd1fb5babc31207c9aafb681d895644a52515a837202d",
+      "bytes": 14720,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/smart-video-agent/test_chat.py",
+      "sha256": "5a6ff9205257097a0bddaa2480269e4a8b483f48b52577749666057f8203276d",
+      "bytes": 39806,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/tests/chat-media-ui.test.js",
+      "sha256": "4d17b0eaf7844fc1088d646007a2eb03a49e5755d4cc23ad97ce1d3956204661",
+      "bytes": 17022,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/tests/chat-polling-ui.test.js",
+      "sha256": "ff42910d92996c837ce49f84ffc6ed900daa8c2eb4957a06fa7c6dc91825b5e3",
+      "bytes": 7163,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/tests/generation-material-tray.test.mjs",
+      "sha256": "83fe9f7e2e7dceff507c7088fe9318a603e8272b2f711ddaedf15531f2df341e",
+      "bytes": 8256,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/dev/tests/material-preview.test.mjs",
+      "sha256": "70c258af07e7ddd642e35a260fa81f9673a5e2bbe9150cc27ee70dc4942331d9",
+      "bytes": 10813,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/electron/account-desktop.cjs",
+      "sha256": "21feae6cd0a95f560f8b13eba258ad405d348e3633ea9e8d27891d6ed2ade2f8",
+      "bytes": 8603,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/electron/account-payment.cjs",
+      "sha256": "f59f76076a5575599ee6dac8f40f31ccb721bd57e4623abc45c08b7f0de2e5dc",
+      "bytes": 16008,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/electron/account-service.cjs",
+      "sha256": "ff3446e02fc54a2050668eff2abc8221343c91542ef71735a47d554e7f069032",
+      "bytes": 19224,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/electron/app-events.cjs",
+      "sha256": "e0ae392fb90ae4e8d90b0c8ec78cb2cc2645f5609ba6a0f67fb71569f8ce0f42",
+      "bytes": 1272,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/public/account-native.mjs",
+      "sha256": "e2b23f8ddcf08ab25943c5aff95860674557e38abb3ec9e81292160630051ad1",
+      "bytes": 23557,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/public/account.mjs",
+      "sha256": "62543f1d96ed430943debfe11147a9eebf939f29290f8e17974b07018ed2fd94",
+      "bytes": 36872,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/tests/account-desktop.test.js",
+      "sha256": "e4d8f54da07da7434ccaa2390401dce0e54e1a62b295e479ab2f6a1dad58ba26",
+      "bytes": 43405,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/tests/account-service.test.js",
+      "sha256": "efd3bac0b6629662108a88bbd243d8e7b4e56e362d7ac7ef5a06a6f701918a74",
+      "bytes": 49936,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/payment-desktop-current/source/tests/local-account-ui.test.mjs",
+      "sha256": "903b6680ec0c00920ca6840c4845520a2d74832b2cd58c6566dc29e4ea644b8b",
+      "bytes": 30911,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/backend-candidate/web/dist/account-lite/account.mjs",
+      "sha256": "dfae3139e2108b48095ec381f67f89af7ddcabe8363a182deed665f45ad7d767",
+      "bytes": 39572,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/backend-candidate/web/dist/account-lite/client.mjs",
+      "sha256": "df68bb7d7c088ffc6ff98ff948e3d381603a058121e8edb0b280d09cca2437ad",
+      "bytes": 15064,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/backend-candidate/web/dist/index.html",
+      "sha256": "efdb12a5e148d6cf8140250686d70a8394f3c78723cbe8b9e9958253d3bf1a7a",
+      "bytes": 2265,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/source/package.json",
+      "sha256": "62eecaf894954de7eaac8f6832d9c3b1db0e3538b357a647f29c6fd04d13ba41",
+      "bytes": 368,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/source/public/app.js",
+      "sha256": "45422d76f0e11ae715987dffe0d211f6c46336579e598f3d92aaf030d779a263",
+      "bytes": 120155,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/source/tests/account-service.test.js",
+      "sha256": "efd3bac0b6629662108a88bbd243d8e7b4e56e362d7ac7ef5a06a6f701918a74",
+      "bytes": 49936,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-account-browser-current/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-model-gif-current/backend72-source/web/dist/account-lite/account.mjs",
+      "sha256": "dfae3139e2108b48095ec381f67f89af7ddcabe8363a182deed665f45ad7d767",
+      "bytes": 39572,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-model-gif-current/backend72-source/web/dist/account-lite/client.mjs",
+      "sha256": "df68bb7d7c088ffc6ff98ff948e3d381603a058121e8edb0b280d09cca2437ad",
+      "bytes": 15064,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/controller/topup.go",
+      "sha256": "f670a8a093c540bdc995634edbe22569ecbed584ca09dd6c22b1bcdea94cfaf2",
+      "bytes": 18331,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/controller/user.go",
+      "sha256": "2038979b86f945c2a688d6bbc990e76427bc175f43a734f40195c9a855f3a00e",
+      "bytes": 42193,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/middleware/access_token_routes.go",
+      "sha256": "31577872b053dbe7952fc4e13deeb8e15db47438574c8602018b0ee40eff4af6",
+      "bytes": 23872,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/middleware/rate-limit.go",
+      "sha256": "ed3f974d5fe46b4c8198f27e0e56f1d12fe7a2f76eaec54f00cd42fd3c7692a8",
+      "bytes": 8170,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/model/main.go",
+      "sha256": "2e5bd14d55e19645d324270e4a8aef0cfd0a31845540002c7e0c21064403ad6c",
+      "bytes": 26084,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/router/access_token_scope_test.go",
+      "sha256": "783eafda7fc4ecf823c1a5f0bfc1eaf500e1b52ece5ddfff909949085791b1fb",
+      "bytes": 6127,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/router/api-router.go",
+      "sha256": "25e1eb7cf7d0cc09bde3983b331b1e9333ddeafdac4c946f071516eddbdf16d9",
+      "bytes": 27973,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/account-lite/account.css",
+      "sha256": "e3169557a5faea3dc9b11701d9a3d229745199bfdef724bc8f6e0e9e31d1e3cb",
+      "bytes": 19315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/account-lite/account.mjs",
+      "sha256": "a75dbba188f330c556748dd6927decbd55a45c4b758e75b72a2b0fc88e6c395e",
+      "bytes": 35907,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/account-lite/client.mjs",
+      "sha256": "7584487f787701a1ee22969ea0ab85e0521f802bbd58ee76d8aae962e664036a",
+      "bytes": 14185,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/account-lite/compat.mjs",
+      "sha256": "c72a13817aa48de7e163bb9c921ba6bee44587d0edcfb116ab48387e49ea9693",
+      "bytes": 3144,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/account-lite/index.html",
+      "sha256": "75b8d9d37a397c075cde2aedf802f629936d82f0d0f4c71081f6144d469369f1",
+      "bytes": 7731,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/auth-lite/auth.mjs",
+      "sha256": "d3b02822ae5aaf6760f402ec9810bb5419ca9f0642a16b90cb64f5719e10495a",
+      "bytes": 13358,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/auth-lite/client.mjs",
+      "sha256": "51aa921aa5e78a5192ebf1a3e18f30f3f126a6120ad6d8bcb5855005fb5be385",
+      "bytes": 8419,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/backend-candidate/web/dist/index.html",
+      "sha256": "6c7b922b0bf97b5e920f1903f85f691470be96ae7f9b88eae863db1731713cd0",
+      "bytes": 2265,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/electron/account-desktop.cjs",
+      "sha256": "21feae6cd0a95f560f8b13eba258ad405d348e3633ea9e8d27891d6ed2ade2f8",
+      "bytes": 8603,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/electron/account-payment.cjs",
+      "sha256": "f59f76076a5575599ee6dac8f40f31ccb721bd57e4623abc45c08b7f0de2e5dc",
+      "bytes": 16008,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/electron/account-service.cjs",
+      "sha256": "ff3446e02fc54a2050668eff2abc8221343c91542ef71735a47d554e7f069032",
+      "bytes": 19224,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/electron/app-events.cjs",
+      "sha256": "e0ae392fb90ae4e8d90b0c8ec78cb2cc2645f5609ba6a0f67fb71569f8ce0f42",
+      "bytes": 1272,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/electron/main.cjs",
+      "sha256": "3040e1ca3b298069a6bcd95ca2b6c1982c265789308411389483ae1b399f1eb6",
+      "bytes": 8878,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/package.json",
+      "sha256": "1b1d4ed48cf277a536e8a9600e4466d9950719530fb7d6bc96da099ce7fa179e",
+      "bytes": 368,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/public/account-native.mjs",
+      "sha256": "bfd975bae45cdfe869fb18901b716d48a135bfa1925cc539d99398ffc62d65a6",
+      "bytes": 23962,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/public/account.mjs",
+      "sha256": "62543f1d96ed430943debfe11147a9eebf939f29290f8e17974b07018ed2fd94",
+      "bytes": 36872,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/public/app.js",
+      "sha256": "45422d76f0e11ae715987dffe0d211f6c46336579e598f3d92aaf030d779a263",
+      "bytes": 120155,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/source/server.js",
+      "sha256": "de183cb1f9be78acf827e47615a7e349e65a73f41ea66247d030f5a83669d13c",
+      "bytes": 59519,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/electron/account-desktop.cjs",
+      "sha256": "21feae6cd0a95f560f8b13eba258ad405d348e3633ea9e8d27891d6ed2ade2f8",
+      "bytes": 8603,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/electron/account-payment.cjs",
+      "sha256": "8445eccb6647e2c38eb7b33a8e286e772e529664adde1a48b787887c312e660d",
+      "bytes": 16147,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/electron/account-service.cjs",
+      "sha256": "ff3446e02fc54a2050668eff2abc8221343c91542ef71735a47d554e7f069032",
+      "bytes": 19224,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/electron/app-events.cjs",
+      "sha256": "e0ae392fb90ae4e8d90b0c8ec78cb2cc2645f5609ba6a0f67fb71569f8ce0f42",
+      "bytes": 1272,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/electron/main.cjs",
+      "sha256": "3040e1ca3b298069a6bcd95ca2b6c1982c265789308411389483ae1b399f1eb6",
+      "bytes": 8878,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/package.json",
+      "sha256": "2bd16f241f436c633cbbcded2a797f57dcac2d8c1c3265afd797f83d10136282",
+      "bytes": 368,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/public/account-native.mjs",
+      "sha256": "bfd975bae45cdfe869fb18901b716d48a135bfa1925cc539d99398ffc62d65a6",
+      "bytes": 23962,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/public/account.mjs",
+      "sha256": "62543f1d96ed430943debfe11147a9eebf939f29290f8e17974b07018ed2fd94",
+      "bytes": 36872,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/public/app.js",
+      "sha256": "45422d76f0e11ae715987dffe0d211f6c46336579e598f3d92aaf030d779a263",
+      "bytes": 120155,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/source/server.js",
+      "sha256": "de183cb1f9be78acf827e47615a7e349e65a73f41ea66247d030f5a83669d13c",
+      "bytes": 59519,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/controller/topup.go",
+      "sha256": "f670a8a093c540bdc995634edbe22569ecbed584ca09dd6c22b1bcdea94cfaf2",
+      "bytes": 18331,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/controller/user.go",
+      "sha256": "2038979b86f945c2a688d6bbc990e76427bc175f43a734f40195c9a855f3a00e",
+      "bytes": 42193,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/middleware/access_token_routes.go",
+      "sha256": "31577872b053dbe7952fc4e13deeb8e15db47438574c8602018b0ee40eff4af6",
+      "bytes": 23872,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/middleware/rate-limit.go",
+      "sha256": "ed3f974d5fe46b4c8198f27e0e56f1d12fe7a2f76eaec54f00cd42fd3c7692a8",
+      "bytes": 8170,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/model/main.go",
+      "sha256": "2e5bd14d55e19645d324270e4a8aef0cfd0a31845540002c7e0c21064403ad6c",
+      "bytes": 26084,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/router/access_token_scope_test.go",
+      "sha256": "b35278e7961e0058e8a6e145d453c2f3c95c55682e55209e1a6cd7a1b3e78ab3",
+      "bytes": 6281,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/router/api-router.go",
+      "sha256": "25e1eb7cf7d0cc09bde3983b331b1e9333ddeafdac4c946f071516eddbdf16d9",
+      "bytes": 27973,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/account-lite/account.css",
+      "sha256": "e3169557a5faea3dc9b11701d9a3d229745199bfdef724bc8f6e0e9e31d1e3cb",
+      "bytes": 19315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/account-lite/account.mjs",
+      "sha256": "d4df3dbeec4fcfe6bd86598fb711f77b80743cdc9639f0cd61a6a899a54d00ec",
+      "bytes": 35755,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/account-lite/client.mjs",
+      "sha256": "b47430e8803337c5950f6a13541aaaac66518465ddbb1e39f7b74977a0ea696e",
+      "bytes": 14847,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/account-lite/compat.mjs",
+      "sha256": "c72a13817aa48de7e163bb9c921ba6bee44587d0edcfb116ab48387e49ea9693",
+      "bytes": 3144,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/account-lite/index.html",
+      "sha256": "eb2a51b9bf21714ae69c2f2ab19be771cc8af93e058921937963d3802a190b32",
+      "bytes": 7704,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/auth-lite/auth.mjs",
+      "sha256": "d3b02822ae5aaf6760f402ec9810bb5419ca9f0642a16b90cb64f5719e10495a",
+      "bytes": 13358,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/auth-lite/client.mjs",
+      "sha256": "51aa921aa5e78a5192ebf1a3e18f30f3f126a6120ad6d8bcb5855005fb5be385",
+      "bytes": 8419,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/backend-candidate/web/dist/index.html",
+      "sha256": "6c7b922b0bf97b5e920f1903f85f691470be96ae7f9b88eae863db1731713cd0",
+      "bytes": 2265,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/electron/account-desktop.cjs",
+      "sha256": "21feae6cd0a95f560f8b13eba258ad405d348e3633ea9e8d27891d6ed2ade2f8",
+      "bytes": 8603,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/electron/account-payment.cjs",
+      "sha256": "f59f76076a5575599ee6dac8f40f31ccb721bd57e4623abc45c08b7f0de2e5dc",
+      "bytes": 16008,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/electron/account-service.cjs",
+      "sha256": "ff3446e02fc54a2050668eff2abc8221343c91542ef71735a47d554e7f069032",
+      "bytes": 19224,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/electron/app-events.cjs",
+      "sha256": "e0ae392fb90ae4e8d90b0c8ec78cb2cc2645f5609ba6a0f67fb71569f8ce0f42",
+      "bytes": 1272,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/electron/main.cjs",
+      "sha256": "3040e1ca3b298069a6bcd95ca2b6c1982c265789308411389483ae1b399f1eb6",
+      "bytes": 8878,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/package.json",
+      "sha256": "f888934250132238a0064d531fb3c74bd48a2162cab0830581c4cc678c213391",
+      "bytes": 368,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/public/account-native.mjs",
+      "sha256": "e2b23f8ddcf08ab25943c5aff95860674557e38abb3ec9e81292160630051ad1",
+      "bytes": 23557,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/public/account.mjs",
+      "sha256": "62543f1d96ed430943debfe11147a9eebf939f29290f8e17974b07018ed2fd94",
+      "bytes": 36872,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/public/app.js",
+      "sha256": "45422d76f0e11ae715987dffe0d211f6c46336579e598f3d92aaf030d779a263",
+      "bytes": 120155,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/source/server.js",
+      "sha256": "de183cb1f9be78acf827e47615a7e349e65a73f41ea66247d030f5a83669d13c",
+      "bytes": 59519,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/source/package.json",
+      "sha256": "4fb9e7c19fd61ad28d2a1364076ef290929e6060859199e1180edee31308bb6c",
+      "bytes": 312,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/source/tests/account-service.test.js",
+      "sha256": "efd3bac0b6629662108a88bbd243d8e7b4e56e362d7ac7ef5a06a6f701918a74",
+      "bytes": 49936,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-promotion-check-20261112T130111290Z/source/package.json",
+      "sha256": "4fb9e7c19fd61ad28d2a1364076ef290929e6060859199e1180edee31308bb6c",
+      "bytes": 312,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-promotion-check-20261112T130111290Z/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-promotion-check-20261112T130111290Z/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/release-1.7.77-promotion-check-20261112T130111290Z/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/shutdown-fix-1.7.78-current/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/shutdown-fix-1.7.78-current/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/shutdown-fix-1.7.78-current/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/shutdown-fix-1.7.78-current/source/package.json",
+      "sha256": "1dd3ec119a148f928f1b1350c710493f644377b0152a89012ddff8e2a58ed878",
+      "bytes": 312,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/dev/canvas/src/main.jsx",
+      "sha256": "80dcdd8435a1f4a9e203f2d5279e41933e77066b38abad6174b22add8856c03e",
+      "bytes": 54220,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/dev/canvas/src/style.css",
+      "sha256": "254855a1d5f247ab767bd1fb5babc31207c9aafb681d895644a52515a837202d",
+      "bytes": 14720,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/dev/smart-video-agent/test_chat.py",
+      "sha256": "b57a9565453a7f16de005b8f9b9ef7fa7c46bf387b77db6f1cacc498337438e9",
+      "bytes": 38730,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/typography-1.7.81-current/dev/canvas/src/main.jsx",
+      "sha256": "46a2f621e364a42fd92b59566a257d61935905ec91350346fce47110afa55f10",
+      "bytes": 54219,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/typography-1.7.81-current/dev/canvas/src/style.css",
+      "sha256": "b1ba48e1edd7bc439960722686e67d22aae7a2de496f9f82921a9b1ed79d42c6",
+      "bytes": 14742,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/typography-1.7.81-current/dev/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/typography-1.7.81-current/dev/smart-video-agent/test_chat.py",
+      "sha256": "b57a9565453a7f16de005b8f9b9ef7fa7c46bf387b77db6f1cacc498337438e9",
+      "bytes": 38730,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/resource-inputs/smart-video-agent/chat-ui/chat.css",
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057",
+      "bytes": 14518,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/resource-inputs/smart-video-agent/chat-ui/chat.js",
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb",
+      "bytes": 34315,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/resource-inputs/smart-video-agent/chat.py",
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb",
+      "bytes": 62631,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/canvas/src/main.jsx",
+      "sha256": "27e060961d14469fe439d70eb7b0181a6f3901adc38960e25775178a5d18ddc4",
+      "bytes": 51614,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/canvas/src/style.css",
+      "sha256": "bf2ee22d53e1482a1bdf1abcdb3c22da7ef967d0f351c3fb7f8528e7aee21d67",
+      "bytes": 14678,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/canvas/src/widgets.jsx",
+      "sha256": "26f556f7883016f57d36067d36e5e79e5c7aa55054abaa897d62add0387aad52",
+      "bytes": 8351,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/electron/account-desktop.cjs",
+      "sha256": "ac3777c718a4ca85f5d38595ab5fc0f4e4c8089622ffa0bd79471e3aacdd6ee9",
+      "bytes": 6991,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/electron/account-service.cjs",
+      "sha256": "174e237e8419398e7c09915a61fd92c64c204f8395a3cb0dbfc81957b30b5857",
+      "bytes": 18864,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/electron/app-events.cjs",
+      "sha256": "fa652763d1a286ec6d924435a41e9392650631dc20f12961298d97a4efbc0dbe",
+      "bytes": 1126,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/electron/main.cjs",
+      "sha256": "3040e1ca3b298069a6bcd95ca2b6c1982c265789308411389483ae1b399f1eb6",
+      "bytes": 8878,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/package.json",
+      "sha256": "a88cc6a4e46220b16465ce392e1ad83dcb2cc5372554294fc7b68a80ba4f5192",
+      "bytes": 312,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/public/account.mjs",
+      "sha256": "2ff9276527888f62e2daf7bc80aeae57d1981081760ee0c8a7ff00f736d10131",
+      "bytes": 36578,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/release/current.json",
+      "sha256": "5bd09309889da3679c9b09fd16cba6fa66ecadb0d4a71e4b9c7485995e0a548c",
+      "bytes": 8360,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/release/source-manifest.json",
+      "sha256": "df77805f2cb6107af924383944d4f4b167ec61c0f56b6161d177c2847dd65791",
+      "bytes": 662506,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/server.js",
+      "sha256": "de183cb1f9be78acf827e47615a7e349e65a73f41ea66247d030f5a83669d13c",
+      "bytes": 59519,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/account-desktop.test.js",
+      "sha256": "23c5573ad0d53a9b59be59a117e6dbc732234f1ba91262be142498e026ce8b31",
+      "bytes": 39107,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/account-service.test.js",
+      "sha256": "efd3bac0b6629662108a88bbd243d8e7b4e56e362d7ac7ef5a06a6f701918a74",
+      "bytes": 49936,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/adaptation-client.test.js",
+      "sha256": "25faf045c57a78ef00fb46fb6c8d9eb7f109e338a446bf3c29e58a329411fb93",
+      "bytes": 6606,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/asset-cache.test.mjs",
+      "sha256": "a872c63c24b061fc55f157d11efb041836cd92b52dca39fecc74e4ff98d23dec",
+      "bytes": 1098,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/canvas-on-demand-quote.test.mjs",
+      "sha256": "c2a0fa5b341d946a2c0fc0b8a2ea71756cf6bc2ed97e97bf643760088f176d0d",
+      "bytes": 7166,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/canvas.test.js",
+      "sha256": "c831b2e006e979f8259e4064fb2ff5ce9a2412452a2910f287d6170ddf0c4a1d",
+      "bytes": 54538,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/chat-billing-ui.test.js",
+      "sha256": "e04794b7b626e7fd53f4b97d7187c942b510419d8c5e9fbe9d31be939c1e451a",
+      "bytes": 28310,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/chat-media-ui.test.js",
+      "sha256": "51486f10fcec9da0a9b2db2f24eb41f603dc64a87518f9267ca54cf6b7d18754",
+      "bytes": 8678,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/chat-polling-ui.test.js",
+      "sha256": "eef1046450ba06b113b7432b5eb43a26cb4b041774bc863b7c905a9f9f93293e",
+      "bytes": 6675,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/diagnostics.test.js",
+      "sha256": "2754827bbb0c887cca7ee7e592214adb6ae6ba66cab1624efd89fe1f2648ba8b",
+      "bytes": 8056,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/local-account-ui.test.mjs",
+      "sha256": "1ca082460684cfa817ddf840030e68d64912213ada61e90506c9d89144d55a5b",
+      "bytes": 27996,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/local-workspace.test.mjs",
+      "sha256": "7a3ed7f10f7f5b16715175ee40f1206e8ca61266d911d24345490b5f77a21451",
+      "bytes": 12347,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/main-app-quotes.test.mjs",
+      "sha256": "90d1398bd1d0edf93ca6143a704bc2720d620dc934b00717e23e731b2502f1b4",
+      "bytes": 19108,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/media-capabilities74.test.mjs",
+      "sha256": "8a08e0c58417454ffd3e5ea34233e7458cc7ca5599a751e9cc257e4cbb230741",
+      "bytes": 19815,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/media-upload-queue-ui.test.mjs",
+      "sha256": "6f0f39dfc766f18ef9597e60e96d20c941357ab0c1c64d9dd86a7d6f52566eff",
+      "bytes": 6571,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/pikno-client.test.js",
+      "sha256": "4bb8e13dc3926a125e4cbef1ba3bbfd0fbb90f37ab8d085c0360b0fd6983320a",
+      "bytes": 28228,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/relay-account-view-ui.test.mjs",
+      "sha256": "6a37ecbfe81c83e13baaf9c54f28d9c86df58a9df880560e4803f222cfd5dc79",
+      "bytes": 11713,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/relay-account.test.mjs",
+      "sha256": "c6f8a39a6b7f127b87a602869a7090968464967361ac351f3d8127d37db853d7",
+      "bytes": 37604,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/relay-default.test.js",
+      "sha256": "af821929886dea314a62479cea46c524964c2fa1ed79375ba60cf5b2ecc9b58f",
+      "bytes": 9812,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/relay-submit-ui.test.mjs",
+      "sha256": "11da15e9b33242931e4825b6c1e8f1fcfd1ec0834d00282743cc6ee76b5b6d72",
+      "bytes": 12001,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/release-suite.json",
+      "sha256": "ae1ee6a5f16fee2209916890dd0a5140517de245bcf7e91d0d2484e1a0b5e073",
+      "bytes": 1087,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/task-refresh-ui.test.mjs",
+      "sha256": "90ada0b01307e1a270ab7000d7007b796a42b14f09e52904d1c0c13ca39f2b01",
+      "bytes": 10884,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/tutorial-page.test.mjs",
+      "sha256": "57b2fe75b29c422775d78025964c06bb6f4e4098d5e342242d868a0b75b82735",
+      "bytes": 8446,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/website-download.test.mjs",
+      "sha256": "82da4356d8f92060fb9c63b135cd90744e9f7bfd515b929df592d20f0a617bdd",
+      "bytes": 19876,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/website-quickstart.test.mjs",
+      "sha256": "ecb2a9256f18c0f849cd569995f4ec2452f5c064898088b813632488d3ac5255",
+      "bytes": 5693,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/video-material-fix76-current/source/tests/workbench-upload-purpose.test.mjs",
+      "sha256": "b1908fb2e015f4643886edc0c4717e5e91ab724e4ac6f13ed9568d6cfcbcdc93",
+      "bytes": 13072,
+      "reason": "nonidentical source or test revision"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/finalize-verification.cjs",
+      "sha256": "4529dff151132d62790306c563f45c2c6f7124a6a91a7dfee177756deb2b4ef2",
+      "bytes": 6819,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/qa-installation.ps1",
+      "sha256": "306f0c9a21c502037dd7f2480ca4a4ddd29fd4ab40a989bda9a3ec5d4cf18424",
+      "bytes": 6224,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/qa-installed.cjs",
+      "sha256": "64c3300a23f8ae1fa66895303cd0d3bc01c65442f8c7a50a4507ba65b07e973f",
+      "bytes": 19665,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/stage-candidate.cjs",
+      "sha256": "827caca8706c62c2ff31d5b0d92a54389c752b399b9cc4a1c7426011b28b4103",
+      "bytes": 4029,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/browser-shell-1.7.80-current/verify-package.cjs",
+      "sha256": "9b136a1eb3f66acfe653e9232f230d68be1d4d3c0470eecde64b5cc7c74f8c09",
+      "bytes": 2463,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/finalize-verification.cjs",
+      "sha256": "5ab4b917374a5bae468d907eed03035dfc0ddf56324900346ba6052dc74d2cb9",
+      "bytes": 8174,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/prepare-candidate.cjs",
+      "sha256": "114678a52534f4668a390366b920dede6e660a1a3c5e1d6483431c08bbc73fd1",
+      "bytes": 1695,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/qa-installation.ps1",
+      "sha256": "2f14706c567d20a3fdd8deea1957ad030ed83a54a4cd53138cde9b8900e322fe",
+      "bytes": 7125,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/qa-installed.cjs",
+      "sha256": "8f432c3b5823bdaf2709dcdf5869f0c3e930bddc8522e0cdf95b6b588c0d5494",
+      "bytes": 53461,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/qa-silent-upgrade.ps1",
+      "sha256": "e42669f4f8b455cb99f2d6ece9f7d6a605c954d783632c156f8b0e6a56a398a2",
+      "bytes": 2002,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/stage-candidate.cjs",
+      "sha256": "c0136c39a5ddb81ff460ea0d6901ae87c1de90767a6aa33b7aa207577d4008a5",
+      "bytes": 4721,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/custom-installer-1.7.85-current/verify-package.cjs",
+      "sha256": "68e32dd8e4d15eb366c97c3a1860235f121828654390b95067e7754160d8599d",
+      "bytes": 2905,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/full-fix-1.7.79-current/qa-portable-full.cjs",
+      "sha256": "1f0faf62454bd7c88491aed5b42a9b64558d8e9cfb820a2b9c55c877525e4952",
+      "bytes": 19320,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/finalize-verification.cjs",
+      "sha256": "8519cd94ee735e628c116164052838ad85e782e49b390a905ca700a8a74675af",
+      "bytes": 6714,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/prepare-candidate.cjs",
+      "sha256": "9cb1fcba18327eaf2cc0820d4d5cf531e89dc7ec93d1ea72e790b2ae07d0bef9",
+      "bytes": 1703,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/qa-canvas-fixture.cjs",
+      "sha256": "b378797f52267c4849f768de8107c90a8824f28b5175d0f078020ebb0d4e0cde",
+      "bytes": 4050,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/qa-installation.ps1",
+      "sha256": "d1dffc5b8d1bb603acfef2ee5a208bab10bb8a835c47d6ffee52eb4eb77af3f7",
+      "bytes": 6271,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/qa-installed.cjs",
+      "sha256": "9a57a5de6bf12ec6924ed6aa8c6bcacc68b6668fe1c8ef484fd8fdbe30b875c2",
+      "bytes": 52347,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/reorder-qa.cjs",
+      "sha256": "46f893bb420271fe1f887f3a3950d84434360968d9bb075852734a7511e08534",
+      "bytes": 768,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/stage-candidate.cjs",
+      "sha256": "e9919681ae4a27c9c2225c9bd6878c1d3e480d5beaca95e1569e23c2d13889a8",
+      "bytes": 4718,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/global-interactions-1.7.84-current/verify-package.cjs",
+      "sha256": "e46e4dbf12482cd440a55b392c5bca2aea0f6460d9f45e02f03acd8b95e657f7",
+      "bytes": 2463,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/finalize-verification.cjs",
+      "sha256": "27fce8cfb59af1a96bf358b6518a802cad1da67f7501af124a5cca2d89acbe33",
+      "bytes": 7212,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/prepare-candidate.cjs",
+      "sha256": "ac9bda81516551f5df1020e48779cfc8a3a5c99e5ad353986122380c6c89402c",
+      "bytes": 1695,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/qa-installation.ps1",
+      "sha256": "2f334fd0fee46a51e4b8d22bd3a6f83c449a98fec88870093a930a682d43ee42",
+      "bytes": 6224,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/qa-installed.cjs",
+      "sha256": "ac3ca221e6fd0af4b5fc85cacbf9c1294f6a355384db136b5ae6fcf21cba70f4",
+      "bytes": 40469,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/qa-preflight.cjs",
+      "sha256": "33ac83b1a3e985feebc971965703b5081454fb81ff6494ccf35277b4d28bc6bf",
+      "bytes": 38712,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/stage-candidate.cjs",
+      "sha256": "f35ce9a63f0ae6eea6732c93a6b04de072d859c9cfed1b306a01e898f8322f6a",
+      "bytes": 4693,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/material-preview-1.7.83-current/verify-package.cjs",
+      "sha256": "7906d6fdf1067e6f170056dd7a689317a100e61bb93f58b3f9b543e620e00e00",
+      "bytes": 2463,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/build73.py",
+      "sha256": "a8dd96ba766cc0d875e33b2f5a4bf0150623ce7c28e47a83c8ca2cc5f8780e9a",
+      "bytes": 3742,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/deploy73.py",
+      "sha256": "4bf3fe62ac1e7d1cf7050cf85babad2dfd3a58c310bd18165de972600cb19f74",
+      "bytes": 12756,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/qa-deploy-guards.py",
+      "sha256": "cdcf6fcfb341e19018705f4fd5bd92429693a3c3d889ceff1ae0cdcc9b9f9720",
+      "bytes": 8045,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/qr-browser-fixture.mjs",
+      "sha256": "bf9f21ad41ab59d3dc45da430f8aec7a6aa7931e1f99bdfde1bfbb4c241e81b6",
+      "bytes": 6830,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/qr-browser-flow.cjs",
+      "sha256": "e822fdf6b7bb2159b662f7d5e8df055a07ee087af3c6d8d4b40ce342055194df",
+      "bytes": 1580,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/release73.py",
+      "sha256": "e532d3373efa7a5e0bbe52138e44d1c2d6b62c233877fa5a4c85fceebdf93a50",
+      "bytes": 7524,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/server.mjs",
+      "sha256": "49c8452b7cb525075ccde33893450c00a9c20ca3c71e3e1ed052365e5410af11",
+      "bytes": 29397,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/relay-checkout73-current/verify-public.py",
+      "sha256": "40341f6868bf57d6b1745320e1efff8209500722883a147c3711e775b7b2d6d7",
+      "bytes": 1509,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/electron/account-desktop.cjs",
+      "sha256": "ac3777c718a4ca85f5d38595ab5fc0f4e4c8089622ffa0bd79471e3aacdd6ee9",
+      "bytes": 6991,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/electron/account-service.cjs",
+      "sha256": "174e237e8419398e7c09915a61fd92c64c204f8395a3cb0dbfc81957b30b5857",
+      "bytes": 18864,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/electron/app-events.cjs",
+      "sha256": "fa652763d1a286ec6d924435a41e9392650631dc20f12961298d97a4efbc0dbe",
+      "bytes": 1126,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/electron/main.cjs",
+      "sha256": "3040e1ca3b298069a6bcd95ca2b6c1982c265789308411389483ae1b399f1eb6",
+      "bytes": 8878,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/inventory.json",
+      "sha256": "56933fca08f387e63a2c545d85363b9f830fed37d3d4c425734b6f2b57bae9ca",
+      "bytes": 1860,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/package-lock.json",
+      "sha256": "3a38e0915035cf9efd9eade79de5882badeacb13d0b8642e34449d382db5435a",
+      "bytes": 132802,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/package.json",
+      "sha256": "a12851a0b10360a4e7472b346a212d298a75f6092442ff674ac8886338003bad",
+      "bytes": 1042,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/public/account.mjs",
+      "sha256": "2ff9276527888f62e2daf7bc80aeae57d1981081760ee0c8a7ff00f736d10131",
+      "bytes": 36578,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/public/app.js",
+      "sha256": "45422d76f0e11ae715987dffe0d211f6c46336579e598f3d92aaf030d779a263",
+      "bytes": 120155,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/release/current.json",
+      "sha256": "5bd09309889da3679c9b09fd16cba6fa66ecadb0d4a71e4b9c7485995e0a548c",
+      "bytes": 8360,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/release/source-manifest.json",
+      "sha256": "df77805f2cb6107af924383944d4f4b167ec61c0f56b6161d177c2847dd65791",
+      "bytes": 662506,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/canonical-before-20261112T130111290Z/server.js",
+      "sha256": "de183cb1f9be78acf827e47615a7e349e65a73f41ea66247d030f5a83669d13c",
+      "bytes": 59519,
+      "reason": "nonidentical auxiliary source or frozen pre-promotion source"
+    },
+    {
+      "path": "output/shutdown-fix-1.7.78-current/account-desktop-shutdown.test.cjs",
+      "sha256": "3e22c854cdb1358c71afd4a7b8461a4740003385772523164ea4868d15093a11",
+      "bytes": 2779,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/shutdown-fix-1.7.78-current/qa-portable-shutdown.cjs",
+      "sha256": "72aa882b972dfe5f7c5ae1249fa55e9f2df638a9a0eef74630804cfa758fcd92",
+      "bytes": 15492,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/finalize-verification.cjs",
+      "sha256": "d3f6a99684d6fa45e74e3f9da08c2e7df0cf7f5545f6da151cc61c24b3f72edc",
+      "bytes": 6948,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/prepare-candidate.cjs",
+      "sha256": "cadfa70f840f9a38ecc46eadf4d1847a10b3e7a64d5b32ef3d7a77854e7a632d",
+      "bytes": 1707,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/qa-installation.ps1",
+      "sha256": "235c6efd4b1cc097c80c6c8b27238ad867426a81c646b3ecdcc470a1529c8d4f",
+      "bytes": 6224,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/qa-installed.cjs",
+      "sha256": "370a4d1fde3becc1a4b191b7e18016d0bccc6f5fdfb2237afc6641a4b3a0f127",
+      "bytes": 26218,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/stage-candidate.cjs",
+      "sha256": "2906489ef14790f1b59200ee774c1e60a7731f2219cd69e9e9e53b2383b16447",
+      "bytes": 4647,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/top-tabs-1.7.82-current/verify-package.cjs",
+      "sha256": "c6428bc66c0c79235c8a180d9e38b5786cf755acaabbb0280253955807e7b936",
+      "bytes": 2463,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/download-fonts.cjs",
+      "sha256": "ec96bcb49130786924022629602ab15862fd9318d701f2ec0b30749c824c4a39",
+      "bytes": 2476,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/finalize-verification.cjs",
+      "sha256": "2524804ece9cfd6cf4c361a43545c36806395a3341baa29c7e01791cd805f642",
+      "bytes": 5736,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/prepare-candidate.cjs",
+      "sha256": "73358146198b6bcdc44b76f9e8c5d6c200c6302a620f3fc66b00cf526aade456",
+      "bytes": 1789,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/qa-installation.ps1",
+      "sha256": "5201d0247abfa5f0c0cea0652a0a3eab93aac27c96bcfe8cd77ed0c1af7f958c",
+      "bytes": 6224,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/qa-installed.cjs",
+      "sha256": "aa32e3f36b1fdab255cd69844b6b2d695d56857cb60caff03dc11fd7be8d09ef",
+      "bytes": 23460,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/stage-candidate.cjs",
+      "sha256": "02893710acf8648122f89803714624119f6f8f23590c2341ff7eb8f060877635",
+      "bytes": 4647,
+      "reason": "prior release-specific helper variant"
+    },
+    {
+      "path": "output/typography-1.7.81-current/verify-package.cjs",
+      "sha256": "9560e59870b7d9350095dd6b29a498525c159feb15662690bcf037c1f703757d",
+      "bytes": 2463,
+      "reason": "prior release-specific helper variant"
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+from urllib.request import urlopen, Request
+import json
+import hashlib
+import os
+import subprocess
+from playwright.sync_api import sync_playwright, expect
+
+root = Path(__file__).resolve().parent
+facts = {"passed": False, "scope": "frozen-portal-real-Chromium-synthetic-API", "actualPayments": 0, "productionMutations": 0}
+phase = "frozen-assets"
+fixture = None
+try:
+    manifest = json.loads((root/"build74.json").read_text(encoding="utf8"))
+    for key in ("account-lite/account.mjs", "account-lite/client.mjs"):
+        assert hashlib.sha256((root/"source/web/dist"/key).read_bytes()).hexdigest() == manifest["portal_overlay"][key]
+    facts["frozenAssets"] = manifest["portal_overlay"]
+    fixture = subprocess.Popen(["node", str(root/"browser-order-fixture.mjs")], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    port = int(fixture.stdout.readline())
+    origin = f"http://127.0.0.1:{port}"
+    def result():
+        return json.load(urlopen(origin+"/fixture-result",timeout=5))["data"]
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=str(Path(os.environ["ProgramFiles"])/"Google/Chrome/Application/chrome.exe"), headless=True, args=["--disable-background-networking"])
+        ctx = browser.new_context(service_workers="block")
+        def route(req):
+            url = urlparse(req.request.url)
+            if url.hostname == "127.0.0.1" and url.port == port:
+                return req.continue_()
+            if url.scheme == "https" and url.hostname == "1.pay.lanjingzf.com" and url.path == "/payPage/pay.html" and parse_qs(url.query).get("orderId") in (["USR42NOfixture1"],["USR42NOfixture2"]):
+                return req.fulfill(status=200,content_type="text/html",body="<main>synthetic QR</main>")
+            req.abort()
+        ctx.route("**/*", route)
+        portal = ctx.new_page()
+        portal.set_default_timeout(12000)
+        frame = portal.frame_locator(".portal-account-frame")
+        phase = "single-click-provider-qr"
+        portal.goto(origin+"/hub/billing")
+        frame.get_by_role("button",name="充值 ¥50.00", exact=True).click()
+        expect(portal.get_by_text("synthetic QR")).to_be_visible()
+        assert result()["created"] == 1 and result()["authorized"] == 1
+        phase = "owner-resumes-existing-order"
+        portal.goto(origin+"/hub/billing#desktop="+"F"*43)
+        frame.get_by_role("button",name="继续支付宝付款 ¥50.00", exact=True).click()
+        expect(portal.get_by_text("synthetic QR")).to_be_visible()
+        assert result()["created"] == 1 and result()["authorized"] == 2 and len(ctx.pages) == 1
+        phase = "same-user-two-tabs-and-stale-return"
+        assert json.load(urlopen(Request(origin+"/fixture-missing",method="POST"),timeout=5))["success"]
+        old_url = origin+"/account-lite/index.html?tab=topup&payment_return=1&trade_no=USR42NOfixture1"
+        portal.goto(origin+"/hub/billing")
+        second = ctx.new_page()
+        second.goto(old_url)
+        def separate(parent): return parent.get_by_role("button",name="另行充值",exact=True)
+        new_button = "充值 ¥50.00"
+        expect(separate(frame)).to_be_visible()
+        expect(separate(second)).to_be_visible()
+        assert result()["created"] == 1 and result()["balance"] == 0
+        phase = "cancel-confirmation"
+        separate(second).click()
+        expect(second.locator("#confirm-dialog")).to_be_visible()
+        second.locator("#confirm-cancel").click()
+        expect(separate(second)).to_be_visible()
+        assert result()["created"] == 1
+        phase = "explicit-consent-only-enables-pay"
+        separate(second).click()
+        second.get_by_role("button",name="已核对，另行充值",exact=True).click()
+        expect(second.get_by_role("button",name=new_button,exact=True)).to_be_enabled()
+        expect(frame.get_by_role("button",name=new_button,exact=True)).to_be_enabled()
+        assert result()["created"] == 1 and result()["authorized"] == 2
+        phase = "explicit-creation-of-separate-order"
+        second.get_by_role("button",name=new_button,exact=True).click()
+        expect(second.get_by_text("synthetic QR")).to_be_visible()
+        assert parse_qs(urlparse(second.url).query)["orderId"] == ["USR42NOfixture2"]
+        assert result()["created"] == 2 and result()["authorized"] == 3
+        phase = "stale-return-preserves-new-marker"
+        second.goto(old_url)
+        expect(second.get_by_role("button",name="继续支付宝付款 ¥50.00",exact=True)).to_be_enabled()
+        expect(separate(second)).to_be_hidden()
+        assert second.evaluate("JSON.parse(localStorage.getItem('hamster-account-lite:pending-pay:42')).order==='USR42NOfixture2'")
+        assert result()["created"] == 2 and result()["authorized"] == 3 and result()["balance"] == 0
+        facts.update(passed=True, singleClickQR=True, resumeKeptSameOrder=True, separateConfirmationCancelledSafely=True,
+                     separatedOnlyAfterExplicitConfirmation=True, creationRequiresAnotherPayClick=True, sameUserTwoTabs=True,
+                     staleReturnPreservedNewOrder=True, syntheticOrderCount=2, syntheticQrNavigations=3)
+        ctx.close()
+        browser.close()
+except Exception as error:
+    facts.update(failedAt=phase, errorClass=type(error).__name__)
+finally:
+    if fixture:
+        fixture.terminate()
+        fixture.wait(timeout=10)
+    (root/"browser-order-verification.json").write_text(json.dumps(facts,ensure_ascii=False,indent=2)+"\n",encoding="utf8")
+    print(json.dumps(facts,ensure_ascii=False))
+if not facts["passed"]:
+    raise SystemExit(1)

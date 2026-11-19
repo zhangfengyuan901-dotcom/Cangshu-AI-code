@@ -1,0 +1,327 @@
+{
+  "format": 1,
+  "status": "unpublished_source_preserved_not_applied",
+  "published": false,
+  "baseline_version": "1.7.74",
+  "current_official_version": "1.7.86",
+  "archive": ".agents/pending-source.zip",
+  "archive_sha256": "5f288fe94398c2df928b5edec2b14374f2ca244fd56006deb0fdee333523ea29",
+  "archive_bytes": 231559,
+  "files": [
+    {
+      "archive_path": "inference-autoconnect/public/app.js",
+      "original_path": "output/hamster-inference-autoconnect75-current/source/public/app.js",
+      "relative": "public/app.js",
+      "sha256": "f346302f09c366561ed314f5f64d1b081a295cf269818bc3b4d9fe5b96654dfc",
+      "bytes": 118308,
+      "baseline_sha256": "8700150151074304c191ff82f980715bf84c80ddca745cb86ac61a1ca0a2371d",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/account.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/account.mjs",
+      "relative": "public/account.mjs",
+      "sha256": "05101394a0a154b0a240171f3ad80c407f2731c83c22ba5781cfaef004669d18",
+      "bytes": 38241,
+      "baseline_sha256": "2ff9276527888f62e2daf7bc80aeae57d1981081760ee0c8a7ff00f736d10131",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/app.js",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/app.js",
+      "relative": "public/app.js",
+      "sha256": "b8f4aebfc63360683cbbac01d111d6a8e66d26ff7d9e3a411ab61c6d5bc8c83c",
+      "bytes": 120589,
+      "baseline_sha256": "8700150151074304c191ff82f980715bf84c80ddca745cb86ac61a1ca0a2371d",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/asset-library.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/asset-library.mjs",
+      "relative": "public/asset-library.mjs",
+      "sha256": "301e83503ab20ab46d56adee5fab07bf4dd8df2a664c13f7a8b76108744898d7",
+      "bytes": 10536,
+      "baseline_sha256": "f0095fca8059be0b8fb478e281a436e3458ddc6540f9bf5c3db5b7a188734a3a",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/billing-account.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/billing-account.mjs",
+      "relative": "public/billing-account.mjs",
+      "sha256": "058dc46224e3a8435452ac7eb0f6573639dc12030a9a44989884f45b53f9110d",
+      "bytes": 9575,
+      "baseline_sha256": "b4b1349807d4dd9bfb29bf444c51d62db585f75aa5910a1a96ef2185f1692c69",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/index.html",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/index.html",
+      "relative": "public/index.html",
+      "sha256": "d4157f627798c1e9b5fe512b3a86fe0aa23edd8581c453fb4361c1f974d8281f",
+      "bytes": 27509,
+      "baseline_sha256": "4139ee567885d44340466f92bd12b1870f24ba8be5314859632cd88c1fdc0db4",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/local-workspace.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/local-workspace.mjs",
+      "relative": "public/local-workspace.mjs",
+      "sha256": "3417cad55e920718f0e78cdd309d4a230a73dd2c3d50a924e41f199acb960a65",
+      "bytes": 7061,
+      "baseline_sha256": "0e9ea1f72394f57ad1888a60b0b5e43a4b2f6779020f3c8b4f0cd71d17ef4e55",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/reverse.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/reverse.mjs",
+      "relative": "public/reverse.mjs",
+      "sha256": "f010dc4a2a7a300d788e7850dcd533f2d61d6c9e6c4f0e93e063ddb44d74d872",
+      "bytes": 23351,
+      "baseline_sha256": "19e422b51770c16285a17cb9659c72029cf5a7e97480433826bd75a575e2ef3e",
+      "baseline": "official74_asar"
+    },
+    {
+      "archive_path": "prepared-startup/public/startup-splash.css",
+      "original_path": "output/hamster-prepared-startup76-current/source/public/startup-splash.css",
+      "relative": "public/startup-splash.css",
+      "sha256": "8c0f51eefaccde48da35eeb219b7c87751270a84c7790bf126471a091509dec6",
+      "bytes": 4158,
+      "baseline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "baseline": "new_file"
+    },
+    {
+      "archive_path": "prepared-startup/tests/local-workspace.test.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/tests/local-workspace.test.mjs",
+      "relative": "tests/local-workspace.test.mjs",
+      "sha256": "4d2f87d79fc4647c0f43fd2b27b5ea1ddc8fff7c333d36f1e308953b6694de1d",
+      "bytes": 13324,
+      "baseline_sha256": "17bb4f389535b38ba8ca114be07defe3451cb8d02cfcfc3d9c81df9ca7fc7b9e",
+      "baseline": "official75_workspace"
+    },
+    {
+      "archive_path": "prepared-startup/tests/task-refresh-ui.test.mjs",
+      "original_path": "output/hamster-prepared-startup76-current/source/tests/task-refresh-ui.test.mjs",
+      "relative": "tests/task-refresh-ui.test.mjs",
+      "sha256": "c5d7a952a9bad70f300433039312304f2197642b71160198be33e437c154fdf9",
+      "bytes": 12066,
+      "baseline_sha256": "90ada0b01307e1a270ab7000d7007b796a42b14f09e52904d1c0c13ca39f2b01",
+      "baseline": "official75_workspace"
+    },
+    {
+      "archive_path": "client-performance/assets.cjs",
+      "original_path": "backups/source-wip-before-official73-20261104.zip!/assets.cjs",
+      "relative": "assets.cjs",
+      "sha256": "a81178e305e511f11036044b10fb84c41556fe07af3fa19b52d38e057c607d2d",
+      "bytes": 11979,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "client-performance/server.js",
+      "original_path": "backups/source-wip-before-official73-20261104.zip!/server.js",
+      "relative": "server.js",
+      "sha256": "0a9016278c8d43ad71e22d9b9ca3e864dfe286c3fe5f4fbc1713ab1064a8f087",
+      "bytes": 61734,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "client-performance/smart-video-agent/chat.py",
+      "original_path": "backups/source-wip-before-official73-20261104.zip!/smart-video-agent/chat.py",
+      "relative": "smart-video-agent/chat.py",
+      "sha256": "7c3211028a4c47eb390cd3dae4163e92d5014d96da4f3a6701cd4ea0b96a0784",
+      "bytes": 63199,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/pkg/piknocatalog/catalog.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/pkg/piknocatalog/catalog.go",
+      "relative": "pkg/piknocatalog/catalog.go",
+      "sha256": "6c2fb4536ddd9dd2268ec2aa29fd46f4ac78c690d2ce1a52ce83dd54488ebcdf",
+      "bytes": 14660,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/pkg/piknocatalog/sync_snapshot.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/pkg/piknocatalog/sync_snapshot.go",
+      "relative": "pkg/piknocatalog/sync_snapshot.go",
+      "sha256": "63042345b83a6a7e242f2a6f5885a90abf4f47836892f0bb9b041cf4356fd058",
+      "bytes": 12065,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/pkg/piknocatalog/runtime.js",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/pkg/piknocatalog/runtime.js",
+      "relative": "pkg/piknocatalog/runtime.js",
+      "sha256": "3d3ba9a81075e49aa790ebb853ca4b8b0233a3079a0e4ad71dd0bb9d1e9f1df3",
+      "bytes": 14993,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/model/pikno_line.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/model/pikno_line.go",
+      "relative": "model/pikno_line.go",
+      "sha256": "b8241ba8bfa850ec7b33d2764d58a43da733f6452affd137c1e9fb87830036b1",
+      "bytes": 35437,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/controller/pikno_lines.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/controller/pikno_lines.go",
+      "relative": "controller/pikno_lines.go",
+      "sha256": "806328831fb6920183ccb46c55ad42b5a11f641644e80909fcdc84479ab3797d",
+      "bytes": 15331,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/controller/pikno_media_limits.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/controller/pikno_media_limits.go",
+      "relative": "controller/pikno_media_limits.go",
+      "sha256": "b6621767f4a5080e3c340489bcadfa115bcb3904f6975ac4ebd140d447a57715",
+      "bytes": 622,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/controller/pikno_media_guard.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/controller/pikno_media_guard.go",
+      "relative": "controller/pikno_media_guard.go",
+      "sha256": "bcbab447d77decc1c107ce18e19615f33d7a75f123d9f80543038edbb165fe9b",
+      "bytes": 12232,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/controller/pikno_media_guard_test.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/controller/pikno_media_guard_test.go",
+      "relative": "controller/pikno_media_guard_test.go",
+      "sha256": "db4d187cf207f3ab988e9970af3b03163bc28b31f0b289efaee3c48973486f1c",
+      "bytes": 14016,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/controller/pikno_price_quote_test.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/controller/pikno_price_quote_test.go",
+      "relative": "controller/pikno_price_quote_test.go",
+      "sha256": "2509817e2964be430e4b5bdfe4a2dc583187141b20051ad12d2a9b3b056f1c6d",
+      "bytes": 26880,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/model/pikno_line_sync_test.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/model/pikno_line_sync_test.go",
+      "relative": "model/pikno_line_sync_test.go",
+      "sha256": "eb9c73575efbb423e38874fb96e2c0aadb6346950437260960577a981c0cc690",
+      "bytes": 14876,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/middleware/rate-limit.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/middleware/rate-limit.go",
+      "relative": "middleware/rate-limit.go",
+      "sha256": "bdd4afb439a863c17464bd698fd6281040b1e0f7f0baefe8684cd6802126f10d",
+      "bytes": 7751,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "backend-pending/router/pikno_media_routes.go",
+      "original_path": "backups/backend-wip-before-release62-20261106.zip!/router/pikno_media_routes.go",
+      "relative": "router/pikno_media_routes.go",
+      "sha256": "c9bc03a3e01358bf5a2f447dab389c78f1dafe4cd7943b63f21122fcaf6b8efb",
+      "bytes": 2404,
+      "baseline": "unpublished_source_archive",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/src/tools-config.mjs",
+      "original_path": "cloudflare/relay-media/src/tools-config.mjs",
+      "relative": "src/tools-config.mjs",
+      "sha256": "25c3247cbe70df00b635f8a0cda13ac2da8bff2275644a1a99b5121c8394ee07",
+      "bytes": 7503,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/src/tools.mjs",
+      "original_path": "cloudflare/relay-media/src/tools.mjs",
+      "relative": "src/tools.mjs",
+      "sha256": "9262477f9a448d41c1425b2a0eb91597c44ab47b7d9e709d905543179a4988e3",
+      "bytes": 16535,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/src/worker.mjs",
+      "original_path": "cloudflare/relay-media/src/worker.mjs",
+      "relative": "src/worker.mjs",
+      "sha256": "722e97cd565082e48d6c770203681dd6b89f615d3a134dcfc2a86eff621fd25a",
+      "bytes": 20349,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/runtime-source.mjs",
+      "original_path": "cloudflare/relay-media/runtime-source.mjs",
+      "relative": "runtime-source.mjs",
+      "sha256": "add05a7d3e28f124550c5bd5db353977d0bb50bf482f3cdbfe85b265487dc6b7",
+      "bytes": 1033,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/packy-runtime.test.mjs",
+      "original_path": "cloudflare/relay-media/packy-runtime.test.mjs",
+      "relative": "packy-runtime.test.mjs",
+      "sha256": "949ae6926e737e0844a1845a944adfc674d18ac1cbdb3fb77d793a774aa87336",
+      "bytes": 19507,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/runtime.test.mjs",
+      "original_path": "cloudflare/relay-media/runtime.test.mjs",
+      "relative": "runtime.test.mjs",
+      "sha256": "760faf5b11ccbcd29f8d9fe2076a719dd2265c7d8667fb19b4b9af01f6914cab",
+      "bytes": 3593,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/tools-runtime.test.mjs",
+      "original_path": "cloudflare/relay-media/tools-runtime.test.mjs",
+      "relative": "tools-runtime.test.mjs",
+      "sha256": "4e88b64a4b11af7a11b1ea5ec5635c8e6d722bf975b8b5b5cd4ebaa8edd28e6f",
+      "bytes": 20647,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    },
+    {
+      "archive_path": "media-source-pending/worker.test.mjs",
+      "original_path": "cloudflare/relay-media/worker.test.mjs",
+      "relative": "worker.test.mjs",
+      "sha256": "5e3c3f4b9660019135a58db4bb8b8fd25f5c704ec8f00e5d8d07cb86be73ecb0",
+      "bytes": 8244,
+      "baseline": "unpublished_cloudflare_source_not_current_executor",
+      "not_applied_to_current": true
+    }
+  ],
+  "verified_files": 34,
+  "excludes": [
+    "duplicate baseline",
+    "dependencies",
+    "executables",
+    "runtime resources",
+    "QA screenshots",
+    "historical logs"
+  ]
+}

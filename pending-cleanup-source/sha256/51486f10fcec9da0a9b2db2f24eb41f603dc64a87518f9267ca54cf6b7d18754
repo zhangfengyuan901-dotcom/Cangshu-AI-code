@@ -1,0 +1,95 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const source=fs.readFileSync(path.join(__dirname,'../smart-video-agent/chat-ui/chat.js'),'utf8');
+class Element {
+ constructor(tag='div'){this.tagName=tag;this.children=[];this.textContent='';this.attributes={};this.open=false;}
+ append(...nodes){this.children.push(...nodes);}
+ replaceChildren(...nodes){this.children=[...nodes];}
+ querySelectorAll(){return this.children.filter(node=>['audio','video'].includes(node.tagName));}
+ removeAttribute(name){delete this[name];delete this.attributes[name];}
+ showModal(){this.open=true;}
+ close(){this.open=false;this.onclose?.();}
+ focus(){this.focused=true;}
+ pause(){this.paused=true;}
+ load(){this.stopped=true;}
+}
+const session='a'.repeat(32),mediaId='b'.repeat(32);
+function fixture(media={id:mediaId,name:'本地素材',kind:'video',mime:'video/mp4',size:1024,label:'@素材1'}){
+ const nodes=Object.fromEntries(['mediaPreviewDialog','mediaPreviewBody','mediaPreviewDownload','mediaPreviewTitle','mediaPreviewNote','mediaPreviewClose','input'].map(id=>['#'+id,new Element()]));
+ const messages=[],context={current:{id:session,status:'completed',media:[media]},pending:[],uploading:false,submitting:false,$:selector=>nodes[selector],toast:message=>messages.push(message),make:(tag,text='',cls='')=>Object.assign(new Element(tag),{textContent:text,className:cls}),draft(){},renderAttachments(){},controls(){}};
+ vm.createContext(context);
+ vm.runInContext(source.slice(source.indexOf('function localMediaEntry('),source.indexOf('function renderAttachments()')),context);
+ nodes['#mediaPreviewDialog'].onclose=()=>context.clearMediaPreview();
+ return {context,nodes,media,messages,open:(value=media,id=session)=>context.openMediaPreview(value,id),card:(removable=false)=>context.fileCard(media,removable)};
+}
+test('local attachment URLs are built from exact opaque ids and ignore arbitrary response URL fields',()=>{
+ const f=fixture();assert.equal(f.context.localMediaEntry(session,{...f.media,url:'https://private.invalid/secret'}).url,`/chat-api/sessions/${session}/media/${mediaId}`);
+ for(const id of ['../private','/api/config','https://external.invalid/','a'.repeat(31),null]){assert.equal(f.context.localMediaEntry(id,f.media),null);assert.equal(f.context.localMediaEntry(session,{...f.media,id}),null);}
+});
+test('historical image, video and audio preview in the same dialog with only local media sources',()=>{
+ for(const [kind,mime,tag] of [['image','image/png','img'],['video','video/mp4','video'],['audio','audio/mpeg','audio']]){
+  const f=fixture({id:mediaId,name:'历史素材',kind,mime,size:1024,label:'@素材1'});f.open();
+  const preview=f.nodes['#mediaPreviewBody'].children[0];assert.equal(preview.tagName,tag);assert.equal(preview.src,`/chat-api/sessions/${session}/media/${mediaId}`);assert.equal(f.nodes['#mediaPreviewDialog'].open,true);
+  assert.equal(f.nodes['#mediaPreviewDownload'].href,preview.src);assert.equal(f.nodes['#mediaPreviewClose'].focused,true);assert.doesNotMatch(f.nodes['#mediaPreviewNote'].textContent,/费用|请求编号/);
+ }
+});
+test('documents, HTML and SVG are download-only and never run in an iframe or new window',()=>{
+ for(const [kind,mime] of [['document','application/pdf'],['file','text/html'],['image','image/svg+xml']]){
+  const f=fixture({id:mediaId,name:'<img src=x onerror=alert(1)>.pdf',kind,mime,size:1024,label:'@素材1'});f.open();
+  assert.equal(f.nodes['#mediaPreviewBody'].children.length,0);assert.equal(f.nodes['#mediaPreviewTitle'].textContent,'<img src=x onerror=alert(1)>.pdf');assert.equal(f.nodes['#mediaPreviewDownload'].target,undefined);assert.ok(f.nodes['#mediaPreviewDownload'].download);assert.match(f.nodes['#mediaPreviewNote'].textContent,/不在页面内运行/);
+ }
+ assert.doesNotMatch(source.slice(source.indexOf('function localMediaEntry('),source.indexOf('function renderAttachments()')),/make\(['"]iframe|_blank|window\.open|innerHTML/);
+});
+test('closing a preview pauses playback, removes sources and leaves no lingering media',()=>{
+ const f=fixture();f.open();const player=f.nodes['#mediaPreviewBody'].children[0];f.context.closeMediaPreview();
+ assert.equal(player.paused,true);assert.equal(player.stopped,true);assert.equal(player.src,undefined);assert.equal(f.nodes['#mediaPreviewDialog'].open,false);assert.equal(f.nodes['#mediaPreviewBody'].children.length,0);assert.equal(f.nodes['#mediaPreviewDownload'].href,undefined);
+});
+test('a different session, missing membership or invalid identifiers cannot open a local preview',()=>{
+ const f=fixture();f.open(f.media,'c'.repeat(32));f.open({...f.media,id:'c'.repeat(32)});f.open({...f.media,id:'../private'});
+ assert.equal(f.nodes['#mediaPreviewDialog'].open,false);assert.equal(f.nodes['#mediaPreviewDownload'].href,undefined);assert.equal(f.messages.length,3);
+});
+test('file cards keep explicit reference and remove actions without restoring external links or uploading',()=>{
+ const f=fixture(),card=f.card();assert.equal(card.children[1].tagName,'button');assert.equal(card.children[1].className,'file-open');assert.equal(card.children[1].target,undefined);
+ const reference=card.children.at(-1);assert.equal(reference.textContent,'引用');reference.onclick();assert.deepEqual(Array.from(f.context.pending),[mediaId]);
+ const removable=f.card(true);assert.equal(removable.children.at(-1).textContent,'×');removable.children.at(-1).onclick();assert.equal(f.context.pending.length,0);
+ assert.match(source,/if\(!attachmentsEnabled\(\)\)throw Error\('当前线路未开放附件/);
+});
+
+function capabilityFixture(){
+ const nodes=new Map(),node=selector=>{if(!nodes.has(selector))nodes.set(selector,{textContent:'',value:'',placeholder:''});return nodes.get(selector);};
+ const context={ready:true,metered:true,configurationContext:'a'.repeat(64),configurationEpoch:1,attachmentCapabilities:null,$:node,AbortSignal};
+ vm.createContext(context);
+ vm.runInContext(source.slice(source.indexOf('function attachmentKind('),source.indexOf('async function api(')),context);
+ const terms={confirmation_context:context.configurationContext,capabilities:{files:true,text:true,image:true,pdf:true,video:true},limits:{max_file_bytes:52428800,max_attachments:6,max_history_attachments:12}};
+ return {context,node,terms,apply:value=>context.applyAttachmentCapabilities(value)};
+}
+
+test('attachment controls open only for explicit same-context capabilities with bounded limits',()=>{
+ const f=capabilityFixture();
+ for(const terms of [{}, {...f.terms,confirmation_context:'b'.repeat(64)}, {...f.terms,limits:{}}, {...f.terms,capabilities:{files:'true'}}, {...f.terms,limits:{...f.terms.limits,max_file_bytes:true}}]){
+  f.apply(terms);assert.equal(f.context.attachmentsEnabled(),false);assert.equal(f.node('#welcomeMaterialButton').disabled,true);
+ }
+ f.apply(f.terms);assert.equal(f.context.attachmentsEnabled(),true);assert.equal(f.node('#welcomeMaterialButton').disabled,false);
+ assert.equal(f.node('#fileInput').accept,'.png,.jpg,.jpeg,.webp,.mp4,.mov,.pdf,.docx,.txt,.md');
+ assert.equal(f.node('#chatModeBadge').textContent,'素材对话');
+ assert.doesNotMatch(f.node('#fileInput').accept,/mp3|wav|webm|avi/);
+});
+
+test('per-kind denial removes unsupported chooser formats and audio remains unavailable',()=>{
+ const f=capabilityFixture();f.apply({...f.terms,capabilities:{files:true,text:true,image:false,video:false,pdf:true,audio:true}});
+ assert.equal(f.node('#fileInput').accept,'.pdf,.docx,.txt,.md');
+ for(const name of ['sound.mp3','movie.webm','bad.exe'])assert.equal(f.context.attachmentKind(name),'');
+ assert.equal(f.context.attachmentKind('PHOTO.PNG'),'image');
+});
+
+test('a late capability result cannot reopen uploads after an account or revision change',async()=>{
+ const f=capabilityFixture();let resolve;f.context.api=()=>new Promise(done=>{resolve=done;});
+ const pending=f.context.refreshAttachmentCapabilities();f.context.configurationEpoch++;
+ f.context.configurationContext='b'.repeat(64);resolve(f.terms);await pending;
+ assert.equal(f.context.attachmentCapabilities,null);assert.equal(f.context.attachmentsEnabled(),false);
+});
+
+test('capability read failure withdraws the old attachment permission without sending a message',async()=>{
+ const f=capabilityFixture();f.apply(f.terms);const calls=[];
+ f.context.api=async route=>{calls.push(route);throw Error('offline');};
+ await f.context.refreshAttachmentCapabilities();assert.deepEqual(calls,['/capabilities']);assert.equal(f.context.attachmentsEnabled(),false);
+});

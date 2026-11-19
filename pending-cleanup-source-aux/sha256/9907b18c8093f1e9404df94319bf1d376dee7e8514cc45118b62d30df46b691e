@@ -1,0 +1,79 @@
+// Local-only desktop upload fixture. Read the installed runtime, use only synthetic files and an in-memory R2 bucket.
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');
+const assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'../..'),dev=process.env.HAMSTER_TEST_APP_ROOT||path.join(__dirname,'dev');
+const baseline=process.env.QA_MEDIA_BASELINE==='1';
+const {createPiknoClient}=require(path.join(dev,'pikno-client.cjs'));
+const {createApp}=require(path.join(dev,'server.js'));
+const {createPiknoKeyStore}=require(path.join(dev,'pikno-key-store.cjs'));
+const {createInstalledRuntimeProvider}=require(path.join(dev,'installed-runtime.cjs'));
+const cfDir=path.join(root,'cloudflare/relay-media');
+const esbuild=require(path.join(root,'tools/relay-cli/node_modules/esbuild'));
+const {Miniflare,convertV4MiniflareOptions}=require(path.join(root,'tools/relay-cli/node_modules/miniflare'));
+const {name,...settings}=JSON.parse(fs.readFileSync(path.join(cfDir,'wrangler.jsonc'))).ratelimits[0];
+const worker=esbuild.buildSync({entryPoints:[path.join(cfDir,'control-migration/worker.mjs')],bundle:true,write:false,format:'esm',logLevel:'silent'}).outputFiles[0].text;
+const ticketSecret=crypto.randomBytes(48).toString('hex'),key='sk-'+'s'.repeat(48);
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZCr8AAAAASUVORK5CYII=','base64');
+const mf=new Miniflare(convertV4MiniflareOptions({modules:true,compatibilityDate:'2026-10-03',script:worker,
+  r2Buckets:['MEDIA'],bindings:{TICKET_KEY:ticketSecret,CONTROL_OWNER:'ecs'},ratelimits:{[name]:settings}}));
+const sign=claims=>{const data=Buffer.from(JSON.stringify(claims)).toString('base64url');return data+'.'+crypto.createHmac('sha256',ticketSecret).update(data).digest('base64url');};
+const origin='https://fixture.invalid',dir=fs.mkdtempSync(path.join(os.tmpdir(),'hamster-fixture-'));
+let app,calls=[],dropOnce=false;
+const tickets=new Map(),observations=[];
+async function dispatch(url,options){
+  const u=new URL(url); assert.equal(u.origin===origin,true);
+  if(u.pathname==='/v1/media/uploads'){
+    assert.equal(new Headers(options.headers).get('Authorization')==='Bearer '+key,true);
+    calls.push('issue');const body=JSON.parse(options.body),id=crypto.randomBytes(16).toString('hex'),now=Math.floor(Date.now()/1000);
+    const payload={v:1,aud:'pikno-relay-media',uid:7,id,op:'upload',iat:now,exp:now+600,mime:body.content_type,size:body.size};
+    const token=sign(payload);tickets.set(token,payload);
+    return Response.json({id,method:'PUT',upload_url:origin+'/media/v1/assets/'+id,upload_ticket:token,
+      headers:{Authorization:'Bearer '+token,'Content-Type':body.content_type},expires_at:payload.exp},{status:201});
+  }
+  if(options.method==='PUT'){
+    calls.push('put');const response=await mf.dispatchFetch(url,options);
+    if(dropOnce){assert.equal(response.status,201);await response.body?.cancel();dropOnce=false;throw Error('fixture dropped acknowledgement');}
+    return response;
+  }
+  if(u.pathname==='/v1/media/complete'){
+    calls.push('inspect');const payload=tickets.get(JSON.parse(options.body).upload_ticket);assert.equal(Boolean(payload),true);
+    const now=Math.floor(Date.now()/1000),target=origin+'/media/v1/assets/'+payload.id;
+    const r=await mf.dispatchFetch(target+'/inspect',{method:'POST',headers:{Authorization:'Bearer '+sign({...payload,op:'inspect',iat:now,exp:now+60})}});
+    if(!r.ok)return Response.json({error:'not ready'},{status:409});
+    const result=await r.json();assert.equal(result.status==='ready'&&result.owner_id===7&&result.id===payload.id&&result.content_type===payload.mime&&result.size===payload.size,true);
+    return Response.json({id:payload.id,status:'ready',expires_at:now+7200,url:target+'?ticket='+sign({...payload,op:'read',iat:now,exp:now+7200})});
+  }
+  throw Error('unexpected route');
+}
+async function run(){
+  const runtimeProvider=createInstalledRuntimeProvider({resourcesDir:process.env.HAMSTER_DIAG_RES});
+  const runtime=await runtimeProvider(),binary=path.join(path.dirname(runtime.python),'Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v7.1.exe');
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(binary)).digest('hex'),'2ce797a0f88d7f067180338fb227f7b1928ea727bd9a4d7a1d022f7c52af71a3');
+  for(const [input,name] of [['color=c=blue:s=32x32:r=5','clip.mp4'],['sine=frequency=440','tone.wav']]){
+    execFileSync(binary,['-nostdin','-hide_banner','-loglevel','error','-f','lavfi','-i',input,'-t','1',path.join(dir,name)],{stdio:'ignore',windowsHide:true});
+  }
+  const keys=createPiknoKeyStore();keys.write({piknoUserId:7,piknoVideoKey:key});
+  app=createApp({relayMode:true,relayKeyStore:keys,relayClient:createPiknoClient({endpoint:origin,fetchImpl:dispatch}),runtimeProvider,
+    configPath:path.join(dir,'config.json'),resultDir:path.join(dir,'results'),assetDir:path.join(dir,'assets'),taskDir:path.join(dir,'tasks'),
+    diagnosticsDir:path.join(dir,'diagnostics'),diagnosticExportDir:path.join(dir,'exports'),smartVideoLauncher:{stop(){}}});
+  await new Promise(resolve=>app.listen(0,'127.0.0.1',resolve));
+  const base='http://127.0.0.1:'+app.address().port,revision=(await(await fetch(base+'/api/config')).json()).revision;
+  for(const [type,bytes,dropped,invalid] of [['image/png',png,false,false],['video/mp4',fs.readFileSync(path.join(dir,'clip.mp4')),false,false],
+    ['audio/wav',fs.readFileSync(path.join(dir,'tone.wav')),false,false],['image/png',png,true,false],['image/png',Buffer.alloc(24),false,true]]){
+    const kind=type.split('/')[0];calls=[];dropOnce=dropped;
+    const result=await fetch(base+'/api/uploads/raw?kind='+kind+'&fileName=fixture&use=video',{method:'POST',headers:{'Content-Type':type,'X-Hamster-Config-Revision':String(revision)},body:bytes});
+    const response=await result.json();
+    if(baseline&&(dropped||invalid)){assert.equal(result.status,dropped?503:502);assert.deepEqual(calls,['issue','put']);}
+    else if(invalid){assert.equal(result.status,415);assert.equal(response.code,'media_upload_transfer');assert.deepEqual(calls,['issue','put']);}
+    else {
+      assert.equal(result.status,201);assert.deepEqual(calls,['issue','put','inspect']);
+      const read=await mf.dispatchFetch(response.file.url);assert.equal(read.status,200);assert.equal(Buffer.from(await read.arrayBuffer()).equals(bytes),true);
+      if(kind!=='image')assert.equal(response.file.durationSeconds>0,true);
+    }
+    observations.push({kind,status:result.status,sameBytes:result.status===201,durationRead:result.status===201&&kind!=='image',lostAcknowledgment:dropped,bodyRejected:invalid,putCount:calls.filter(x=>x==='put').length});
+  }
+  console.log(JSON.stringify({runtimeVerified:true,ffmpegSha256Matched:true,worker:'local-control-migration',r2:'miniflare',synthetic:true,observations}));
+}
+run().catch(error=>{console.error(JSON.stringify({fixtureFailed:true,kind:error.name,code:error.code||null,stage:calls.at(-1)||'setup',expected:typeof error.expected==='number'?error.expected:null,actual:typeof error.actual==='number'?error.actual:null}));process.exitCode=1;})
+  .finally(async()=>{if(app)await new Promise(resolve=>{app.close(resolve);app.closeAllConnections();});await mf.dispose();fs.rmSync(dir,{recursive:true,force:true});});

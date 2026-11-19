@@ -1,0 +1,1071 @@
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+const { exec, execFile, spawn } = require('node:child_process');
+const { createDiagnostics, inspectPort, classifyFailure } = require('./diagnostics.cjs');
+const { DEFAULT_MEDIA_ENDPOINT, MIME_LIMITS, checkMedia, cleanContentType, deleteMedia, handleMediaUpload, uploadMedia } = require('./media.cjs');
+const { uploadWithMediaMetadata } = require('./media-metadata.cjs');
+const { DEFAULT_INFERENCE_ENDPOINT, createInferenceGateway } = require('./inference.cjs');
+const { createStartupPreferences, validPreference, MAX_BYTES: UI_PREFERENCES_MAX_BYTES } = require('./startup-preferences.cjs');
+
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+const RESULT_DIR = path.join(os.homedir(), 'Desktop', '仓鼠AI生成结果');
+const SMART_VIDEO_URL = 'http://127.0.0.1:8000/';
+async function freeLocalPort(){
+  const net=require('node:net');
+  return new Promise((resolve,reject)=>{const probe=net.createServer();probe.once('error',reject);
+    probe.listen(0,'127.0.0.1',()=>{const port=probe.address().port;probe.close(()=>resolve(port));});});
+}
+
+/* 上游服务 */
+const GEN_UPSTREAM = 'https://sanbaobeauty.com';        // 图片/视频生成上游
+const OFFICIAL_VIDEO_UPSTREAM = 'https://seedance2026.vip'; // 官方视频生成上游
+const OFFICIAL_VIDEO_MODEL = 'doubao-seedance-2-5';
+const DH_UPSTREAM = 'https://www.runninghub.cn/openapi/v2'; // 数字人上游
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+/* 转发时跳过的请求头（鉴权头由服务端重新注入，长度/连接头交给 fetch 处理） */
+const SKIP_REQ_HEADERS = new Set([
+  'host', 'connection', 'content-length',
+  'expect',
+  'authorization', 'x-api-key', 'x-sandbox-key', 'x-rh-key', 'x-hamster-official-key',
+]);
+
+/* ---------- config.json（可选，服务端持久化 API Key） ---------- */
+function loadConfig(configPath) {
+  try { return JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+  catch { return {}; }
+}
+function saveConfig(configPath, cfg) {
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+}
+function purgeLegacyInferenceConfig(configPath) {
+  const cfg = loadConfig(configPath);
+  const fields = ['llmApiKey', 'llmEndpointId', 'creativeEndpointId'];
+  if (!fields.some(field => Object.prototype.hasOwnProperty.call(cfg, field))) return;
+  for (const field of fields) delete cfg[field];
+  saveConfig(configPath, cfg);
+}
+function configStatus(configPath) {
+  const cfg = loadConfig(configPath);
+  const configured = Boolean((cfg.apiKey || '').trim());
+  return {
+    configured,
+    videoConfigured: Boolean((cfg.videoApiKey || '').trim()),
+    rhConfigured: Boolean((cfg.rhApiKey || '').trim()),
+    llmConfigured: configured,
+    inferenceMode: 'cloud-auto',
+  };
+}
+
+/* 解析图片/视频 API Key：Authorization / X-API-Key / x-sandbox-key 优先，其次 config.json */
+function resolveGenKey(req, configPath) {
+  const auth = String(req.headers['authorization'] || '');
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m && m[1].trim()) return m[1].trim();
+  const xk = String(req.headers['x-api-key'] || req.headers['x-sandbox-key'] || '');
+  if (xk.trim()) return xk.trim();
+  const cfg = loadConfig(configPath);
+  return (cfg.apiKey || '').trim();
+}
+
+/* 解析数字人 API Key：x-rh-key 优先，其次 config.json */
+function resolveDhKey(req, configPath) {
+  const xk = String(req.headers['x-rh-key'] || '');
+  if (xk.trim()) return xk.trim();
+  const auth = String(req.headers['authorization'] || '');
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m && m[1].trim()) return m[1].trim();
+  const cfg = loadConfig(configPath);
+  return (cfg.rhApiKey || '').trim();
+}
+
+function resolveOfficialVideoKey(req, configPath) {
+  const key = String(req.headers['x-hamster-official-key'] || '').trim();
+  if (key) return key;
+  return String(loadConfig(configPath).videoApiKey || '').trim();
+}
+
+function resolveInferenceKey(_req, configPath) {
+  return String(loadConfig(configPath).apiKey || '').trim();
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(chunks.length ? Buffer.concat(chunks) : undefined));
+    req.on('error', reject);
+  });
+}
+
+function readPreferenceBody(req) {
+  return new Promise((resolve,reject)=>{
+    let size=0,done=false;const chunks=[];
+    const finish=(error,value)=>{if(done)return;done=true;req.off('data',data);req.off('end',end);req.off('aborted',aborted);req.off('error',failed);error?reject(error):resolve(value);};
+    const data=chunk=>{size+=chunk.length;if(size>UI_PREFERENCES_MAX_BYTES){req.resume();finish({statusCode:413});}else chunks.push(chunk);};
+    const end=()=>{try{finish(null,JSON.parse(Buffer.concat(chunks).toString('utf8')));}catch{finish({statusCode:400});}};
+    const aborted=()=>finish({statusCode:400});
+    const failed=()=>finish({statusCode:400});
+    req.on('data',data);req.once('end',end);req.once('aborted',aborted);req.once('error',failed);
+  });
+}
+
+async function handleUiPreferences(req,res,store,expectedHost) {
+  const send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
+  if(req.headers.host!==expectedHost || req.headers.origin && req.headers.origin!==`http://${expectedHost}` || req.headers['sec-fetch-site']==='cross-site')return send(403,{error:'请求来源无效'});
+  if(req.method==='GET')return send(200,{uiPreferences:store.get()});
+  if(req.method!=='POST')return send(405,{error:'操作不支持'});
+  if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||''))return send(415,{error:'请求格式无效'});
+  if(Number(req.headers['content-length'])>UI_PREFERENCES_MAX_BYTES){req.resume();return send(413,{error:'请求过大'});}
+  let value;
+  try {value=await readPreferenceBody(req);} catch(error) {return send(error.statusCode===413?413:400,{error:'页面偏好无效'});}
+  if(!validPreference(value))return send(400,{error:'页面偏好无效'});
+  try {return send(200,{uiPreferences:await store.set(value)});} catch {return send(503,{error:'页面偏好暂时无法保存'});}
+}
+
+const OUTPUT_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'webm', 'mov', 'mp3', 'wav', 'm4a']);
+const CONTENT_TYPE_EXTENSIONS = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+  'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/mp4': 'm4a',
+};
+
+function safeOutputExtension(outputType, url, contentType) {
+  const requested = String(outputType || '').replace(/^\./, '').toLowerCase();
+  if (OUTPUT_EXTENSIONS.has(requested)) return requested;
+  const fromUrl = path.extname(new URL(url).pathname).slice(1).toLowerCase();
+  if (OUTPUT_EXTENSIONS.has(fromUrl)) return fromUrl;
+  return CONTENT_TYPE_EXTENSIONS[String(contentType || '').split(';')[0].toLowerCase()] || 'bin';
+}
+
+async function handleSaveResult(req, res, resultDir) {
+  if (req.method !== 'POST') { res.writeHead(405); res.end('Method Not Allowed'); return; }
+  const body = await readBody(req);
+  let payload;
+  try { payload = JSON.parse(body?.toString('utf8') || '{}'); }
+  catch { payload = {}; }
+  let remoteUrl;
+  try {
+    remoteUrl = new URL(String(payload.url || ''));
+    if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('unsupported protocol');
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'invalid-result-url', message: '结果链接无效' }));
+    return;
+  }
+
+  const download = await fetch(remoteUrl);
+  if (!download.ok || !download.body) {
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'result-download-failed', message: `下载结果失败 (${download.status})` }));
+    return;
+  }
+
+  fs.mkdirSync(resultDir, { recursive: true });
+  const ext = safeOutputExtension(payload.outputType, remoteUrl, download.headers.get('content-type'));
+  const taskId = String(payload.taskId || 'result').replace(/[^a-zA-Z0-9_-]/g, '').slice(-48) || 'result';
+  const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17);
+  const fileName = `仓鼠-${timestamp}-${taskId}.${ext}`;
+  const localPath = path.join(resultDir, fileName);
+  try {
+    await pipeline(Readable.fromWeb(download.body), fs.createWriteStream(localPath, { flags: 'wx' }));
+  } catch (err) {
+    try { fs.unlinkSync(localPath); } catch { /* 未生成完整文件 */ }
+    throw err;
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ ok: true, fileName, localPath }));
+}
+
+function findSmartVideoDir(explicitDir) {
+  const samplePath = path.join('agentkit-samples', 'python', '02-use-cases', 'ad_video_gen_seq');
+  const candidates = [
+    explicitDir,
+    process.env.HAMSTER_SMART_VIDEO_DIR,
+    process.resourcesPath && path.join(process.resourcesPath, 'smart-video-agent'),
+    path.join(path.dirname(process.execPath), 'smart-video-agent'),
+    path.join(__dirname, 'smart-video-agent'),
+    path.join(__dirname, samplePath),
+    path.join(__dirname, '..', samplePath),
+  ].filter(Boolean);
+  return candidates.find((dir) => (
+    fs.existsSync(path.join(dir, 'pyproject.toml'))
+    && fs.existsSync(path.join(dir, 'web.py'))
+    && fs.existsSync(path.join(dir, 'studio.py'))
+  )) || '';
+}
+
+function createSmartVideoLauncher({
+  workflowDir,
+  url = SMART_VIDEO_URL,
+  fetchImpl = fetch,
+  spawnImpl = spawn,
+  envProvider = () => ({}),
+  diagnostics,
+  portProbe = inspectPort,
+  allocatePort = freeLocalPort,
+  dynamicPorts = true,
+  runtimeProvider,
+  requireIdentity = false,
+  startupTimeoutMs = 120000,
+} = {}) {
+  const initialUrl = new URL(url);
+  if(initialUrl.protocol!=='http:' || initialUrl.hostname!=='127.0.0.1' || !initialUrl.port || initialUrl.username || initialUrl.password || initialUrl.pathname!=='/' || initialUrl.search || initialUrl.hash) throw Error('本地对话地址无效');
+  let child = null;
+  let startError = null, starting = null, captureEnabled = false, failureText = '';
+  let resolvedWorkflowDir = typeof workflowDir === 'string' ? workflowDir : '';
+  let workflowPending = null;
+  let lastPortCheck = null;
+  let port = Number(new URL(url).port || 8000), stopped=false, startupTimer=null, healthTimer=null, retries=0;
+  function clearStartupWatch(){clearTimeout(startupTimer);clearInterval(healthTimer);}
+  const instanceId=require('node:crypto').randomUUID();
+  const diag = diagnostics || {log(){},failure(){},redact:String,addSecrets(){},capture(){return ()=>{};}};
+
+  async function resolveWorkflowDir() {
+    if (resolvedWorkflowDir) return resolvedWorkflowDir;
+    if (typeof workflowDir !== 'function') return '';
+    if (!workflowPending) {
+      workflowPending = Promise.resolve().then(workflowDir).then((dir) => {
+        resolvedWorkflowDir = dir;
+        return dir;
+      }).catch((error) => {
+        workflowPending = null;
+        throw error;
+      });
+    }
+    return workflowPending;
+  }
+
+  function failed(details) {
+    startError = details;
+    diag.failure(details);
+    return {status:'error',url,...details};
+  }
+
+  async function readyUrl() {
+    try {
+      const response = await fetchImpl(new URL('/studio-api/health', url), {
+        signal: AbortSignal.timeout(1500),
+        redirect: 'manual',
+      });
+      if (response.status !== 200) return '';
+      const health = await response.json();
+      if (health.app === 'hamster-smart-video' && (!requireIdentity || (health.instance===instanceId && health.version===26))) return health;
+      return '';
+    } catch {
+      return '';
+    }
+  }
+
+  async function start() {
+    if(stopped)return {status:'stopped',url};
+    if (child && child.exitCode === null) return { status: 'starting', url };
+    if (starting) return starting;
+    starting = startChecked();
+    try {return await starting;} finally {starting=null;}
+  }
+  async function startChecked() {
+    startError = null;
+    const [runtime, preparedWorkflowDir] = await Promise.all([
+      runtimeProvider ? runtimeProvider() : null,
+      resolveWorkflowDir(),
+    ]);
+    if(stopped)return {status:'stopped',url};
+    lastPortCheck = await portProbe(port);
+    diag.log('port-preflight',lastPortCheck);
+    if (lastPortCheck.state !== 'available' && dynamicPorts) {
+      const previous=port;port=await allocatePort();
+      if(!Number.isInteger(port)||port<1||port>65535)return failed({code:'PORT_UNAVAILABLE',message:'无法分配本地工作台端口，请稍后重试'});
+      url=`http://127.0.0.1:${port}/`;
+      diag.log('port-switch',{previous,port,reason:lastPortCheck.state});
+    } else if (lastPortCheck.state !== 'available') {
+      const owners=(lastPortCheck.owners || []).map(item=>`${item.name}（PID ${item.pid}）`).join('、');
+      return failed({code:lastPortCheck.state==='occupied'?'PORT_IN_USE':'PORT_UNAVAILABLE',port,
+        message:lastPortCheck.state==='occupied'?`${port} 端口已被${owners || '其他本地程序'}占用，工作台未启动。请确认占用程序后处理，或联系支持`:`无法使用 ${port} 端口，请检查系统权限、安全软件或端口保留策略`,portCheck:lastPortCheck});
+    }
+    const dir = findSmartVideoDir(preparedWorkflowDir);
+    if (!dir) {
+      return failed({code:'WORKFLOW_MISSING',message:'未找到本地工作流文件，请检查安装是否完整或联系支持'});
+    }
+
+    const localVeadk = process.platform === 'win32'
+      ? path.join(dir, '.venv', 'Scripts', 'python.exe')
+      : path.join(dir, '.venv', 'bin', 'python');
+    const bundledUv = process.platform === 'win32'
+      ? path.join(dir, 'bin', 'uv.exe')
+      : '';
+    const command = runtime ? runtime.python : fs.existsSync(localVeadk)
+      ? localVeadk
+      : fs.existsSync(bundledUv) ? bundledUv : 'uv';
+    const args = runtime ? ['-I','-B',runtime.bootstrap,dir,'--port',String(port)] : fs.existsSync(localVeadk)
+      ? ['web.py', '--port', String(port)]
+      : ['run', 'python', 'web.py', '--port', String(port)];
+    const extraEnv = envProvider();
+    if(stopped)return {status:'stopped',url};
+    diag.addSecrets(extraEnv);
+    diag.log('launch',{runtime:runtime?runtime.id:fs.existsSync(localVeadk)?'python-venv':'uv-bootstrap',command,port,workflow:dir});
+    let launched;
+    try { launched = spawnImpl(command, args, {
+      cwd: dir,
+      env: {
+        ...process.env,
+        ...extraEnv,
+        PYTHONPATH: [dir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+        PYTHONUNBUFFERED: '1',
+        HAMSTER_SERVICE_INSTANCE: instanceId,
+        HAMSTER_PARENT_PID: String(process.pid),
+        PYTHONNOUSERSITE: '1',
+      },
+      windowsHide: true,
+      stdio: ['ignore','pipe','pipe'],
+    }); } catch(error) {return failed(classifyFailure(String(error),diag.redact(error.message)));}
+    child = launched;
+    clearStartupWatch();
+    let checking=false;
+    healthTimer=setInterval(async()=>{
+      if(checking||child!==launched)return;
+      checking=true;
+      try{if(await readyUrl()){captureEnabled=false;clearStartupWatch();diag.log('health-ready',{port});}}finally{checking=false;}
+    },1000);
+    healthTimer.unref?.();
+    startupTimer=setTimeout(()=>{
+      if(child!==launched)return;
+      failed({code:'STARTUP_TIMEOUT',message:'本地工作台未在预期时间内通过健康检查，请稍后重试或联系支持'});
+      child=null;launched.kill?.();
+      clearStartupWatch();
+    },startupTimeoutMs);
+    startupTimer.unref?.();
+    captureEnabled=true;failureText='';
+    const note=line=>{
+      failureText=(failureText+'\n'+line).slice(-32768);
+      if(/Uvicorn running on/i.test(line)){captureEnabled=false;diag.log('ready','本地服务已开始监听；停止采集业务期输出');}
+    };
+    const enabled=()=>captureEnabled && child===launched;
+    const flushOut=diag.capture(launched.stdout,'stdout',note,enabled);
+    const flushErr=diag.capture(launched.stderr,'stderr',note,enabled);
+    launched.once('error', (err) => {
+      if (child !== launched) return;
+      flushOut();flushErr();diag.log('spawn-error',String(err));
+      failed(classifyFailure(String(err),`启动失败：${diag.redact(err.message)}`));
+      child = null;captureEnabled=false;
+      clearStartupWatch();
+    });
+    launched.once('close', (code, signal) => {
+      if (child !== launched) return;
+      flushOut();flushErr();
+      diag.log('process-close',{code,signal});
+      clearStartupWatch();
+      if(!stopped && dynamicPorts && classifyFailure(failureText).code==='PORT_IN_USE' && retries++<3){
+        child=null;captureEnabled=false;
+        start().catch(error=>failed(classifyFailure(String(error))));return;
+      }
+      if(!startError)failed({...classifyFailure(failureText,`本地工作台已退出（代码 ${code ?? '未知'}），请稍后重试或联系支持`),exitCode:code,signal});
+      child = null;captureEnabled=false;
+    });
+    return { status: 'starting', url };
+  }
+
+  async function status() {
+    if(stopped)return {status:'stopped',url};
+    const health = await readyUrl();
+    if(stopped)return {status:'stopped',url};
+    if (health) {captureEnabled=false;clearStartupWatch();return { status: 'ready', url, progress:{percent:100,stage:'工作台已就绪'} };}
+    const progress=child?{percent:95,stage:'启动服务并检查可用性'}:runtimeProvider?.progress?.() || {percent:0,stage:'准备本地服务'};
+    if (startError) return { status: 'error', url, ...startError, progress };
+    return { status: starting || (child && child.exitCode === null) ? 'starting' : 'stopped', url, progress };
+  }
+
+  async function prepare() {
+    if(stopped)return {status:'stopped',url};
+    const current=await status();
+    if(current.status==='ready'||current.status==='starting')return current;
+    // Background preparation never opens a browser and never waits for extraction in HTTP.
+    start().catch(error=>{diag.log('prepare-error',String(error));failed(classifyFailure(String(error)));});
+    return {status:'starting',url,progress:runtimeProvider?.progress?.() || {percent:0,stage:'准备本地服务'}};
+  }
+
+  async function open(target = 'chat') {
+    if(stopped)return {status:'stopped',url};
+    if(target===true) return failed({code:'WORKFLOW_VERSION_MISMATCH',message:'反推改写工作台已停用，请使用对话功能'});
+    const health = await readyUrl();
+    if(stopped)return {status:'stopped',url};
+    if (health) {
+      captureEnabled=false;
+      clearStartupWatch();
+      if (!health.chat) return failed({code:'WORKFLOW_VERSION_MISMATCH',message:'本地对话服务仍是旧版本，请退出旧版应用及其对话窗口后重试'});
+      diag.log('reuse-service',{port,version:health.version || 'unknown'});
+      const targetUrl = new URL('/chat/', url);
+      targetUrl.searchParams.set('instance',instanceId);
+      return { status: 'ready', url: targetUrl.href };
+    }
+    try{return await start();}catch(error){diag.log('prepare-error',String(error));return failed(classifyFailure(String(error)));}
+  }
+
+  function stop() {
+    stopped=true;clearStartupWatch();
+    const launched = child;
+    child = null;
+    startError = null;captureEnabled=false;
+    diag.log('stop','应用正在关闭本次启动的工作台');
+    if (!launched || launched.exitCode !== null) return;
+    if (process.platform === 'win32' && launched.pid) {
+      execFile('taskkill', ['/PID', String(launched.pid), '/T', '/F'], { windowsHide: true }, () => {});
+    } else if (typeof launched.kill === 'function') {
+      launched.kill();
+    }
+  }
+
+  async function diagnose() {
+    const health=await readyUrl();
+    const check=health?{port,host:'127.0.0.1',state:'own-service',version:health.version || null}:await portProbe(port);
+    const dir=findSmartVideoDir(resolvedWorkflowDir);
+    const exists=relative=>!!dir && fs.existsSync(path.join(dir,relative));
+    const deferredWorkflow=typeof workflowDir==='function' && !dir;
+    return {service:health?'ready':child?'starting':startError?'error':'stopped',port:check,lastPortCheck,
+      workflow:{found:!!dir || deferredWorkflow,deferred:deferredWorkflow,webEntry:exists('web.py'),manifest:exists('pyproject.toml'),
+        python:exists(process.platform==='win32'?'.venv/Scripts/python.exe':'.venv/bin/python'),bundledRuntime:!!runtimeProvider,bundledLauncher:exists('bin/uv.exe')},currentFailure:startError};
+  }
+  return { open, prepare, status, stop, diagnose };
+}
+
+async function handleSmartVideo(req, res, launcher, action, creative = false) {
+  const allowedMethod = action === 'status' ? 'GET' : 'POST';
+  if (req.method !== allowedMethod) { res.writeHead(405); res.end('Method Not Allowed'); return; }
+  const payload = action === 'open' ? await launcher.open(creative) : action === 'prepare' ? await launcher.prepare() : await launcher.status();
+  const statusCode = payload.status === 'error' ? 503 : 200;
+  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
+
+function serveStatic(req, res, publicDir, pathname) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405); res.end('Method Not Allowed'); return;
+  }
+  const filePath = pathname === '/' ? 'index.html' : pathname.slice(1);
+  const full = path.normalize(path.join(publicDir, filePath));
+  if (!full.startsWith(publicDir)) { res.writeHead(403); res.end('Forbidden'); return; }
+  fs.readFile(full, (err, data) => {
+    if (err) {
+      res.writeHead(err.code === 'ENOENT' ? 404 : 500);
+      res.end(err.code === 'ENOENT' ? 'Not Found' : 'Server Error');
+      return;
+    }
+    const ext = path.extname(full).toLowerCase();
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.end(data);
+  });
+}
+
+/* 公共模型列表（无需 Key），走公共端点 */
+async function handlePublicModels(req, res, upstream) {
+  try {
+    const resp = await fetch(upstream + '/api/public/openapi-models', { headers: { Accept: 'application/json' } });
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    res.writeHead(resp.status, { 'Content-Type': resp.headers.get('content-type') || 'application/json; charset=utf-8' });
+    res.end(buffer);
+  } catch (err) {
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'upstream-unreachable', message: String(err?.message || err) }));
+  }
+}
+
+/* 本地配置端点：GET 查询是否已配置 Key，POST 保存 Key 到 config.json */
+async function handleConfig(req, res, configPath) {
+  if (req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify(configStatus(configPath)));
+  }
+  if (req.method === 'POST') {
+    const body = await readBody(req);
+    let payload = {};
+    try { payload = body && body.length ? JSON.parse(body.toString('utf8')) : {}; } catch { payload = {}; }
+    const cfg = loadConfig(configPath);
+    if (typeof payload.apiKey === 'string') cfg.apiKey = payload.apiKey.trim();
+    if (typeof payload.videoApiKey === 'string') cfg.videoApiKey = payload.videoApiKey.trim();
+    if (typeof payload.rhApiKey === 'string') cfg.rhApiKey = payload.rhApiKey.trim();
+    delete cfg.llmApiKey;
+    delete cfg.llmEndpointId;
+    delete cfg.creativeEndpointId;
+    saveConfig(configPath, cfg);
+    const configured = Boolean((cfg.apiKey || '').trim());
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({
+      ok: true,
+      configured,
+      videoConfigured: Boolean((cfg.videoApiKey || '').trim()),
+      rhConfigured: Boolean((cfg.rhApiKey || '').trim()),
+      llmConfigured: configured,
+      inferenceMode: 'cloud-auto',
+    }));
+  }
+  res.writeHead(405); res.end('Method Not Allowed');
+}
+
+/*
+ * 通用转发：把请求原样转发到上游，并注入 Authorization。
+ * multipart 上传（媒体上传）也能直接透传——content-type 含 boundary，body 为原始 Buffer。
+ */
+async function forward(req, res, { target, apiKey, dualHeader, taskStore }) {
+  const headers = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (SKIP_REQ_HEADERS.has(k)) continue;
+    headers[k] = v;
+  }
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+    if (dualHeader) headers['X-API-Key'] = apiKey; // 图片/视频兼容头
+  }
+  let body = await readBody(req);
+  const routePath = new URL(req.url, 'http://localhost').pathname;
+  let taskPayload;
+  try { taskPayload = JSON.parse(body?.toString('utf8') || '{}'); } catch { taskPayload = {}; }
+  if (req.method === 'POST' && routePath === '/api/images') {
+    const { IMAGE_ROUTES } = await import('./legacy-routes.mjs');
+    const payload = taskPayload;
+    if (!IMAGE_ROUTES.some((route) => route.id === payload.model)) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: '请选择当前可用的仓鼠图片线路' }));
+      return;
+    }
+  }
+  if (req.method === 'POST' && routePath === '/api/videos') {
+    const { VIDEO_ROUTES, mediaLimitError } = await import('./legacy-routes.mjs');
+    const payload = taskPayload;
+    const route = VIDEO_ROUTES.find((r) => r.id === payload.model);
+    let error = route ? '' : '请选择当前可用的仓鼠视频线路';
+    const media = [];
+    for (const [field, kind] of [['images', 'image'], ['videos', 'video'], ['audios', 'audio']]) {
+      if (payload[field] !== undefined && !Array.isArray(payload[field])) error = '素材参数格式错误';
+      for (const item of Array.isArray(payload[field]) ? payload[field] : []) media.push({ kind });
+    }
+    if (!error) error = mediaLimitError({ ...route, type: 'video' }, media);
+    if (!error && payload.resolution && !route.resolutions.includes(payload.resolution)) error = '所选线路不支持此画质';
+    if (!error && payload.ratio && !route.ratios.includes(payload.ratio)) error = '所选线路不支持此画面比例';
+    if (!error && payload.duration !== undefined && !route.durations.includes(Number(payload.duration))) error = '所选线路不支持此时长';
+    if (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error }));
+      return;
+    }
+  }
+  if (req.method === 'POST' && routePath === '/api/official-videos') {
+    const { OFFICIAL_VIDEO_ROUTE, buildOfficialVideoProviderPayload, mediaLimitError } = await import('./legacy-routes.mjs');
+    const payload = taskPayload;
+    let error = payload.model === OFFICIAL_VIDEO_ROUTE.id ? '' : '请选择当前可用的官方备选线路';
+    const media = [];
+    for (const [field, kind] of [['images','image'],['videos','video'],['audios','audio']]) {
+      if (payload[field] !== undefined && !Array.isArray(payload[field])) error = '素材参数格式错误';
+      for (const item of Array.isArray(payload[field]) ? payload[field] : []) {
+        const value = typeof item === 'string' ? item : item?.url;
+        try { const parsed = new URL(value); if (!['http:','https:'].includes(parsed.protocol)) throw new Error(); }
+        catch { error = '素材必须使用可公开访问的 HTTP/HTTPS 地址'; }
+        media.push({kind});
+      }
+    }
+    if (!error) error = mediaLimitError(OFFICIAL_VIDEO_ROUTE, media);
+    if (!error && !String(payload.prompt || '').trim()) error = '请输入提示词';
+    if (!error && payload.resolution !== OFFICIAL_VIDEO_ROUTE.default_resolution) error = '官方视频生成仅开放480p';
+    if (!error && !OFFICIAL_VIDEO_ROUTE.ratios.includes(payload.ratio)) error = '官方视频生成不支持此画面比例';
+    if (!error && !OFFICIAL_VIDEO_ROUTE.durations.includes(Number(payload.duration))) error = '官方视频生成不支持此时长';
+    if (error) {
+      res.writeHead(400, { 'Content-Type':'application/json; charset=utf-8' });
+      res.end(JSON.stringify({error}));
+      return;
+    }
+    body = Buffer.from(JSON.stringify(buildOfficialVideoProviderPayload(payload, OFFICIAL_VIDEO_MODEL)));
+  }
+  const route = routePath;
+  const track = req.method === 'POST' && (/^\/api\/(videos|images|official-videos)$/.test(route) || /^\/rh\/run\/ai-app\//.test(route));
+  const journal = track && taskStore ? taskStore() : null;
+  const submission = journal?.begin(route, taskPayload, apiKey, req.headers['idempotency-key']);
+  const respondAsync = Boolean(submission && /(?:^|,)\s*respond-async(?:\s|,|$)/i.test(String(req.headers.prefer || '')));
+  if (respondAsync) delete headers.prefer;
+  const submit = async () => {
+    try {
+      const upstreamRes = await fetch(target, { method: req.method, headers, body, signal:AbortSignal.timeout(120000) });
+      const buffer = Buffer.from(await upstreamRes.arrayBuffer());
+      if (submission) {
+        let data; try { data = JSON.parse(buffer.toString('utf8')); } catch { data = {}; }
+        await journal.capture(submission, data, upstreamRes.status);
+      }
+      return { upstreamRes, buffer };
+    } catch (error) {
+      if (submission) journal.uncertain(submission);
+      throw error;
+    }
+  };
+  if (respondAsync) {
+    res.writeHead(202, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
+    res.end(JSON.stringify({ accepted:true, task:journal.view(submission) }));
+    setImmediate(() => submit().catch(() => {}));
+    return;
+  }
+  const { upstreamRes, buffer } = await submit();
+  const resHeaders = {};
+  for (const [k, v] of upstreamRes.headers) {
+    if (['content-length', 'connection', 'transfer-encoding'].includes(k)) continue;
+    resHeaders[k] = v;
+  }
+  res.writeHead(upstreamRes.status, resHeaders);
+  res.end(buffer);
+}
+
+async function forwardStream(req, res, { target, apiKey, dualHeader }) {
+  const headers = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (SKIP_REQ_HEADERS.has(key)) continue;
+    headers[key] = value;
+  }
+  headers['Content-Length'] = String(req.headers['content-length']);
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+    if (dualHeader) headers['X-API-Key'] = apiKey;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180000);
+  const abort = () => controller.abort();
+  req.once('aborted', abort);
+  try {
+    const upstreamRes = await fetch(target, {
+      method: req.method,
+      headers,
+      body: req,
+      duplex: 'half',
+      signal: controller.signal,
+    });
+    const responseHeaders = {};
+    for (const [key, value] of upstreamRes.headers) {
+      if (['connection', 'transfer-encoding'].includes(key)) continue;
+      responseHeaders[key] = value;
+    }
+    res.writeHead(upstreamRes.status, responseHeaders);
+    if (!upstreamRes.body) res.end();
+    else await pipeline(Readable.fromWeb(upstreamRes.body), res);
+  } finally {
+    clearTimeout(timeout);
+    req.off('aborted', abort);
+  }
+}
+
+function createApp({
+  upstream = GEN_UPSTREAM,
+  officialVideoUpstream = OFFICIAL_VIDEO_UPSTREAM,
+  dhUpstream = DH_UPSTREAM,
+  publicDir = PUBLIC_DIR,
+  configPath = CONFIG_PATH,
+  resultDir = RESULT_DIR,
+  taskDir = path.join(path.dirname(configPath), 'task-history'),
+  taskOptions = {},
+  diagnostics = null,
+  reporter = null,
+  diagnosticsDir = path.join(path.dirname(configPath),'diagnostics'),
+  diagnosticExportDir = path.join(path.dirname(resultDir),'仓鼠AI诊断'),
+  assetDir = path.join(path.dirname(resultDir), '仓鼠AI资产库'),
+  smartVideoLauncher = null,
+  smartVideoDir,
+  runtimeProvider,
+  mediaUploader,
+  directMediaUploader,
+  mediaDeleter,
+  mediaChecker,
+  mediaMetadataReader,
+  inferenceEndpoint = DEFAULT_INFERENCE_ENDPOINT,
+  inferenceGateway,
+  walletMode = false,
+  walletClient,
+  relayMode = false,
+  openBrowserImpl = openBrowser,
+  relayClient,
+  relayKeyStore,
+  hypitOptions = {},
+  reverseOptions = {},
+  codexOptions = {},
+  codexClient,
+  accountView,
+} = {}) {
+  purgeLegacyInferenceConfig(configPath);
+  const uiPreferences=createStartupPreferences({configPath});
+  const report=(module,error,extra)=>{try{reporter?.capture(module,error,extra);}catch{}};
+  const diagnosticStore = diagnostics || createDiagnostics({dir:diagnosticsDir,exportDir:diagnosticExportDir,configPath,version:require('./package.json').version,reporter});
+  const cloudInference = inferenceGateway || createInferenceGateway({endpoint:relayMode?'https://www.piknoai.com':inferenceEndpoint,pathPrefix:relayMode?'/assistant':''});
+  const reportHandled = Symbol('reportHandled');
+  const activeSmartVideoLauncher = smartVideoLauncher || createSmartVideoLauncher({
+    workflowDir: smartVideoDir,
+    diagnostics:diagnosticStore,
+    runtimeProvider,
+    requireIdentity:true,
+    envProvider: () => ({
+      SANBAO_API_KEY: relayMode?'hamster-relay':walletMode ? 'hamster-wallet' : String(loadConfig(configPath).apiKey || '').trim(),
+      HAMSTER_PIKNO_MODE:relayMode?'1':'0',
+      HAMSTER_WALLET_MODE:walletMode&&!relayMode?'1':'0',
+      HAMSTER_WALLET_API: `http://127.0.0.1:${server.address().port}`,
+      MODEL_AGENT_API_KEY: 'hamster-cloud-session',
+      MODEL_AGENT_API_BASE: `http://127.0.0.1:${server.address().port}/api/inference/api/v3`,
+      LLM_ENDPOINT_ID: 'hamster-auto',
+      HAMSTER_WORKBENCH_OUTPUT_DIR: resultDir,
+      HAMSTER_CONFIG_PATH: path.resolve(configPath),
+      HAMSTER_ASSET_API: `http://127.0.0.1:${server.address().port}/api/assets`,
+      HAMSTER_MEDIA_API: `http://127.0.0.1:${server.address().port}/api/uploads/raw`,
+      HAMSTER_REPORT_URL: `http://127.0.0.1:${server.address().port}/api/error-report`,
+    }),
+  });
+  // 图片/视频：/api/xxx → /openapi/v1/xxx
+  const genTarget = (url) => upstream + '/openapi/v1' + url.pathname.replace(/^\/api/, '') + url.search;
+  // 数字人：/rh/xxx → /openapi/v2/xxx
+  const dhTarget = (url) => dhUpstream + url.pathname.replace(/^\/rh/, '') + url.search;
+
+  const fail = (res, sdkError = false) => (err) => {
+    const expectedDisabled = Number(err?.statusCode) === 503 && err?.code === 'assistant_disabled';
+    const expectedRateLimit=Number(err?.statusCode)===429;
+    const balanceRejection=err?.statusCode===402&&err?.code==='insufficient_balance';
+    if (!res[reportHandled] && !expectedDisabled && !expectedRateLimit && !balanceRejection) report('service',err);
+    res[reportHandled] = true;
+    if (res.destroyed) return;
+    if (res.headersSent) { res.destroy(); return; }
+    const status = Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode <= 599 ? err.statusCode : 500;
+    const rejectedBeforeExecution=err?.code==='llm_rejected_before_execution'&&err?.submissionState==='rejected_before_execution';
+    const retryAfterMs=expectedRateLimit?(Number.isFinite(err?.retryAfterMs)?Math.max(1000,Math.min(3600000,err.retryAfterMs)):60000):0;
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control':'no-store',...(retryAfterMs?{'Retry-After':String(Math.ceil(retryAfterMs/1000))}:{}) });
+    const body={ error: err?.publicMessage || (err?.statusCode ? err.message : '本地服务异常，请稍后重试'),...(retryAfterMs?{retryAfterMs,httpStatus:429}:{}),...((rejectedBeforeExecution||balanceRejection||/^(?:quote_(invalid|expired|changed|parameters_changed|already_submitted)|media_(duration_required|reference_expired|metadata_unavailable)|assistant_disabled|llm_(unknown|not_submitted|price_changed|request_conflict|capability_unavailable))$/.test(err?.code||''))?{code:err.code}:{}),...(rejectedBeforeExecution?{submission_state:'rejected_before_execution'}:err?.submissionState==='not_submitted'&&err?.code!=='llm_rejected_before_execution'?{submission_state:'not_submitted'}:{}) };
+    // The locked SDK retains only `error`; keep execution evidence inside it.
+    if(sdkError)body.error={message:body.error,...(body.code?{code:body.code}:{}),...(body.submission_state?{submission_state:body.submission_state}:{})};
+    res.end(JSON.stringify(body));
+  };
+
+  let assetsHandler, tasks;
+  const wallet=relayMode?require('./pikno.cjs').createPiknoBridge({taskStore:()=>taskStore(),client:relayClient,keyStore:relayKeyStore}):walletMode?require('./wallet.cjs').createWallet({load:()=>loadConfig(configPath),save:cfg=>saveConfig(configPath,cfg),publicDir,taskStore:()=>taskStore(),client:walletClient}):null;
+  const activeConfigStatus=()=>wallet?wallet.status():configStatus(configPath);
+  const uploadObjectRaw = mediaUploader || ((data, metadata) => {
+    if(wallet)return wallet.upload(data,metadata);
+    const cfg = loadConfig(configPath);
+    return uploadMedia(data, {
+      endpoint: String(cfg.mediaUploadEndpoint || process.env.HAMSTER_MEDIA_UPLOAD_ENDPOINT || DEFAULT_MEDIA_ENDPOINT),
+      token: String(cfg.mediaUploadToken || process.env.HAMSTER_MEDIA_UPLOAD_TOKEN || ''),
+      ...metadata,
+    });
+  });
+  const uploadObject = (data, metadata) => {
+    // Probe I/O must not move an old selection into a newly connected account.
+    const scoped = relayMode ? {...metadata,revision:metadata.revision??wallet.executionContext().revision} : metadata;
+    return relayMode && /^(?:audio|video)\//.test(cleanContentType(scoped.contentType))
+      ? uploadWithMediaMetadata(data, scoped, uploadObjectRaw, { runtimeProvider, readMetadata: mediaMetadataReader })
+      : uploadObjectRaw(data, scoped);
+  };
+  const uploadDirectObject = directMediaUploader || (async (data, metadata, request) => {
+    if(wallet)return wallet.upload(data,metadata);
+    const target = new URL('/openapi/v1/uploads/raw', upstream);
+    target.searchParams.set('kind','image');
+    target.searchParams.set('fileName',metadata.fileName || 'image');
+    const apiKey=resolveGenKey(request,configPath);
+    const response=await fetch(target,{
+      method:'POST',
+      headers:{
+        ...(apiKey?{Authorization:`Bearer ${apiKey}`,'X-API-Key':apiKey}:{}),
+        'Content-Type':metadata.contentType,
+        'Content-Length':String(metadata.contentLength),
+      },
+      body:data,duplex:'half',signal:AbortSignal.timeout(180000),
+    });
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok){const error=new Error(payload.error || `图片素材上传失败（HTTP ${response.status}）`);error.statusCode=response.status;throw error;}
+    return payload;
+  });
+  const deleteObjects = mediaDeleter || ((objects) => {
+    if(wallet)return wallet.deleteObjects(objects);
+    const cfg = loadConfig(configPath);
+    return deleteMedia(objects, {
+      endpoint: String(cfg.mediaUploadEndpoint || process.env.HAMSTER_MEDIA_UPLOAD_ENDPOINT || DEFAULT_MEDIA_ENDPOINT),
+      token: String(cfg.mediaUploadToken || process.env.HAMSTER_MEDIA_UPLOAD_TOKEN || ''),
+    });
+  });
+  const checkObjects = mediaChecker || ((options={}) => {
+    if(wallet)return wallet.check(options);
+    const cfg = loadConfig(configPath);
+    return checkMedia({
+      endpoint: String(cfg.mediaUploadEndpoint || process.env.HAMSTER_MEDIA_UPLOAD_ENDPOINT || DEFAULT_MEDIA_ENDPOINT),
+    });
+  });
+  const getAssets = () => assetsHandler ||= require('./assets.cjs').createAssets(assetDir,resultDir,uploadObject,uploadDirectObject);
+  const taskStore = () => {
+    if (!tasks) {
+      tasks = require('./tasks.cjs').createTasks({dir:taskDir, resultDir, upstream, officialVideoUpstream, dhUpstream,
+        walletQuery:wallet?item=>wallet.query(item):undefined,walletUser:()=>relayMode?wallet.owner():String(loadConfig(configPath).billingUserId||''),relayMode,
+        getKey:provider => {
+          const field = provider === 'generate' ? 'apiKey' : provider === 'official' ? 'videoApiKey' : 'rhApiKey';
+          return String(loadConfig(configPath)[field] || '').trim();
+        },
+        deleteMedia:deleteObjects, onFailure:code=>report('generation',{}, {code}), ...taskOptions});
+      // Wallet task polling uses the current session of its owner, never legacy keys.
+      tasks.start();
+    }
+    return tasks;
+  };
+  const canvas = require('./canvas.cjs').createCanvas({dir:path.join(path.dirname(configPath),'canvas-data'),getAssets,taskStore,
+    baseUrl:()=>`http://127.0.0.1:${server.address().port}`,dhUpstream,walletMode:walletMode||relayMode,relayMode,getExecutionContext:()=>wallet?.executionContext?.()||{owner:'',revision:0},getRhKey:()=>walletMode||relayMode?'':String(loadConfig(configPath).rhApiKey||'')});
+  const canvasLauncher = require('./canvas-launcher.cjs').createCanvasLauncher({baseUrl:()=>`http://127.0.0.1:${server.address().port}`});
+  let hypit;
+  const getHypit=()=>hypit ||= require('./hypit.cjs').createHypit({
+    dir:path.join(path.dirname(configPath),'hypit-data'),getAssets,taskStore,
+    baseUrl:()=>`http://127.0.0.1:${server.address().port}`,
+    getExecutionContext:()=>relayMode?wallet.executionContext():{owner:'',revision:0},...hypitOptions,
+  });
+  let reverse;
+  const getReverse=()=>reverse ||= require('./reverse.cjs').createReverse({dir:path.join(path.dirname(configPath),'reverse-history'),getContext:()=>relayMode?wallet.reverseContext():{},...reverseOptions});
+  let localCodex=codexClient;
+  const codexRoutes=require('./codex-routes.cjs').createCodexRoutes({
+    getClient:()=>localCodex ||= require('./codex-local.cjs').createLocalCodex({dir:path.join(path.dirname(configPath),'codex-sessions'),...codexOptions}),
+    chooseDirectory:codexOptions.chooseDirectory,
+  });
+  const accountViewRoutes=require('./relay-account-view.cjs').createAccountViewRoutes({view:accountView});
+  const server = http.createServer((req, res) => {
+    res.setHeader('Content-Security-Policy', "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src http://127.0.0.1:*");
+    const url = new URL(req.url, 'http://localhost');
+    const p = url.pathname;
+    if(relayMode&&p.startsWith('/api/')&&(!/^127\.0\.0\.1:\d+$/.test(req.headers.host||'')||req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`||req.headers['sec-fetch-site']==='cross-site')){
+      res.writeHead(403,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'请求来源无效'}));return;
+    }
+    // No URL, headers, payload, task identity or response text enters reporting.
+    res.once('finish',()=>{
+      if(!res[reportHandled] && p!=='/api/error-report' && (res.statusCode>=500 || [401,403,429].includes(res.statusCode)))report('service',{statusCode:res.statusCode});
+    });
+    if(p==='/api/reverse'||p.startsWith('/api/reverse/')){
+      void getReverse().handle(req,res,url);
+    } else if(p.startsWith('/api/relay/account-view/')){
+      res[reportHandled]=true;
+      void accountViewRoutes(req,res,url);
+    } else if(p==='/api/codex'||p.startsWith('/api/codex/')){
+      // CLI stderr, file content and session data never enter automatic reporting.
+      res[reportHandled]=true;
+      void codexRoutes(req,res,url);
+    } else if(p==='/api/hypit'||p.startsWith('/api/hypit/')){
+      // Public packages neither ship nor enable the separately licensed internal runtime.
+      if(hypitOptions.enabled===false){res.writeHead(p==='/api/hypit/status'?200:404,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end('{"enabled":false,"internalOnly":true}');return;}
+      try{getHypit().handle(req,res,url).catch(fail(res));}catch(error){fail(res)(error);}
+    } else if(wallet && wallet.handles(p)){
+      wallet.handle(req,res,url).catch(fail(res));
+    } else if(p === '/api/relay/state') {
+      res.writeHead(req.method==='GET'?200:405,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+      res.end(JSON.stringify(req.method==='GET'?{relayMode:false,revision:0}:{error:'操作不支持'}));
+    } else if (p === '/api/canvas/open') {
+      if(req.method!=='POST' || req.headers.origin && req.headers.origin!==`http://${req.headers.host}`){res.writeHead(403);res.end();return;}
+      canvasLauncher.open(url.searchParams.get('project')||'').then(data=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}).catch(fail(res));
+    } else if (p === '/api/canvas/models') {
+      import('./legacy-routes.mjs').then(({VIDEO_ROUTES,OFFICIAL_VIDEO_ROUTE,IMAGE_ROUTES})=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({data:[...VIDEO_ROUTES.map(m=>({...m,type:'video'})),OFFICIAL_VIDEO_ROUTE,...IMAGE_ROUTES.map(m=>({...m,type:'image',max_images:9,max_media_files:9}))]}));}).catch(fail(res));
+    } else if (p.startsWith('/api/canvas/')) {
+      canvas.handle(req,res,url).catch(fail(res));
+    } else if (p === '/api/error-report') {
+      if(req.method!=='POST' || !req.headers['content-type']?.startsWith('application/json') ||
+        !/^127\.0\.0\.1:\d+$/.test(req.headers.host || '') ||
+        (req.headers.origin && req.headers.origin!==`http://${req.headers.host}`)) {res.writeHead(403);res.end();return;}
+      (async()=>{
+        let size=0;const chunks=[];
+        for await(const chunk of req){size+=chunk.length;if(size>4096){res.writeHead(413);res.end();return;}chunks.push(chunk);}
+        const value=require('./report-schema.cjs').normalizeReport(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        report(value.module,{},value);res.writeHead(202);res.end();
+      })().catch(()=>{if(!res.headersSent)res.writeHead(400);res.end();});
+    } else if (p === '/api/diagnostics/status' || p === '/api/diagnostics/export') {
+      const exportRequested=p.endsWith('/export');
+      if(req.method!==(exportRequested?'POST':'GET')){res.writeHead(405);res.end();return;}
+      (async()=>{
+        const checks=await activeSmartVideoLauncher.diagnose?.() || {service:'unknown'};
+        if(exportRequested){
+          const exported=diagnosticStore.exportReport(checks);
+          res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+          res.end(JSON.stringify({ok:true,fileName:exported.fileName,localPath:exported.localPath}));
+        }else{
+          res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+          res.end(JSON.stringify({...diagnosticStore.snapshot(),checks}));
+        }
+      })().catch(fail(res));
+    } else if (p === '/api/ui-preferences') {
+      void handleUiPreferences(req,res,uiPreferences,`127.0.0.1:${server.address().port}`);
+    } else if (p === '/api/startup') {
+      if (req.method !== 'GET') { res.writeHead(405,{'Cache-Control':'no-store'}); res.end('Method Not Allowed'); return; }
+      const light=url.searchParams.get('light')==='1';
+      if(light && (req.headers.host!==`127.0.0.1:${server.address().port}` || req.headers.origin && req.headers.origin!==`http://${req.headers.host}` || req.headers['sec-fetch-site']==='cross-site')){res.writeHead(403,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'请求来源无效'}));return;}
+      res.writeHead(200, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
+      res.end(JSON.stringify(light?{config:activeConfigStatus(),uiPreferences:uiPreferences.get()}:{config:activeConfigStatus(),assets:getAssets().summary()}));
+    } else if (p === '/api/tasks' || p.startsWith('/api/tasks/')) {
+      try { taskStore().handle(req,res,url).catch(fail(res)); } catch (error) { fail(res)(error); }
+    } else if (p === '/api/assets' || p.startsWith('/api/assets/')) {
+      getAssets()(req,res,url).catch(fail(res));
+    } else if (p === '/api/public-models') {
+      handlePublicModels(req, res, upstream).catch(fail(res));
+    } else if (p === '/api/save-result') {
+      handleSaveResult(req, res, resultDir).catch(fail(res));
+    } else if (p === '/api/workbench/prepare') {
+      handleSmartVideo(req, res, activeSmartVideoLauncher, 'prepare').catch(fail(res));
+    } else if (p === '/api/chat/open') {
+      handleSmartVideo(req, res, activeSmartVideoLauncher, 'open', 'chat').catch(fail(res));
+    } else if (p === '/api/chat/status') {
+      handleSmartVideo(req, res, activeSmartVideoLauncher, 'status', 'chat').catch(fail(res));
+    } else if (p === '/api/creative/open' || p === '/api/creative/status') {
+      res.writeHead(410,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+      res.end(JSON.stringify({error:'反推改写工作台已停用，请使用对话功能'}));
+    } else if (p === '/api/config') {
+      if(wallet){res.writeHead(req.method==='GET'?200:405,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(req.method==='GET'?activeConfigStatus():{error:'请通过邮箱登录管理账户'}));}
+      else handleConfig(req, res, configPath).catch(fail(res));
+    } else if (p === '/api/inference/context') {
+      if(req.method!=='GET'){res.writeHead(405);res.end();return;}
+      const context=relayMode?wallet.executionContext():null;
+      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+      res.end(JSON.stringify(context?{scope:context.scope,revision:context.revision,configured:Boolean(wallet.status().llmConfigured)}:{scope:'',revision:0,configured:false}));
+    } else if (p === '/api/inference/status' || p.startsWith('/api/inference/api/v3/') || /^\/api\/inference\/requests\/[a-f0-9]{32}$/.test(p)) {
+      try {
+        const context=relayMode?wallet.executionContext():null;
+        const assertCurrent=()=>{
+          if(context)wallet.inferenceKey(context);
+        };
+        if(context && p!=='/api/inference/status' &&
+          (req.headers['x-hamster-execution-scope']!==context.scope || String(req.headers['x-hamster-config-revision'])!==String(context.revision)))
+          throw Object.assign(new Error('账户配置已变化，请重新发送本次对话'),{statusCode:409,...(p==='/api/inference/api/v3/responses'?{code:'llm_not_submitted',submissionState:'not_submitted'}:{})});
+        const key=relayMode?wallet.inferenceKey(context):wallet?String(loadConfig(configPath).billingApiKey||''):resolveInferenceKey(req,configPath);
+        cloudInference.handle(req,res,url,key,{assertCurrent}).catch(fail(res,true));
+      } catch(error) { fail(res,true)(error); }
+    } else if (p === '/api/official-videos') {
+      forward(req, res, { target:officialVideoUpstream + '/v1/video/generations', apiKey:resolveOfficialVideoKey(req,configPath), dualHeader:false, taskStore }).catch(fail(res));
+    } else if (p === '/rh' || p.startsWith('/rh/')) {
+      forward(req, res, { target: dhTarget(url), apiKey: resolveDhKey(req, configPath), dualHeader: false, taskStore }).catch(fail(res));
+    } else if (req.method === 'GET' && p === '/api/uploads/status') {
+      (async () => {
+        const kind=url.searchParams.has('kind')?url.searchParams.get('kind'):undefined;
+        if(kind!==undefined&&!['image','video','tool','chat'].includes(kind))throw Object.assign(new Error('检测类型无效'),{statusCode:400});
+        const status = await checkObjects(kind===undefined?{}:{kind});
+        const httpStatus=Number.isInteger(status.httpStatus)&&status.httpStatus>=400&&status.httpStatus<=599?status.httpStatus:status.connected?200:503;
+        const retryAfterMs=Number.isFinite(status.retryAfterMs)&&status.retryAfterMs>0?Math.min(3600000,status.retryAfterMs):0;
+        res.writeHead(httpStatus, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',...(retryAfterMs?{'Retry-After':String(Math.ceil(retryAfterMs/1000))}:{}) });
+        res.end(JSON.stringify(status));
+      })().catch(fail(res));
+    } else if (req.method === 'POST' && p === '/api/uploads/direct') {
+      if(wallet){wallet.upload(req,{contentType:cleanContentType(req.headers['content-type']),contentLength:Number(req.headers['content-length']),...(relayMode?{kind:'image',revision:req.headers['x-hamster-config-revision']}:{})}).then(data=>{res.writeHead(201,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}).catch(fail(res));return;}
+      const kind = url.searchParams.get('kind');
+      const mime = cleanContentType(req.headers['content-type']);
+      if (kind !== 'image' || !mime.startsWith('image/')) {
+        res.writeHead(415, { 'Content-Type':'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: '图片生成仅支持直接上传图片素材' }));
+        return;
+      }
+      const length = Number(req.headers['content-length']);
+      const limit = MIME_LIMITS.get(mime);
+      if (!limit) {
+        res.writeHead(415, { 'Content-Type':'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: '不支持此图片格式' }));
+        return;
+      }
+      if (!Number.isSafeInteger(length) || length < 1) {
+        res.writeHead(411, { 'Content-Type':'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: '上传请求缺少有效的文件大小' }));
+        return;
+      }
+      if (length > limit) {
+        res.writeHead(413, { 'Content-Type':'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: '图片最大支持30MB' }));
+        return;
+      }
+      const target = upstream + '/openapi/v1/uploads/raw' + url.search;
+      forwardStream(req, res, { target, apiKey:resolveGenKey(req, configPath), dualHeader:true }).catch(fail(res));
+    } else if (req.method === 'POST' && p === '/api/uploads/raw') {
+      if(wallet){const upload=relayMode?uploadObject:wallet.upload;upload(req,{contentType:cleanContentType(req.headers['content-type']),contentLength:Number(req.headers['content-length']),...(relayMode?{revision:req.headers['x-hamster-config-revision'],...(url.searchParams.has('use')?{kind:url.searchParams.get('use')}:{})}:{})}).then(data=>{res.writeHead(201,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}).catch(fail(res));return;}
+      const cfg = loadConfig(configPath);
+      handleMediaUpload(req, res, url, mediaUploader ? {
+        endpoint: 'https://local.test/upload',
+        token: 'injected',
+        fetchImpl: async (_target, init) => {
+          const payload = await mediaUploader(init.body, {
+            contentType: init.headers['Content-Type'],
+            contentLength: Number(init.headers['Content-Length']),
+            fileName: url.searchParams.get('fileName') || 'media',
+          });
+          return new Response(JSON.stringify(payload), { status: 201, headers: { 'content-type': 'application/json' } });
+        },
+      } : {
+        endpoint: String(cfg.mediaUploadEndpoint || process.env.HAMSTER_MEDIA_UPLOAD_ENDPOINT || DEFAULT_MEDIA_ENDPOINT),
+        token: String(cfg.mediaUploadToken || process.env.HAMSTER_MEDIA_UPLOAD_TOKEN || ''),
+      }).catch(fail(res));
+    } else if (req.method === 'DELETE' && p === '/api/uploads/raw') {
+      (async () => {
+        let payload;
+        try { payload = JSON.parse((await readBody(req))?.toString('utf8') || '{}'); }
+        catch { payload = {}; }
+        const objects = [
+          ...(Array.isArray(payload.urls) ? payload.urls : []),
+          ...(Array.isArray(payload.keys) ? payload.keys : []),
+        ];
+        const result = await deleteObjects(objects);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(result));
+      })().catch(fail(res));
+    } else if (p === '/api' || p.startsWith('/api/')) {
+      if(wallet){res.writeHead(404,{'Content-Type':'application/json'});res.end('{"error":"服务接口未开放"}');return;}
+      forward(req, res, { target: genTarget(url), apiKey: resolveGenKey(req, configPath), dualHeader: true, taskStore }).catch(fail(res));
+    } else {
+      serveStatic(req, res, publicDir, p);
+    }
+  });
+  server.on('listening', () => { if (fs.existsSync(taskDir)) taskStore(); });
+  // Native-only capability. No HTTP route accepts this remote credential handoff.
+  server.getConnectedRelayAccountId=()=>{
+    const owner=relayMode?wallet?.owner?.():'';
+    const id=typeof owner==='string'&&/^pikno:[1-9]\d*$/.test(owner)?Number(owner.slice(6)):null;
+    return Number.isSafeInteger(id)&&id>0?id:null;
+  };
+  server.connectCreatedRelayKey=async(value,{assertCurrent}={})=>{
+    if(!relayMode||!wallet?.configure)return {ok:false,code:'KEY_STORAGE_UNAVAILABLE'};
+    const kind=({'image-standard':'image','video-standard':'video','tool-standard':'tool','chat-standard':'chat'})[value?.group];
+    if(!['image','video','tool','chat'].includes(kind)||!Number.isSafeInteger(value.userId)||value.userId<1||typeof value.key!=='string'||!/^sk-[a-zA-Z0-9]{20,128}$/.test(value.key))return {ok:false,code:'KEY_INVALID'};
+    const field=({image:'piknoImageKey',video:'piknoVideoKey',tool:'piknoToolKey',chat:'piknoChatKey'})[kind];
+    try{
+      await wallet.configure({[field]:value.key},{expectedUserId:value.userId,assertCurrent,requireProtected:true});
+    }catch(error){
+      const status=[error?.statusCode,error?.status].find(value=>Number.isInteger(value)&&value>=100&&value<=599);
+      const metadata=status===undefined?{}:{httpStatus:status};
+      if(assertCurrent?.()===false)return {ok:false,code:'ACCOUNT_CHANGED',...metadata};
+      if(status===429)return {ok:false,code:'RATE_LIMITED',httpStatus:429,retryAfterMs:Number.isFinite(error?.retryAfterMs)?Math.max(1000,Math.min(3600000,error.retryAfterMs)):60000};
+      return {ok:false,code:error?.code==='KEY_STORAGE_UNAVAILABLE'?'KEY_STORAGE_UNAVAILABLE':({400:'KEY_INVALID',401:'KEY_INVALID',403:'KEY_FORBIDDEN',409:'ACCOUNT_MISMATCH'})[status]||'CONNECT_FAILED',...metadata};
+    }
+    let connected=false,limited;
+    try{const result=await wallet.connection({kind});connected=result?.[kind]?.state==='ready';if(result?.[kind]?.httpStatus===429)limited={httpStatus:429,retryAfterMs:result[kind].retryAfterMs};}catch{}
+    return {ok:true,code:connected?'CONNECTED':'SAVED_CHECK_PENDING',connected,...limited};
+  };
+  server.on('close', () => { reverse?.stop(); localCodex?.close(); wallet?.stop?.(); tasks?.stop(); activeSmartVideoLauncher.stop?.(); canvasLauncher.stop(); hypit?.stop(); });
+  return server;
+}
+
+function openBrowser(url) {
+  const cmd = process.platform === 'win32' ? `start "" "${url}"`
+    : process.platform === 'darwin' ? `open "${url}"`
+    : `xdg-open "${url}"`;
+  exec(cmd, (err) => { if (err) console.log('请手动打开浏览器访问:', url); });
+}
+
+if (require.main === module) {
+  const PORT = Number(process.env.PORT || 8787);
+  const relayMode=process.env.HAMSTER_PIKNO_MODE!=='0';
+  const app = createApp({walletMode:!relayMode,relayMode});
+  app.listen(PORT, '127.0.0.1', () => {
+    const url = `http://127.0.0.1:${PORT}`;
+    console.log(`仓鼠AI 本地服务已启动: ${url}`);
+    openBrowser(url);
+  });
+}
+
+module.exports = { createApp, createSmartVideoLauncher, findSmartVideoDir };

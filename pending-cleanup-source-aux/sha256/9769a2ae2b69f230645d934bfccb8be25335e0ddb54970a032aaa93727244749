@@ -1,0 +1,119 @@
+param([Parameter(Mandatory)][ValidateSet('Prepare','Finish')][string]$Action)
+$ErrorActionPreference = 'Stop'
+$root = [IO.Path]::GetFullPath($PSScriptRoot)
+$fixture = Join-Path $root 'qa-payload'
+$app = Join-Path $fixture '中文 应用'
+$program = Join-Path $app '仓鼠AI.exe'
+$profile = Join-Path $fixture 'runtime-profile'
+$resultFile = Join-Path $root 'qa-extracted-payload.json'
+$guid = 'ccdefc5f-4344-55e2-848f-c386cf81f44f'
+function Save-Facts { [IO.File]::WriteAllText($resultFile,($facts | ConvertTo-Json -Depth 7),[Text.UTF8Encoding]::new($false)) }
+function File-Digest($file) { (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Registered-Product {
+    $key = Get-ItemProperty -LiteralPath "HKCU:/Software/$guid" -ErrorAction SilentlyContinue
+    $entry = Get-ItemProperty -LiteralPath "HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/$guid" -ErrorAction SilentlyContinue
+    $file = if ($key.InstallLocation) { Join-Path $key.InstallLocation '仓鼠AI.exe' }
+    $archive = if ($key.InstallLocation) { Join-Path $key.InstallLocation 'resources/app.asar' }
+    $links = foreach ($area in 'Desktop','CommonDesktopDirectory','Programs','CommonPrograms') {
+        $link = Join-Path ([Environment]::GetFolderPath($area)) '仓鼠AI.lnk'
+        if (Test-Path -LiteralPath $link -PathType Leaf) { File-Digest $link }
+    }
+    [ordered]@{version=$entry.DisplayVersion; executable=if ($file -and (Test-Path -LiteralPath $file)) { File-Digest $file }; archive=if ($archive -and (Test-Path -LiteralPath $archive)) { File-Digest $archive }; shortcuts=@($links)} | ConvertTo-Json -Compress
+}
+function Run-Runtime($switch) {
+    if (-not (Test-Path -LiteralPath $program -PathType Leaf)) { throw 'Extracted application missing' }
+    $psi = [Diagnostics.ProcessStartInfo]::new($program)
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.WorkingDirectory = $profile
+    $psi.ArgumentList.Add($switch)
+    $psi.ArgumentList.Add('--user-data-dir='+(Join-Path $profile 'user-data'))
+    $psi.ArgumentList.Add('--disable-background-networking')
+    $psi.Environment.Clear()
+    foreach ($k in 'PATH','SystemRoot','WINDIR','ComSpec','PATHEXT','ProgramData','ProgramFiles','ProgramFiles(x86)','CommonProgramFiles') {
+        $v = [Environment]::GetEnvironmentVariable($k)
+        if ($v) { $psi.Environment[$k] = $v }
+    }
+    foreach ($k in 'APPDATA','LOCALAPPDATA','TEMP','TMP','USERPROFILE') {
+        $dir = Join-Path $profile $k
+        [IO.Directory]::CreateDirectory($dir) | Out-Null
+        $psi.Environment[$k] = $dir
+    }
+    foreach ($k in 'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY') { $psi.Environment[$k] = 'http://127.0.0.1:1' }
+    $proc = [Diagnostics.Process]::Start($psi)
+    if (-not $proc.WaitForExit(240000)) { $proc.Kill($true); throw 'Isolated runtime command timed out' }
+    if ($proc.ExitCode -ne 0) { throw 'Isolated runtime command failed' }
+}
+function Invoke-Preview($installer,$stage) {
+    $ui = Join-Path $fixture 'setup-ui'
+    $png = Join-Path $ui ('installer-preview-'+$stage+'.png')
+    $process = Start-Process -FilePath $installer -ArgumentList ('--preview='+$stage+' --qa-root="'+$ui+'"') -WindowStyle Hidden -PassThru
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(25)
+        do { Start-Sleep -Milliseconds 200 } while ((-not (Test-Path -LiteralPath $png) -or (Get-Item -LiteralPath $png).Length -lt 1000) -and -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline)
+        $info = Get-Item -LiteralPath $png
+        if ($info.Length -lt 1000) { throw 'Preview image missing' }
+    } finally {
+        if (-not $process.HasExited) { [void]$process.CloseMainWindow(); if (-not $process.WaitForExit(3000)) { $process.Kill(); $process.WaitForExit() } }
+    }
+    @{stage=$stage; bytes=$info.Length; sha256=(File-Digest $png)}
+}
+if ($Action -eq 'Prepare') {
+    if ((Test-Path -LiteralPath $fixture) -or (Test-Path -LiteralPath $resultFile)) { throw 'QA fixture must be new' }
+    $verify = Get-Content -LiteralPath (Join-Path $root 'package-verification.json') -Raw | ConvertFrom-Json
+    $installer = Join-Path $root $verify.installer
+    if (-not $verify.passed -or $verify.version -ne '1.7.86' -or (File-Digest $installer) -ne $verify.installerSHA256) { throw 'Final installer verification failed' }
+    [IO.Directory]::CreateDirectory($app) | Out-Null
+    [IO.Directory]::CreateDirectory($profile) | Out-Null
+    $ui = [IO.Directory]::CreateDirectory((Join-Path $fixture 'setup-ui'))
+    [IO.File]::WriteAllText((Join-Path $ui.FullName 'setup-qa-authorized.txt'),$guid)
+    $facts = [ordered]@{version=$verify.version; scope='final-wrapper-preview-and-extracted-payload'; wrapperSHA256=$verify.installerSHA256; ranRegisteredInstaller=$false; ranRegisteredUninstaller=$false; customerProductBefore=(Registered-Product); realCustomerData=$false}
+    Save-Facts
+    $facts.preview = @(foreach ($stage in 'ready','installing','complete','error') { Invoke-Preview $installer $stage })
+    if (@($facts.preview.sha256 | Select-Object -Unique).Count -ne 4) { throw 'Preview stages were indistinguishable' }
+    Save-Facts
+    $engine = Join-Path $fixture 'embedded-engine.exe'
+    $asm = [Reflection.Assembly]::LoadFile($installer)
+    $stream = $asm.GetManifestResourceStream('HamsterSetup.Engine.exe')
+    if ($null -eq $stream) { throw 'Embedded engine missing' }
+    $target = [IO.File]::Open($engine,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write)
+    try { $stream.CopyTo($target) } finally { $target.Dispose(); $stream.Dispose() }
+    $facts.engineSHA256 = File-Digest $engine
+    if ($facts.engineSHA256 -ne $verify.engineSHA256) { throw 'Embedded engine hash mismatch' }
+    $seven = [IO.Path]::GetFullPath((Join-Path $root '../../仓鼠AI/node_modules/electron-winstaller/vendor/7z.exe'))
+    & $seven e $engine '-i!$PLUGINSDIR/app-64.7z' ('-o'+$fixture) -y | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $fixture 'app-64.7z'))) { throw 'Application archive missing' }
+    & $seven x (Join-Path $fixture 'app-64.7z') ('-o'+$app) -y | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Application extraction failed' }
+    $facts.asarSHA256 = File-Digest (Join-Path $app 'resources/app.asar')
+    if ($facts.asarSHA256 -ne $verify.asarSHA256) { throw 'Extracted app.asar hash mismatch' }
+    Run-Runtime '--hamster-prepare-installed-runtime'
+    $manifest = Get-Content -LiteralPath (Join-Path $app 'resources/python-runtime.json') -Raw | ConvertFrom-Json
+    $marker = Get-Content -LiteralPath (Join-Path $app 'resources/installed-runtime.json') -Raw | ConvertFrom-Json
+    $facts.runtimeReady = $marker.state -eq 'ready' -and $marker.id -eq $manifest.id -and $marker.archiveSha256 -eq $manifest.archiveSha256
+    Save-Facts
+    if (-not $facts.runtimeReady) { throw 'Extracted runtime verification failed' }
+    [pscustomobject]@{previewStages=$facts.preview.stage;runtimeReady=$facts.runtimeReady;engineMatches=$true;asarMatches=$true} | ConvertTo-Json -Compress
+} else {
+    $facts = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json -AsHashtable
+    $qa = Get-Content -LiteralPath (Join-Path $root 'qa-installed.json') -Raw | ConvertFrom-Json
+    if (-not $facts.runtimeReady -or $qa.installedAsarSHA256 -ne $facts.asarSHA256 -or -not $qa.passed -or $qa.scope -ne 'final-installer-extracted-payload-synthetic-isolated') { throw 'Desktop QA evidence missing' }
+    foreach ($name in $qa.previewFiles.PSObject.Properties.Value) {
+        $item = [IO.Path]::GetFullPath((Join-Path $root $name))
+        if (-not $item.StartsWith((Join-Path $root 'qa-installed-profile')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid fixture path' }
+    }
+    $runRoot = Split-Path -Parent ([IO.Path]::GetFullPath((Join-Path $root $qa.previewFiles.navigation)))
+    $fixtures = @(Get-ChildItem -LiteralPath $runRoot -File -Recurse | Where-Object { $_.Name -in 'work-directory.json','interaction-preferences.json','ui-preferences.json' -or $_.Extension -eq '.png' } | Sort-Object FullName)
+    if ($fixtures.Count -lt 4 -or -not ($fixtures.Name -contains 'work-directory.json') -or -not ($fixtures.Name -contains 'interaction-preferences.json')) { throw 'Synthetic retained-data fixtures missing' }
+    $guard = @($fixtures | ForEach-Object { File-Digest $_.FullName })
+    Run-Runtime '--hamster-remove-installed-runtime'
+    $after = @($fixtures | ForEach-Object { File-Digest $_.FullName })
+    $facts.runtimeRemoved = -not(Test-Path -LiteralPath (Join-Path $app 'resources/installed-runtimes')) -and -not(Test-Path -LiteralPath (Join-Path $app 'resources/installed-runtime.json'))
+    $facts.retainedFixtureFiles = $fixtures.Count
+    $facts.retainedDataUnchanged = -not (Compare-Object $guard $after -SyncWindow 0)
+    $facts.customerInstallationUnchanged = (Registered-Product) -eq $facts.customerProductBefore
+    $facts.passed = $facts.runtimeRemoved -and $facts.retainedDataUnchanged -and $facts.customerInstallationUnchanged
+    Save-Facts
+    if (-not $facts.passed) { throw 'Runtime removal or installation preservation check failed' }
+    [pscustomobject]@{runtimeRemoved=$facts.runtimeRemoved;retainedFixtureFiles=$facts.retainedFixtureFiles;retainedDataUnchanged=$facts.retainedDataUnchanged;customerInstallationUnchanged=$facts.customerInstallationUnchanged} | ConvertTo-Json -Compress
+}

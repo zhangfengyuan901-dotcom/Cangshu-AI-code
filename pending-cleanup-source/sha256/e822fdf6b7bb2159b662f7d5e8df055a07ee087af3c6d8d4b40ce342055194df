@@ -1,0 +1,25 @@
+async (page) => {
+  const local = 'http://127.0.0.1:18276', mockHost = 'https://1.pay.lanjingzf.com';
+  const context = page.context();
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin === local) return route.continue();
+    if (url.origin === mockHost && url.pathname === '/payPage/pay.html' && url.searchParams.get('orderId') === 'USR42NOfixture1') {
+      return route.fulfill({contentType:'text/html', body:'<main>fixture QR</main>'});
+    }
+    return route.abort();
+  });
+  const frame = page.frameLocator('.portal-account-frame');
+  await page.goto(local + '/hub/billing');
+  await frame.locator('#pay').getByText('充值 ¥50.00').click({timeout:12000});
+  await page.getByText('fixture QR').waitFor({timeout:10000});
+  if (context.pages().length !== 1) throw Error('checkout used a popup');
+  const qr = page.url();
+  await page.goto(local + '/hub/billing#desktop='+'F'.repeat(43));
+  await frame.getByRole('button', { name: '继续支付宝付款 ¥50.00', exact: true }).click({timeout:12000});
+  await page.getByText('fixture QR').waitFor({timeout:10000});
+  if(page.url()!==qr || context.pages().length!==1) throw Error('resume destination differs');
+  const result = await (await page.request.get(local+'/fixture-result')).json();
+  if (result.data.created!==1 || result.data.authorized!==2 || result.data.balance!==0) throw Error('order accounting mismatch');
+  return {pass:true,portalEntry:true,desktopBoundResume:true,newOrders:1,providerQRNavigations:2,tabs:1,realPayments:0};
+}

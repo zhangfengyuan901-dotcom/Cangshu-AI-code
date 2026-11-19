@@ -1,0 +1,43 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const root=__dirname,workspace=path.resolve(root,'../..'),relative=name=>path.relative(workspace,path.join(root,name)).replaceAll('\\','/');
+const read=name=>JSON.parse(fs.readFileSync(path.join(root,name),'utf8').replace(/^\uFEFF/,''));
+const pkg=read('package-verification.json'),node=read('full-node-verification.json'),qa=read('qa-installed.json'),installation=read('qa-installation.json'),fonts=read('font-inputs.json'),official=read('official-source-check.json');
+assert(pkg.passed&&qa.passed&&official.ok&&installation.installPassed&&installation.uninstallPassed&&installation.retainedDataUnchanged&&installation.originalInstallerCacheRestored);
+assert.equal(pkg.installerSHA256,qa.installerSHA256);assert.equal(pkg.installerSHA256,installation.installerSHA256);assert.equal(pkg.asarSHA256,qa.installedAsarSHA256);
+assert.equal(node.counts.tests,1212);assert.equal(node.counts.passed,1212);for(const key of ['failed','cancelled','skipped'])assert.equal(node.counts[key],0);
+const python=fs.readFileSync(path.join(root,'python-font-routes.log'),'utf8');assert.match(python,/Ran 4 tests/);assert.match(python,/\nOK\s*$/);
+assert.equal(qa.checks.length,2);assert(qa.checks.every(check=>check.cleanExit&&check.uncaughtMain===0));
+const first=qa.checks[0];assert.equal(first.topTabs.count,9);assert.equal(first.topTabs.selected,1);assert(first.topTabs.overlayVisible&&first.topTabs.tabbarFits&&first.topTabs.fullWidth);
+assert(Object.values(first.nativeWindow).every(Boolean));assert(Object.values(first.narrowTabs).every(Boolean));assert(first.chatAndCanvasRetained&&first.navigation.panelNodesPreserved&&first.navigation.draftPreserved);
+for(const role of ['shell','chat','canvas']){assert(Object.values(first.typography[role].fonts).every(Boolean));assert.equal(first.typography[role].externalFontRequests,0);}
+const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+for(const input of fonts.files)assert.equal(sha(path.join(root,'source/public/fonts',input.name)),input.sha256);
+assert.equal(sha(path.join(root,pkg.installer)),pkg.installerSHA256);
+const result={format:1,version:'1.7.82',baselineCandidate:'1.7.81',checkedAt:new Date().toISOString(),passed:true,status:'local_candidate_verified_with_native_pointer_test_limit_not_published',
+ installer:relative(pkg.installer),installerSHA256:pkg.installerSHA256,asarSHA256:pkg.asarSHA256,signed:false,
+ previews:{chat:relative('preview-chat.png'),canvas:relative('preview-canvas.png'),syntheticContent:true},
+ evidence:{source:relative('candidate-source-verification.json'),package:relative('package-verification.json'),fonts:relative('font-inputs.json'),node:relative('full-node-verification.json'),python:relative('python-font-routes.log'),installed:relative('qa-installed.json'),installation:relative('qa-installation.json'),official:relative('official-source-check.json')},
+ checks:{node:{tests:1212,pass:1212,fail:0,cancelled:0,skipped:0},pythonFontRoutes:{tests:4,pass:4,fail:0},installedLaunches:2,mainProcessExceptions:0,installAndUninstallPassed:true,retainedFixtureFiles:installation.retainedFixtureFiles,originalInstallerCacheRestored:true},
+ topTabs:first.topTabs,nativeWindowApi:first.nativeWindow,narrowTabs:first.narrowTabs,nativePointerValidation:first.nativeUi,
+ localSyntheticPerformance:{navigation:first.navigation,largeLists:first.stress,canvas:first.canvas},
+ limitations:['Native pointer click and titlebar drag could not be verified: Windows Computer Use screenshot capture timed out and input geometry was unavailable. Native window API operations, native controls accessibility, overlay geometry and application screenshots were verified.'],
+ officialSourceModified:false,published:false,customerAcceptance:false,realCustomerData:false,realGenerationCalls:0,realPaymentCalls:0};
+fs.writeFileSync(path.join(root,'verification.json'),JSON.stringify(result,null,2)+'\n');
+const statePath=path.join(workspace,'.agents/project-state.json'),state=JSON.parse(fs.readFileSync(statePath,'utf8'));
+state.updated_at=result.checkedAt;
+state.client.top_tabs_candidate={version:result.version,baseline_candidate:'1.7.81',status:result.status,source:relative('source'),development_source:relative('dev'),build_config:relative('builder.json'),build_overlay:relative('stage-candidate.cjs'),installer:result.installer,installer_sha256:result.installerSHA256,asar_sha256:result.asarSHA256,signed:false,
+ verification:relative('verification.json'),source_verification:result.evidence.source,package_verification:result.evidence.package,node_verification:result.evidence.node,python_verification:result.evidence.python,installed_verification:result.evidence.installed,installation_verification:result.evidence.installation,
+ confirmed_tab_model:'fixed_single_page_per_function_keep_alive',tab_views:first.topTabs.views,features:['Fixed browser-style top tabs with accessible keyboard navigation','Full-width content and compact toolbar','Light chat and canvas surfaces','Windows native titlebar overlay with reserved control area','Prior typography, work-directory and shutdown repairs included'],
+ previews:result.previews,tests:result.checks,top_tabs:first.topTabs,native_window_api:first.nativeWindow,narrow_tabs:first.narrowTabs,performance:result.localSyntheticPerformance,limitations:result.limitations,
+ published:false,official_source_modified:false,customer_acceptance:false,real_customer_data:false,real_generation_calls:0,real_payment_calls:0,remaining:'Native mouse drag/caption-button input verification remains limited by Computer Use capture failure. Release promotion and approved-netdisk distribution have not been performed.'};
+state.client.latest_local_candidate='1.7.82';state.client.typography_candidate.included_in_candidate='1.7.82';state.client.browser_shell_candidate.included_in_candidate='1.7.82';
+for(const entry of state.unfinished_work||[]){
+ if(['client-browser-shell-installer','client-window-close-disposed-webcontents','client-full-regression-repair','current-full-client-regressions'].includes(entry.id)){
+  entry.candidate_version='1.7.82';entry.status='local_candidate_verified_pending_publication';entry.candidate_verification=relative('verification.json');
+  entry.remaining='Implementation verified in the local 1.7.82 installer candidate. Release promotion and approved-netdisk distribution have not been performed. See candidate validation limits for native pointer testing.';
+  if(entry.id==='current-full-client-regressions'){entry.evidence=result.evidence.node;entry.result={exit_code:0,tests:1212,pass:1212,fail:0,cancelled:0,skipped:0};}
+ }
+}
+fs.writeFileSync(statePath,JSON.stringify(state,null,2)+'\n');
+console.log(JSON.stringify({version:result.version,passed:true,tabs:9,tests:result.checks,installer:result.installer,nativePointerTested:false,published:false}));

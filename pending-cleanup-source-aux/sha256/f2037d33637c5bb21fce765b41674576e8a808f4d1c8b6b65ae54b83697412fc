@@ -1,0 +1,35 @@
+"""Inspect aggregate checkout state and deployed identities. No per-order data leaves the host."""
+import json
+import sys
+from pathlib import Path
+from datetime import datetime, timezone
+
+here = Path(__file__).resolve().parent
+sys.path.insert(0, str(here.parent / 'relay-current' / 'private'))
+from transport import remote
+
+query = """SELECT json_build_object(
+ 'recent', count(*) FILTER (WHERE create_time >= extract(epoch FROM now())-7*86400),
+ 'pending_unclaimed',count(*) FILTER (WHERE status='pending' AND epay_claimed_at=0),
+ 'claimed_unbound',count(*) FILTER (WHERE status IN ('pending','closing') AND epay_claimed_at>0 AND coalesce(epay_gateway_order_id,'')=''),
+ 'recent_claimed_unbound',count(*) FILTER (WHERE create_time >= extract(epoch FROM now())-7*86400 AND status IN ('pending','closing') AND epay_claimed_at>0 AND coalesce(epay_gateway_order_id,'')=''),
+ 'bound_pending',count(*) FILTER (WHERE status IN ('pending','closing') AND coalesce(epay_gateway_order_id,'')<>''),
+ 'legacy_pending',count(*) FILTER (WHERE status IN ('pending','closing') AND epay_claimed_at IS NULL),
+ 'recent_success',count(*) FILTER (WHERE create_time >= extract(epoch FROM now())-7*86400 AND status='success')
+) FROM top_ups WHERE payment_provider='epay'"""
+code = """import json, subprocess
+def get(*cmd):return subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
+bridge=get('docker','ps','--filter','label=com.docker.compose.service=lanjing-bridge','--format','{{.ID}}').splitlines()
+assert len(bridge)==1
+result={'bridge_running':True,'bridge_source_sha256':get('docker','exec',bridge[0],'sha256sum','/app/server.mjs').split()[0],
+'app_image':get('docker','inspect','--format','{{.Image}}','piknoai-relay-new-api-1')}
+raw=get('docker','exec','piknoai-relay-postgres-1','psql','-X','-qAt','-U','pikno','-d','newapi','-v','ON_ERROR_STOP=1','-c',QUERY)
+result['aggregates']=json.loads(next(row for row in raw.splitlines() if row.startswith('{')))
+print(json.dumps(result))""".replace("QUERY",repr("BEGIN READ ONLY; SET LOCAL statement_timeout='5s'; "+query+"; ROLLBACK;"))
+try:
+    result=remote(code,timeout=25)
+except Exception:
+    result={'available':False,'reason':'read_only_transport_or_query_failed'}
+result.update(checked_at=datetime.now(timezone.utc).isoformat(),mode='read_only',real_payments=0)
+(here/'payment-live-aggregates.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf8')
+print(json.dumps(result))

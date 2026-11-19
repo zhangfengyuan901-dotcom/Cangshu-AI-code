@@ -1,0 +1,93 @@
+# Retired: installer distribution is restricted to the user-supplied netdisk.
+import json as _retired_json
+print(_retired_json.dumps({"ok":False,"code":"R2_INSTALLER_DISTRIBUTION_RETIRED","replacement":"仓鼠AI/scripts/publish-website.py"}, ensure_ascii=True))
+raise SystemExit(1)
+
+"""Record the tested canonical package and observed public release."""
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+here = Path(__file__).resolve().parent
+root = here.parents[1]
+web = root / 'output/relay-account-browser-current'
+promotion_file = Path(sys.argv[1]).resolve()
+assert promotion_file.parent == here and promotion_file.name.startswith('canonical-promotion-')
+promotion = json.loads(promotion_file.read_text(encoding='utf-8'))
+package = json.loads((here / 'package-verification.json').read_text(encoding='utf-8'))
+tests = json.loads((here / 'formal-release-tests.json').read_text(encoding='utf-8'))
+website = json.loads((web / 'website77-verification.json').read_text(encoding='utf-8'))
+deployment = json.loads((web / 'website77-deployment.json').read_text(encoding='utf-8'))
+specification = json.loads((root / '仓鼠AI/release/current.json').read_text(encoding='utf-8'))
+assert promotion['passed'] and promotion['canonicalVersion'] == '1.7.77'
+assert tests['passed'] and tests['version'] == '1.7.77'
+assert website['passed'] and website['version'] == deployment['version'] == specification['version'] == '1.7.77'
+assert deployment['deployed'] and deployment['runtime_and_bindings_unchanged']
+assert website['full_download']['sha256'] == package['portableSHA256'] == specification['portable']['sha256']
+assert package['asarSHA256'] == specification['asarSHA256']
+with (root / specification['portable']['path']).open('rb') as stream:
+    assert hashlib.file_digest(stream, 'sha256').hexdigest() == package['portableSHA256']
+
+def relative(file):
+    return file.relative_to(root).as_posix()
+
+record = {
+    'passed': True, 'version': '1.7.77', 'status': 'official_published_verified',
+    'checked_at': datetime.now(timezone.utc).isoformat(),
+    'canonical_promotion': relative(promotion_file),
+    'package_verification': relative(here / 'package-verification.json'),
+    'formal_release_tests': relative(here / 'formal-release-tests.json'),
+    'synthetic_upgrade_and_enrollment': relative(here / 'verification.json'),
+    'website_verification': relative(web / 'website77-verification.json'),
+    'official_download': website['official_download'],
+    'portable_sha256': package['portableSHA256'], 'asar_sha256': package['asarSHA256'],
+    'customer_acceptance': False, 'real_payment_calls': 0, 'real_generation_calls': 0,
+}
+file = root / '.agents/project-state.json'
+state = json.loads(file.read_text(encoding='utf-8'))
+assert state['relay']['version'] == 'v1.0.0-rc.41-hamster.71'
+assert state['relay']['browser_account']['status'] == 'deployed_verified'
+(here / 'release-verification.json').write_text(json.dumps(record, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+client = state['client']
+client.pop('next_release', None)
+client.update({
+    'released': '1.7.77', 'website_release': '1.7.77', 'development_package_version': '1.7.77',
+    'development_is_release_source': True, 'verification': relative(here / 'release-verification.json'),
+    'portable': specification['portable']['path'], 'portable_sha256': package['portableSHA256'],
+    'asar_sha256': package['asarSHA256'], 'official_download': website['official_download'],
+    'source_verification': relative(promotion_file),
+    'formal_release_tests': {**tests, 'verification': relative(here / 'formal-release-tests.json')},
+})
+client['latest_release'].update({
+    'version': '1.7.77', 'status': 'official_published_verified',
+    'verification': relative(here / 'release-verification.json'),
+    'browser_account_and_web_recharge': True, 'video_reference_upload_purpose_fixed': True,
+    'customer_acceptance': False, 'agent_real_generation_calls': 0, 'real_payment_calls': 0,
+})
+client['browser_account_release'] = {
+    **record, 'scope': 'Browser account connection, web-only recharge, focus balance refresh, and video reference upload repair.',
+}
+for key in ('browser_account_candidate', 'payment_candidate'):
+    client[key]['status'] = 'superseded_by_official_1.7.77'
+client['local_repair_candidate']['status'] = 'merged_into_official_1.7.77'
+client['current_development_tests']['scope'] = 'Last full development run on 1.7.75 with the isolated 1.7.76 upload contract. Not rerun as the full 1.7.77 development suite; current accepted release suite is recorded separately.'
+state['website'].update({
+    'release': '1.7.77', 'verification': relative(web / 'website77-verification.json'),
+    'worker_version': deployment['worker_version'], 'profile': 'default',
+    'download': website['official_download'], 'full_download_sha256': package['portableSHA256'],
+    'full_download_bytes': website['full_download']['bytes'],
+    'release_verification': relative(here / 'release-verification.json'),
+})
+state['relay']['lanjing_payment']['remaining'] = 'Legacy orders without a durable provider binding require provider reconciliation. Real payment acceptance has not been performed.'
+for item in state['unfinished_work']:
+    if item['id'] == 'video-reference-upload-purpose':
+        item.update({
+            'status': 'official_1.7.77_published_pending_real_generation_acceptance',
+            'released_version': '1.7.77', 'release_verification': relative(here / 'release-verification.json'),
+            'remaining': 'The repair is included in official 1.7.77. No agent paid generation or customer acceptance was performed.',
+        })
+state['updated_at'] = record['checked_at']
+file.write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+print(json.dumps({'recorded': True, 'official_release': '1.7.77', 'relay_version': state['relay']['version'], 'customer_acceptance': False}))

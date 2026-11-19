@@ -1,0 +1,118 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const cp=require('node:child_process');
+
+const here=__dirname,root=path.resolve(here,'../..'),official=path.join(root,'仓鼠AI');
+const candidate=JSON.parse(fs.readFileSync(path.join(here,'package-verification.json')));
+const verification=JSON.parse(fs.readFileSync(path.join(here,'verification.json')));
+const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+const fileHash=file=>hash(fs.readFileSync(file));
+const applicationFiles=candidate.changedFiles.map(row=>row.file);
+const specifications=['package.json','package-lock.json','release/current.json','release/source-manifest.json'];
+const targets=[...applicationFiles,...specifications];
+const apply=process.argv.length===3&&process.argv[2]==='--apply';
+assert.ok(apply||process.argv.length===3&&process.argv[2]==='--check','Use --check or --apply');
+assert.equal(candidate.version,'1.7.77');assert.equal(verification.passed,true);
+assert.equal(candidate.portableSHA256,fileHash(candidate.portable),'Candidate executable changed');
+assert.equal(candidate.asarSHA256,fileHash(candidate.asar),'Candidate ASAR changed');
+assert.equal(verification.portableSHA256,candidate.portableSHA256);
+assert.equal(candidate.applicationIdentity.internalCandidate,false);
+for(const row of candidate.changedFiles)assert.equal(fileHash(path.join(candidate.stage,row.file)),row.after,'Reviewed candidate source changed');
+function releaseCheck(logName){
+  const check=cp.spawnSync(process.execPath,[path.join(official,'scripts/stage-current-release.cjs'),'--check'],{encoding:'utf8',windowsHide:true});
+  if(logName)fs.writeFileSync(path.join(here,logName),check.stdout+check.stderr);
+  assert.equal(check.status,0,'Canonical release source verification failed');
+  return JSON.parse(check.stdout.trim());
+}
+const beforeCheck=releaseCheck();assert.equal(beforeCheck.version,'1.7.75','Canonical source no longer matches reviewed base');
+const oldSpecification=JSON.parse(fs.readFileSync(path.join(official,'release/current.json')));
+const oldManifest=JSON.parse(fs.readFileSync(path.join(official,'release/source-manifest.json')));
+const oldPackage=JSON.parse(fs.readFileSync(path.join(official,'package.json')));
+const oldLock=JSON.parse(fs.readFileSync(path.join(official,'package-lock.json')));
+assert.equal(oldSpecification.version,'1.7.75');assert.equal(oldManifest.version,'1.7.75');assert.equal(oldPackage.version,'1.7.75');
+assert.equal(oldLock.version,'1.7.75');assert.equal(oldLock.packages[''].version,'1.7.75');
+if(!apply){
+  console.log(JSON.stringify({passed:true,action:'reviewed_promotion_plan_only',baseVersion:beforeCheck.version,targetVersion:candidate.version,
+    runtimeFiles:applicationFiles,specificationFiles:specifications,normalizedRuntimePackageChanges:['version'],
+    verifiedCandidate:true,mutations:0}));
+  process.exit(0);
+}
+const stamp=new Date().toISOString().replace(/[-:.]/g,'');
+const backup=path.join(here,'canonical-before-'+stamp),lock=path.join(here,'canonical-promotion.lock');
+const lockFile=fs.openSync(lock,'wx');fs.writeFileSync(lockFile,String(process.pid));fs.closeSync(lockFile);
+const saved=new Map(),written=new Map();let mutated=false;
+const resultFile=path.join(here,'canonical-promotion-'+stamp+'.json');
+function writeCanonical(name,bytes){
+  const file=path.resolve(official,name);
+  assert.ok(file.startsWith(official+path.sep),'Canonical target outside application');
+  const temporary=file+'.promotion-'+stamp+'.tmp';
+  let ownedTemporary=false;
+  fs.mkdirSync(path.dirname(file),{recursive:true});
+  try{
+    const fd=fs.openSync(temporary,'wx',0o600);
+    ownedTemporary=true;
+    try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    fs.renameSync(temporary,file);written.set(name,hash(bytes));mutated=true;
+  }finally{if(ownedTemporary&&fs.existsSync(temporary))fs.unlinkSync(temporary);}
+}
+try{
+  fs.mkdirSync(backup,{recursive:false});
+  const inventory=[];
+  for(const name of targets){
+    const file=path.join(official,name),exists=fs.existsSync(file),bytes=exists?fs.readFileSync(file):null;
+    saved.set(name,bytes);
+    inventory.push({file:name,existed:exists,sha256:bytes?hash(bytes):null});
+    if(bytes){const out=path.join(backup,name);fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,bytes,{flag:'wx'});}
+  }
+  fs.writeFileSync(path.join(backup,'inventory.json'),JSON.stringify({version:1,files:inventory},null,2)+'\n',{flag:'wx'});
+  for(const row of candidate.changedFiles){
+    const previous=saved.get(row.file);
+    assert.equal(previous?hash(previous):null,row.before,'Canonical application input drifted since staging');
+    writeCanonical(row.file,fs.readFileSync(path.join(candidate.stage,row.file)));
+  }
+  oldPackage.version='1.7.77';
+  oldLock.version='1.7.77';oldLock.packages[''].version='1.7.77';
+  assert.equal(Object.hasOwn(oldPackage,'hamsterInternalCandidate'),false);
+  oldManifest.version='1.7.77';oldManifest.baselineASARSHA256=candidate.asarSHA256;
+  oldManifest.runtimePackage=Object.fromEntries(Object.keys(oldManifest.runtimePackage).map(key=>[key,oldPackage[key]]));
+  oldManifest.runtimePackageSHA256=hash(Buffer.from(JSON.stringify(oldManifest.runtimePackage,null,2)+'\n'));
+  for(const row of candidate.changedFiles){const bytes=fs.readFileSync(path.join(candidate.stage,row.file));oldManifest.files[row.file]={bytes:bytes.length,sha256:hash(bytes)};}
+  oldManifest.files=Object.fromEntries(Object.entries(oldManifest.files).sort(([a],[b])=>a.localeCompare(b,'en')));
+  oldSpecification.version='1.7.77';oldSpecification.releaseDirectory='output/hamster-release-1.7.77';
+  oldSpecification.asarSHA256=candidate.asarSHA256;
+  oldSpecification.portable={path:'output/hamster-release-1.7.77/'+path.basename(candidate.portable),sha256:candidate.portableSHA256};
+  writeCanonical('package.json',Buffer.from(JSON.stringify(oldPackage,null,2)+'\n'));
+  writeCanonical('package-lock.json',Buffer.from(JSON.stringify(oldLock,null,2)+'\n'));
+  writeCanonical('release/source-manifest.json',Buffer.from(JSON.stringify(oldManifest,null,2)+'\n'));
+  writeCanonical('release/current.json',Buffer.from(JSON.stringify(oldSpecification,null,2)+'\n'));
+  const checked=releaseCheck('canonical-release-check-'+stamp+'.log');assert.equal(checked.version,'1.7.77');
+  const out='release-1.7.77-promotion-check-'+stamp;
+  const fresh=cp.spawnSync(process.execPath,[path.join(official,'scripts/stage-current-release.cjs'),'--out',out],{encoding:'utf8',windowsHide:true});
+  fs.writeFileSync(path.join(here,'canonical-fresh-stage-'+stamp+'.log'),fresh.stdout+fresh.stderr);
+  assert.equal(fresh.status,0,'Canonical fresh staging failed');
+  const freshStage=JSON.parse(fresh.stdout.trim());
+  for(const [name,expected]of Object.entries(oldManifest.files))assert.equal(fileHash(path.join(freshStage.stage,name)),expected.sha256,'Fresh application source mismatch');
+  for(const [name,expected]of Object.entries(oldManifest.dependencies))assert.equal(fileHash(path.join(freshStage.stage,name)),expected.sha256,'Fresh dependency mismatch');
+  assert.equal(fileHash(path.join(freshStage.stage,'package.json')),oldManifest.runtimePackageSHA256);
+  const result={passed:true,canonicalVersion:'1.7.77',sourceBackup:backup,changedFiles:targets,
+    releaseCheck:checked,freshStage:out,portableSHA256:candidate.portableSHA256,asarSHA256:candidate.asarSHA256,
+    websitePublished:false,customerDataAccess:false,productionMutations:0};
+  fs.writeFileSync(resultFile,JSON.stringify(result,null,2)+'\n');
+  console.log(JSON.stringify({passed:true,canonicalVersion:'1.7.77',freshStage:out,resultFile,websitePublished:false}));
+}catch(error){
+  let restored=true;
+  if(mutated){
+    for(const [name,digest]of written){
+      const file=path.resolve(official,name);
+      if(!file.startsWith(official+path.sep)||!fs.existsSync(file)||fileHash(file)!==digest){restored=false;continue;}
+      const bytes=saved.get(name);
+      if(bytes===null)fs.unlinkSync(file);else fs.writeFileSync(file,bytes);
+    }
+  }
+  try{assert.equal(releaseCheck().version,'1.7.75');}catch{restored=false;}
+  fs.writeFileSync(resultFile,JSON.stringify({passed:false,sourceRestored:restored,sourceBackup:backup,
+    code:'CANONICAL_PROMOTION_VERIFICATION_FAILED',customerDataAccess:false,productionMutations:0},null,2)+'\n');
+  console.error(JSON.stringify({passed:false,sourceRestored:restored,resultFile}));process.exitCode=1;
+}finally{fs.unlinkSync(lock);}

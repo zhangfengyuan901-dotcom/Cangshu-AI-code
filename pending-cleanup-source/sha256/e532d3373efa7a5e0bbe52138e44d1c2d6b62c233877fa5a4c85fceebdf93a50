@@ -1,0 +1,118 @@
+"""Control the checkout pair release using the existing pinned transport."""
+import argparse
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import re
+import sys
+import time
+
+
+HERE = Path(__file__).resolve().parent
+REMOTE = "/opt/piknoai-relay/checkout73-20261113"
+BASE71 = HERE.parent / "relay-account-browser-current"
+BASE72 = HERE.parent / "relay-model-gif-current"
+spec = importlib.util.spec_from_file_location("transfer", BASE72 / "release72-run.py")
+transfer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(transfer)
+transfer.REMOTE = REMOTE
+
+
+def prepare_code():
+    stage = (BASE71 / "release71-candidate.py").read_text(encoding="utf8")
+    pair = (BASE71 / "release71-apply.py").read_text(encoding="utf8")
+    pair = pair[:pair.index("spec=importlib.util")] + "import stage_base as stage\n" + pair[pair.index("NEW_TABLES="):]
+    sources = {"stage_base": stage, "pair_base": pair, "release_base": (BASE72 / "release72-remote.py").read_text(encoding="utf8"),
+               "checkout": (HERE / "deploy73.py").read_text(encoding="utf8")}
+    return ("import sys,types,re,json,hashlib,pathlib\n" + "for name, source in " + repr(sources) + ".items():\n"
+            " m=types.ModuleType(name);sys.modules[name]=m;exec(compile(source,name,'exec'),m.__dict__)\n")
+
+
+def send_archive(module, file):
+    """Retry verified chunks without restarting a full upload on a broken connection."""
+    expected = transfer.digest(file)
+    probe = "import json,pathlib,hashlib\np=pathlib.Path(" + repr(REMOTE) + ")/'backend73-new-api.gz'\nassert p.resolve()==p\nprint(json.dumps({'ready':p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest()==" + repr(expected) + "}))"
+    if module.remote(probe)["ready"]:
+        return
+    prefix = "import json,hashlib,pathlib,os\np=pathlib.Path(" + repr(REMOTE) + ")\nassert p.resolve()==p and not (p/'private').exists()\nd=p/'transfer';d.mkdir(mode=0o700,exist_ok=True);assert d.resolve()==d\n"
+    parts = []
+    with file.open("rb") as src:
+        while block := src.read(128 * 1024):
+            parts.append((f"{len(parts):03}.part", hashlib.sha256(block).hexdigest(), block))
+    def send(part):
+        name, sha, raw = part
+        cmd = prefix + "q=d/" + repr(name) + "\nassert not q.is_symlink()\n"
+        check = "q.is_file() and hashlib.sha256(q.read_bytes()).hexdigest()==" + repr(sha)
+        cmd += ("if not (" + check + "):\n import base64,tempfile\n data=base64.b64decode(" + repr(base64.b64encode(raw)) + ")\n"
+                " assert hashlib.sha256(data).hexdigest()==" + repr(sha) + "\n"
+                " with tempfile.NamedTemporaryFile(dir=d,delete=False) as tmp: tmp.write(data)\n os.replace(tmp.name,q)\n"
+                "print(json.dumps({'ok':" + check + "}))")
+        for attempt in range(3):
+            try:
+                assert module.remote(cmd, timeout=12)["ok"]
+                return
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(1)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(send, parts))
+    assemble = ("names=" + repr([p[0] for p in parts]) + "\nq=p/'verified-transfer.tmp';out=p/'backend73-new-api.gz'\n"
+                "assert not q.exists() and not out.is_symlink()\nwith q.open('xb') as dst:\n for n in names:dst.write((d/n).read_bytes())\n"
+                "assert hashlib.sha256(q.read_bytes()).hexdigest()==" + repr(transfer.digest(file)) + "\nos.replace(q,out)\n"
+                "for n in names:(d/n).unlink()\nd.rmdir()\nprint(json.dumps({'ok':True}))")
+    assert module.remote(prefix + assemble)["ok"]
+
+
+def main(action):
+    module = transfer.transport()
+    runner = prepare_code()
+    fingerprint = hashlib.sha256(runner.encode()).hexdigest()
+    if action == "stage":
+        manifest = json.loads((HERE / "build73.json").read_text())
+        guards = json.loads((HERE / "deploy-guard-audit.json").read_text(encoding="utf-8-sig"))
+        assert len(guards) >= 18 and all(value is True for value in guards.values())
+        matrix = json.loads((HERE / "go-database-matrix.json").read_text())
+        assert {r["engine"] for r in matrix} == {"mysql", "postgres"} and all(row["exit_code"] == 0 for row in matrix)
+        verified = json.loads((HERE / "payment-verification.json").read_text(encoding="utf8"))
+        assert verified["passed"] is True
+        for name, expected in manifest["go_overlay"].items():
+            assert transfer.digest(HERE.parents[1] / "deploy/new-api/backend" / name) == expected
+        for name, expected in manifest["portal_overlay"].items():
+            assert transfer.digest(HERE.parents[1] / "deploy/new-api/backend/web/dist" / name) == expected
+        for name, key in [("backend73-new-api.gz", "gzip_sha256"), ("backend73-new-api", "binary_sha256"), ("server.mjs", "bridge_source_sha256")]:
+            assert transfer.digest(HERE / name) == manifest[key]
+        assert transfer.digest(HERE.parents[1] / "deploy/lanjing-bridge/server.mjs") == manifest["bridge_source_sha256"]
+        manifest.update(tests_passed=True, validation_sha256=transfer.digest(HERE / "payment-verification.json"), runner_sha256=fingerprint)
+        (HERE / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf8")
+        init = "import pathlib,json,shutil,os\np=pathlib.Path(" + repr(REMOTE) + ")\nassert p.resolve()==p\nassert shutil.disk_usage(p.parent).free>" + str(4*manifest["binary_bytes"] + 2*manifest["gzip_bytes"] + 1150*1024**2) + "\np.mkdir(mode=0o700,exist_ok=True)\nassert not (p/'private').exists() and p.stat().st_uid==os.geteuid() and not p.stat().st_mode&0o077\nassert all(f.name in ('server.mjs','manifest.json','backend73-new-api.gz','transfer') and not f.is_symlink() for f in p.iterdir())\nprint(json.dumps({'ready':True}))"
+        assert module.remote(init)["ready"]
+        send_archive(module, HERE / "backend73-new-api.gz")
+        for name in ("server.mjs", "manifest.json"):
+            transfer.scp(module, HERE / name, name)
+    if action in ("stage", "apply"):
+        runner += ("p=pathlib.Path(" + repr(REMOTE) + ")/'manifest.json'\n"
+                   "assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==" + repr(transfer.digest(HERE / "manifest.json")) + "\n"
+                   "assert json.loads(p.read_bytes())['runner_sha256']==" + repr(fingerprint) + "\n")
+    runner += ("try:\n result={'ok':True,'result':m.main(" + repr(action) + ")}\n"
+               "except Exception as exc:\n code=str(exc) if isinstance(exc,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(exc)) else 'CONTROLLED_RELEASE_FAILED'\n result={'ok':False,'code':code}\n"
+               "print(json.dumps(result))\n")
+    value = module.remote(runner, timeout=780 if action != "apply" else 1500)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    (HERE / (action + "-" + stamp + ".json")).write_text(json.dumps(value, indent=2) + "\n", encoding="utf8")
+    print(json.dumps(value))
+    return 0 if value["ok"] else 1
+
+
+if __name__ == "__main__":
+    args = argparse.ArgumentParser()
+    args.add_argument("action", choices=["preflight", "stage", "apply"])
+    try:
+        sys.exit(main(args.parse_args().action))
+    except Exception as error:
+        print(json.dumps({"ok": False, "error_type": type(error).__name__, "details": "withheld"}))
+        sys.exit(1)

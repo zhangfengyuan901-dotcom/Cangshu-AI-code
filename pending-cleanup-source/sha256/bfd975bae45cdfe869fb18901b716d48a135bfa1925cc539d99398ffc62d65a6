@@ -1,0 +1,193 @@
+// These local forms exchange only fixed actions and safe display metadata.
+const messages={LOGIN_REQUIRED:'请先登录当前充值账户。',ACCOUNT_CHANGED:'账户已改变，请关闭后重新进入。',ACCOUNT_MISMATCH:'本机连接属于其他账户，请先处理账户连接。',INVALID_REQUEST:'请检查输入后重试。',INVALID_INPUT:'请检查用户名、邮箱和密码。注册密码须为 8 至 128 个字符。',INVALID_CODE:'请输入 6 位动态验证码或 XXXX-XXXX 备用码。',AUTH_FLOW_INVALID:'验证已过期，请重新登录。',METHOD_UNAVAILABLE:'当前验证方式暂不支持，请使用账户网页版完成验证。',CHALLENGE_REQUIRED:'请先完成图形验证码。',CONSENT_REQUIRED:'请先阅读并同意相关条款。',ENCRYPTION_UNAVAILABLE:'安全密码加密暂不可用，请稍后重试。',REQUEST_REJECTED:'操作未通过，请检查输入后重试。',NETWORK:'网络请求未完成，请检查连接后重试。',STORAGE_UNAVAILABLE:'操作状态无法安全保存，请稍后重试。',RESULT_UNKNOWN:'操作结果待核对，本次不会重复提交。',PENDING_OPERATION:'原订单仍待核对，请先刷新余额与订单。',PAYMENT_UNKNOWN:'充值订单结果待核对，请勿重复创建或付款。',QUOTE_EXPIRED:'充值金额确认已过期，请重新选择金额。',PAYMENT_UNAVAILABLE:'充值暂未开放，请稍后重试。',WINDOW_OPEN:'请先完成并关闭安全支付窗口。',BUSY:'已有操作正在处理，请稍候。'};
+export function nativeAccountError(result){
+  if(result?.code==='RATE_LIMITED')return `请求过于频繁，请等待 ${Math.max(1,Math.ceil(Math.min(3600000,Number(result.retryAfterMs)||60000)/1000))} 秒后重试。`;
+  return messages[result?.code]||'暂时无法完成，请稍后重试。';
+}
+function elements(document){
+  const node=(tag,text='',className='')=>{const value=document.createElement(tag);value.textContent=text;if(className)value.className=className;return value;};
+  const button=(text,action,className='plain-button subtle')=>{const value=node('button',text,className);value.type='button';value.onclick=action;return value;};
+  const input=(name,text,type='text',autocomplete='off')=>{const label=node('label',text),field=node('input');field.name=name;field.type=type;field.autocomplete=autocomplete;field.setAttribute('aria-label',text);label.append(field);return {label,field};};
+  return {node,button,input};
+}
+
+export function mountNativeAuth({document,container,mode='login',invoke,isCurrent=()=>true,onSignedIn=()=>{},confirm=globalThis.confirm}){
+  const {node,button,input}=elements(document),form=node('form'),intro=node('p','','native-account-caption'),notice=node('p','','account-feedback');notice.setAttribute('role','status');notice.setAttribute('aria-live','polite');
+  const fields={username:input('username','用户名或邮箱','text','username'),email:input('email','邮箱','email','email'),password:input('password','密码','password','current-password'),confirm:input('confirm','再次输入密码','password','new-password'),code:input('code','邮箱验证码','text','one-time-code'),otp:input('otp','动态验证码或备用码','text','one-time-code')};
+  fields.username.field.maxLength=254;fields.email.field.maxLength=254;fields.password.field.maxLength=256;fields.confirm.field.maxLength=256;fields.code.field.maxLength=6;fields.code.field.inputMode='numeric';fields.otp.field.maxLength=9;fields.otp.field.placeholder='6 位动态码或 XXXX-XXXX 备用码';
+  const sendCode=button('发送验证码',()=>sendMail('auth-send-code'));fields.code.label.append(sendCode);
+  const legal=node('label','','native-account-consent'),consent=node('input');consent.type='checkbox';consent.name='consent';legal.append(consent,node('span','我已阅读并同意 '));
+  for(const [text,path] of [['用户协议','/user-agreement'],['隐私政策','/privacy-policy']]){const link=node('a',text);link.href='https://www.piknoai.com'+path;link.target='_blank';link.rel='noopener noreferrer';legal.append(link);}
+  const captcha=node('section','','native-account-challenge'),image=node('img'),answer=input('answer','图形验证码'),captchaNotice=node('p','','account-feedback');image.alt='图形验证码';image.width=210;image.height=64;answer.field.inputMode='numeric';answer.field.maxLength=6;answer.field.autocomplete='off';
+  const verify=button('验证',verifyImage),reload=button('换一张',loadChallenge,'local-text-button'),captchaActions=node('div','','native-account-actions');captchaActions.append(verify,reload);captcha.append(image,answer.label,captchaActions,captchaNotice);
+  const submit=node('button','','plain-button');submit.type='submit';
+  const links=node('nav','','native-account-actions'),login=button('返回登录',()=>changeMode('login'),'local-text-button'),register=button('注册账户',()=>changeMode('register'),'local-text-button'),forgot=button('忘记密码',()=>changeMode('forgot'),'local-text-button');links.append(login,register,forgot);
+  const recovery=node('div','','native-account-recovery'),check=button('核对当前登录账户',reconcile),restart=button('已核对，重新开始',async()=>{if(!confirmRestart())return;const result=await call('auth-restart');if(result?.ok){unknown=null;verification=null;await boot();}});recovery.append(check,restart);
+  form.append(...Object.values(fields).map(value=>value.label),legal,captcha,submit);container.append(intro,form,notice,recovery,links);
+  let status=null,storageAvailable=true,busy=true,disposed=false,revision=0,proof=false,verification=null,unknown=null,expiry,cooldown,cooldownUntil=0;
+  const alive=()=>!disposed&&isCurrent();
+  const clearSecrets=()=>{fields.password.field.value='';fields.confirm.field.value='';fields.code.field.value='';fields.otp.field.value='';answer.field.value='';};
+  const say=(text,error=false)=>{notice.textContent=text;notice.className=error?'account-feedback error':'account-feedback';};
+  const needsCaptcha=()=>status?.turnstile_check===true&&!verification;
+  const currentMode=()=>verification?'verify':mode;
+  const confirmRestart=()=>confirm?.('请先核对当前登录或邮件结果。重新开始不会重发原操作。是否继续？')===true;
+  function render(){
+    const current=currentMode(),unresolved=Boolean(unknown);
+    intro.textContent=current==='verify'?'完成第二步验证后进入账户。':mode==='register'?'使用现有账户系统注册，余额和订单归属同一个账号。':mode==='forgot'?'向账户邮箱申请密码重置邮件。':'登录后查看余额、充值和使用记录。';
+    for(const [name,{label,field}] of Object.entries(fields)){
+      const visible=current==='verify'?name==='otp':name==='username'?mode!=='forgot':name==='email'?mode!=='login':name==='password'?mode!=='forgot':name==='confirm'?mode==='register':name==='code'?mode==='register'&&status?.email_verification===true:false;
+      label.hidden=!visible;field.disabled=busy||!visible;field.required=visible&&(name!=='email'||mode==='forgot'||status?.email_verification===true);
+    }
+    fields.password.field.autocomplete=mode==='register'?'new-password':'current-password';
+    legal.hidden=Boolean(verification)||!(status?.user_agreement_enabled||status?.privacy_policy_enabled);consent.disabled=busy;
+    legal.children[2].hidden=!status?.user_agreement_enabled;legal.children[3].hidden=!status?.privacy_policy_enabled;
+    captcha.hidden=!needsCaptcha()||unresolved;image.hidden=!image.src;answer.field.disabled=busy;verify.disabled=busy||!image.src||!/^\d{6}$/.test(answer.field.value);reload.disabled=busy;
+    const supported=status&&(!needsCaptcha()||status.auth_challenge_provider==='local-image');
+    const allowed=current==='verify'?verification.methods?.includes('2fa'):mode==='register'?status?.register_enabled!==false&&status?.password_register_enabled!==false:mode==='login'?status?.password_login_enabled!==false:true;
+    form.hidden=unresolved||!supported||!allowed;submit.disabled=busy||!storageAvailable||!supported||!allowed||(needsCaptcha()&&!proof)||(!legal.hidden&&!consent.checked)||(mode==='forgot'&&Date.now()<cooldownUntil);
+    submit.textContent=current==='verify'?'确认验证':mode==='register'?'创建账户':mode==='forgot'?'发送重置邮件':'登录';
+    sendCode.disabled=busy||!storageAvailable||Date.now()<cooldownUntil||(needsCaptcha()&&!proof);sendCode.textContent=Date.now()<cooldownUntil?'稍后可重新发送':'发送验证码';
+    recovery.hidden=!unresolved;check.hidden=!['login','verify'].includes(unknown?.action);check.disabled=restart.disabled=busy;
+    login.hidden=mode==='login'&&!verification;register.hidden=mode==='register'||Boolean(verification)||status?.register_enabled===false;forgot.hidden=mode==='forgot'||Boolean(verification);
+    for(const value of [login,register,forgot])value.disabled=busy;
+    if(status&&!supported)say('当前安全验证暂不可用，请稍后重试。',true);
+    if(status&&!allowed)say(current==='verify'?'此账户要求其他安全验证方式，请使用账户网页版完成。':'当前未开放此登录或注册方式。',true);
+    if(!storageAvailable)say('操作状态无法安全保存，请稍后重试。',true);
+  }
+  async function call(action,payload={}){try{return await invoke(action,payload);}catch{return {ok:false,code:'NETWORK'};}}
+  function setExpiry(seconds){clearTimeout(expiry);expiry=setTimeout(()=>{if(!alive())return;proof=false;image.removeAttribute('src');render();captchaNotice.textContent='验证已过期，请换一张。';},Math.min(120,Number(seconds)||120)*1000);expiry.unref?.();}
+  async function loadChallenge(){
+    if(!alive()||!needsCaptcha())return;const ticket=++revision;proof=false;busy=true;image.removeAttribute('src');captchaNotice.textContent='正在读取安全验证…';render();
+    const result=await call('auth-challenge');if(!alive()||ticket!==revision)return;busy=false;
+    if(result?.ok&&result.required&&/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(result.image||'')&&(result.image||'').length<=40000){image.src=result.image;setExpiry(result.expiresIn);captchaNotice.textContent='请输入图片中的 6 位数字。';}
+    else if(result?.ok&&result.required===false){proof=true;captcha.hidden=true;}
+    else captchaNotice.textContent=nativeAccountError(result);render();
+  }
+  async function verifyImage(){
+    if(busy||!/^\d{6}$/.test(answer.field.value)||!alive())return;busy=true;render();const ticket=revision,value=answer.field.value;answer.field.value='';
+    const result=await call('auth-answer',{answer:value});if(!alive()||ticket!==revision)return;busy=false;
+    proof=result?.ok===true&&result.verified===true;image.removeAttribute('src');captchaNotice.textContent=proof?'验证通过':nativeAccountError(result);if(proof)setExpiry(result.expiresIn);render();
+  }
+  function startCooldown(){clearTimeout(cooldown);cooldownUntil=Date.now()+30000;cooldown=setTimeout(()=>{if(alive())render();},30010);cooldown.unref?.();}
+  async function sendMail(action){
+    if(busy||!alive()||Date.now()<cooldownUntil)return;
+    if(!fields.email.field.value||fields.email.field.reportValidity?.()===false){say('请先填写有效邮箱。',true);return;}
+    busy=true;render();const ticket=revision;startCooldown();const result=await call(action,{email:fields.email.field.value.trim()});if(!alive()||ticket!==revision)return;
+    busy=false;if(result?.ok)say('邮件已发送，请检查收件箱和垃圾邮件。');else{unknown=result?.unknown||null;say(nativeAccountError(result),true);}proof=false;render();if(needsCaptcha()&&!unknown)await loadChallenge();
+  }
+  async function reconcile(){
+    if(busy||!alive())return;busy=true;render();const ticket=revision,result=await call('auth-reconcile');if(!alive()||ticket!==revision)return;busy=false;
+    if(result?.ok&&result.signedIn&&result.reconciled!==false&&!result.unknown){clearSecrets();onSignedIn();return;}
+    unknown=result?.unknown||unknown;say(result?.ok?'尚不能确认原操作结果。请核对账户或邮件后，再明确重新开始。':nativeAccountError(result),true);render();
+  }
+  async function boot(){
+    const ticket=++revision;busy=true;status=null;proof=false;render();const result=await call('auth-status');if(!alive()||ticket!==revision)return;busy=false;
+    if(!result?.ok){say(nativeAccountError(result),true);render();return;}
+    status=result.status;storageAvailable=result.storageAvailable!==false;unknown=result.unknown||null;verification=result.verification||null;
+    if(unknown)say('原操作结果待核对，本页不会重复提交。核对后将显示当前实际登录账户，不代表原登录目标已成功。',true);render();if(needsCaptcha()&&!unknown)await loadChallenge();
+  }
+  async function changeMode(next){
+    if(busy||!alive())return;revision++;clearSecrets();consent.checked=false;proof=false;verification=null;mode=next;await call('auth-cancel');if(alive())await boot();
+  }
+  form.onsubmit=async event=>{
+    event.preventDefault();if(busy||submit.disabled||!alive())return;
+    if(mode==='register'&&!verification&&fields.password.field.value!==fields.confirm.field.value){say('两次输入的密码不一致。',true);return;}
+    if(mode==='forgot'&&!verification){await sendMail('auth-forgot');return;}
+    const ticket=revision,action=verification?'auth-verify':mode==='register'?'auth-register':'auth-login';
+    const payload=verification?{code:fields.otp.field.value.trim()}:{username:fields.username.field.value.trim(),password:fields.password.field.value,consent:consent.checked,...(mode==='register'?{email:fields.email.field.value.trim(),code:fields.code.field.value.trim()}:{})};
+    clearSecrets();busy=true;proof=false;render();const operation=call(action,payload);if('password'in payload)payload.password='';if('code'in payload)payload.code='';const result=await operation;if(!alive()||ticket!==revision)return;busy=false;
+    if(result?.ok&&result.signedIn){onSignedIn();return;}
+    if(result?.ok&&result.registered){mode='login';verification=null;say('账户已创建，请使用新账户登录。');}
+    else if(result?.ok&&result.verification){verification=result.verification;say('请完成第二步验证。');}
+    else{unknown=result?.unknown||null;if(result?.code==='AUTH_FLOW_INVALID')verification=null;say(nativeAccountError(result),true);}
+    render();if(needsCaptcha()&&!unknown)await loadChallenge();
+  };
+  answer.field.oninput=render;consent.onchange=render;
+  void boot();
+  return ()=>{disposed=true;revision++;clearTimeout(expiry);clearTimeout(cooldown);clearSecrets();image.removeAttribute('src');void call('auth-cancel');};
+}
+
+export function mountNativePayment({document,container,account,invoke,events,isCurrent=()=>true,onRefresh=()=>{},confirm=globalThis.confirm}){
+  const {node,button}=elements(document),accountId=account?.user?.id;
+  const identity=node('p',`充值账户：${account?.user?.email||account?.user?.username||'当前账户'}`,'native-account-caption');
+  const choices=node('div','','native-payment-choices'),amounts=node('div','','native-account-actions'),methods=node('div','','native-account-actions'),total=node('p','正在读取充值选项…','native-payment-total'),feedback=node('p','','account-feedback');feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');
+  const create=button('确认创建充值订单',createOrder,'plain-button'),pay=button('继续支付',openPayment,'plain-button'),refresh=button('刷新余额与订单',()=>loadOrders(true)),resolve=button('已核对，允许下一笔',resolveOrder,'local-text-button'),cancel=button('取消充值',cancelOrder,'local-text-button'),orders=node('div','','local-usage-list'),pager=node('div','','local-dialog-pager'),previous=button('上一页',()=>{if(page>1){page--;void loadOrders();}}),next=button('下一页',()=>{page++;void loadOrders();}),pageLabel=node('span');
+  choices.append(node('p','充值金额','native-account-caption'),amounts,node('p','支付方式','native-account-caption'),methods,total,create);pager.append(previous,pageLabel,next);container.append(identity,choices,pay,feedback,refresh,resolve,cancel,node('h3','充值记录','native-account-section'),orders,pager);
+  let disposed=false,busy=true,options=null,pending=null,canContinue=false,amount=0,method='',quote=null,revision=0,page=1,totalRows=0,paymentRefreshWanted=false;
+  const alive=()=>!disposed&&isCurrent();
+  const money=value=>typeof value==='number'&&Number.isFinite(value)?`¥${value.toFixed(2)}`:'—';
+  const say=(text,error=false)=>{feedback.textContent=text;feedback.className=error?'account-feedback error':'account-feedback';};
+  const call=async(action,payload={})=>{try{return await invoke(action,{accountId,...payload});}catch{return {ok:false,code:'NETWORK'};}};
+  function render(){
+    const canCancel=options?.cancelSupported===true&&pending?.orderKnown===true;
+    choices.hidden=Boolean(pending);pay.hidden=!canContinue;pay.disabled=busy;resolve.hidden=!pending||canCancel||pending?.closing===true;resolve.disabled=busy;refresh.disabled=busy;
+    cancel.hidden=!canCancel;cancel.disabled=busy||pending?.closing===true;cancel.textContent=pending?.closing?'正在取消充值':'取消充值';
+    create.disabled=busy||!quote||!options?.available||Boolean(pending);create.textContent=amount?`确认创建 ${money(amount)} 充值订单`:'确认创建充值订单';
+    for(const entry of amounts.children){entry.disabled=busy;entry.setAttribute('aria-pressed',String(Number(entry.dataset.amount)===amount));}
+    for(const entry of methods.children){entry.disabled=busy;entry.setAttribute('aria-pressed',String(entry.dataset.method===method));}
+    previous.disabled=busy||page<=1;next.disabled=busy||page*20>=totalRows;pageLabel.textContent=`第 ${page} 页`;
+    if(paymentRefreshWanted&&!busy&&alive()){
+      paymentRefreshWanted=false;
+      queueMicrotask(()=>{if(alive())void loadOrders(false,true);});
+    }
+  }
+  const paymentUpdated=()=>{if(alive()){paymentRefreshWanted=true;render();}};
+  async function getQuote(){
+    quote=null;if(!amount||!method||pending){render();return;}const ticket=++revision;busy=true;total.textContent='正在确认金额…';render();
+    const result=await call('payment-quote',{amount,method});if(!alive()||ticket!==revision)return;busy=false;
+    if(result?.ok&&result.amount===amount&&result.method===method){quote=result;total.textContent=`实付 ${money(amount)}`;say('确认后创建当前账户的充值订单。');}else{total.textContent='金额暂未确认';say(nativeAccountError(result),true);}render();
+  }
+  async function loadOrders(explicit=false,silent=false){
+    if(!alive()||busy)return;busy=true;render();const ticket=revision,result=await call('payment-orders',{page});if(!alive()||ticket!==revision)return;busy=false;
+    if(!result?.ok){if(!silent)say(nativeAccountError(result),true);render();return;}
+    const wasPending=Boolean(pending);
+    pending=result.pending||null;canContinue=result.canContinue===true;totalRows=Number(result.total)||0;orders.replaceChildren();
+    const visibleOrders=(result.items||[]).filter(row=>row.status!=='cancelled');
+    for(const row of visibleOrders){const item=node('div','','local-usage-row'),detail=node('div'),summary=node('div','','local-usage-amount');detail.append(node('strong',row.method==='wxpay'?'微信充值':row.method==='alipay'?'支付宝充值':'账户充值'),node('span',Number.isFinite(row.createdAt)?new Date(row.createdAt*1000).toLocaleString('zh-CN'):''));summary.append(node('strong',money(row.amount)),node('span',({pending:'等待支付或核对',closing:'正在取消',success:'已入账',expired:'已过期',failed:'未完成',unknown:'待核对'})[row.status]||'待核对'));item.append(detail,summary);orders.append(item);}
+    if(!visibleOrders.length)orders.append(node('p','暂无充值记录。','account-feedback'));
+    if(explicit){say(pending?'原订单仍待核对，请勿重复创建或付款。':'余额与订单已刷新。');onRefresh();}
+    else if(silent&&wasPending)say(pending?'正在核对原订单，请勿重复付款。':'原订单状态已更新。');
+    render();if(!pending&&!quote&&options?.available)await getQuote();
+  }
+  async function createOrder(){
+    if(busy||!quote||pending||!alive())return;busy=true;render();const ticket=revision,result=await call('payment-create',{quoteId:quote.quoteId,confirmed:true});if(!alive()||ticket!==revision)return;busy=false;quote=null;
+    if(result?.ok){pending={amount:result.amount,method:result.method,orderKnown:true};canContinue=result.canContinue===true;say('订单已创建，点击“继续支付”打开安全支付窗口。');}
+    else{say(nativeAccountError(result),true);pending=result.code==='PAYMENT_UNKNOWN'||result.code==='PENDING_OPERATION'?{amount,method}:null;canContinue=false;}
+    render();if(!pending&&result?.code==='QUOTE_EXPIRED')await getQuote();
+  }
+  async function openPayment(){
+    if(busy||!canContinue||!alive())return;busy=true;render();const ticket=revision,result=await call('payment-open');if(!alive()||ticket!==revision)return;busy=false;canContinue=false;say(result?.ok?'请在安全支付窗口完成付款，返回后会自动核对订单。':nativeAccountError(result),result?.ok!==true);render();
+  }
+  async function resolveOrder(){
+    if(busy||!pending||!alive()||confirm?.('请先核对充值订单、余额和支付记录。仅在确认未付款或原订单已处理后，才允许下一笔充值。此操作不会取消或退款原订单。是否继续？')!==true)return;
+    busy=true;render();const ticket=revision,result=await call('payment-resolve',{confirmed:true});if(!alive()||ticket!==revision)return;busy=false;
+    if(result?.ok){pending=null;canContinue=false;say('原记录已保留，可重新选择充值金额。');await getQuote();}else say(nativeAccountError(result),true);render();
+  }
+  async function cancelOrder(){
+    if(busy||!alive()||cancel.hidden||cancel.disabled||confirm?.('确定取消这笔充值订单？')!==true)return;
+    busy=true;render();
+    const ticket=revision,result=await call('payment-cancel',{confirmed:true});
+    if(!alive()||ticket!==revision)return;
+    busy=false;
+    if(!result?.ok){say(nativeAccountError(result),true);render();return;}
+    canContinue=false;
+    if(result.status==='closing')pending={...pending,closing:true};
+    else pending=null;
+    render();await loadOrders();
+    if(!alive())return;
+    say(({closing:'正在核对取消结果，请勿继续付款。',cancelled:'充值订单已取消。',success:'订单已入账。',expired:'支付订单已过期。'})[result.status]||'原订单状态已更新。');
+    onRefresh();
+  }
+  async function boot(){
+    const ticket=++revision,result=await call('payment-options');if(!alive()||ticket!==revision)return;busy=false;
+    if(!result?.ok){say(nativeAccountError(result),true);options=null;render();return;}
+    options=result;pending=result.pending||null;canContinue=pending?.canContinue===true;amount=options.amounts?.[0]||0;method=options.methods?.[0]||'';
+    for(const value of options.amounts||[]){const choice=button(money(value),()=>{if(busy)return;amount=value;void getQuote();});choice.dataset.amount=String(value);amounts.append(choice);}
+    for(const value of options.methods||[]){const choice=button(value==='wxpay'?'微信支付':'支付宝',()=>{if(busy)return;method=value;void getQuote();});choice.dataset.method=value;methods.append(choice);}
+    if(!options.available){total.textContent='充值暂未开放';say('当前充值服务暂不可用，请稍后重试。');}
+    else if(pending)say('原订单仍待核对，请先刷新余额与订单。');
+    render();await loadOrders();
+  }
+  events?.addEventListener('hamster-payment-updated',paymentUpdated);
+  render();void boot();return ()=>{disposed=true;revision++;quote=null;events?.removeEventListener('hamster-payment-updated',paymentUpdated);};
+}

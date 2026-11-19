@@ -1,0 +1,14 @@
+package controller
+
+import "github.com/QuantumNous/new-api/model"
+
+// This is the effective transport limit. Published per-type declarations may
+// legitimately exceed it; clients must satisfy both constraints.
+const piknoMaxMediaTotal = 20
+
+func piknoMediaCountsAllowed(line *model.PiknoLineConfig, images, videos, audio int) bool {
+	if images < 0 || videos < 0 || audio < 0 || images > piknoMaxMediaTotal || videos > piknoMaxMediaTotal || audio > piknoMaxMediaTotal {
+		return false
+	}
+	return images <= line.MaxImages && videos <= line.MaxVideos && audio <= line.MaxAudio && images+videos+audio <= piknoMaxMediaTotal
+}

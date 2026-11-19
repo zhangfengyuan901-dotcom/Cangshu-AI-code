@@ -1,0 +1,1060 @@
+package model
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"gorm.io/gorm"
+)
+
+var (
+	ErrPiknoLineConflict = errors.New("line changed; refresh before saving")
+	ErrPiknoLineNotReady = errors.New("line is not ready to publish")
+	ErrPiknoLineNotFound = errors.New("line not found")
+)
+
+var piknoPublicModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$`)
+
+// PiknoLine keeps operator drafts separate from the active route. PublicModel
+// is immutable: renaming a customer API model creates a new line instead of
+// silently changing the meaning of historical requests.
+type PiknoLine struct {
+	PublicModel     string `gorm:"primaryKey;size:120" json:"public_model"`
+	Version         int64  `gorm:"not null;default:1" json:"version"`
+	DraftConfig     string `gorm:"type:text" json:"-"`
+	PublishedConfig string `gorm:"type:text" json:"-"`
+	PreviousConfig  string `gorm:"type:text" json:"-"`
+	UpdatedAt       int64  `gorm:"index" json:"updated_at"`
+	UpdatedBy       int    `json:"updated_by"`
+}
+
+type PiknoLinePrice struct {
+	Resolution   string   `json:"resolution"`
+	Unit         string   `json:"unit"`
+	CostCNY      *float64 `json:"cost_cny,omitempty"`
+	SuggestedCNY float64  `json:"suggested_cny"`
+	RetailQuota  int      `json:"retail_quota"`
+}
+
+type PiknoLineConfig struct {
+	SyncHash                string           `json:"sync_hash,omitempty"`
+	AdapterVersion          string           `json:"adapter_version,omitempty"`
+	PublicModel             string           `json:"public_model"`
+	SourceID                string           `json:"source_id"`
+	DisplayName             string           `json:"name"`
+	Kind                    string           `json:"kind"`
+	Provider                string           `json:"provider"`
+	UpstreamModel           string           `json:"upstream_model"`
+	PluginKey               string           `json:"plugin_key,omitempty"`
+	ChannelID               int              `json:"channel_id"`
+	Enabled                 bool             `json:"enabled"`
+	UpstreamAvailable       bool             `json:"upstream_available"`
+	Resolutions             []string         `json:"resolutions"`
+	Ratios                  []string         `json:"ratios"`
+	Qualities               []string         `json:"qualities,omitempty"`
+	Durations               []float64        `json:"durations"`
+	MaxImages               int              `json:"max_images"`
+	MaxVideos               int              `json:"max_videos"`
+	MaxAudio                int              `json:"max_audio"`
+	Prices                  []PiknoLinePrice `json:"prices"`
+	PriceIssue              bool             `json:"price_issue"`
+	BillingUnit             string           `json:"billing_unit,omitempty"`
+	CostIssueCode           string           `json:"cost_issue_code,omitempty"`
+	BillingIssueCode        string           `json:"billing_issue_code,omitempty"`
+	ExplicitFree            bool             `json:"explicit_free,omitempty"`
+	ReferenceSurchargeQuota int              `json:"reference_surcharge_quota"`
+	FetchedAt               string           `json:"fetched_at"`
+	Revision                int64            `json:"revision"`
+}
+
+type PiknoLineSeed = PiknoLineConfig
+
+type PiknoLineAdminView struct {
+	Sync              *PiknoLineSyncState `json:"sync,omitempty"`
+	PublicModel       string              `json:"public_model"`
+	Version           int64               `json:"version"`
+	Draft             *PiknoLineConfig    `json:"draft"`
+	Published         *PiknoLineConfig    `json:"published"`
+	Previous          *PiknoLineConfig    `json:"previous"`
+	CanPublish        bool                `json:"can_publish"`
+	HasPendingChanges bool                `json:"has_pending_changes"`
+	BlockingReasons   []string            `json:"blocking_reasons"`
+	UpdatedAt         int64               `json:"updated_at"`
+	UpdatedBy         int                 `json:"updated_by"`
+}
+
+type PiknoLinePatch struct {
+	ExpectedVersion int64
+	DisplayName     *string
+	Enabled         *bool
+	Prices          *[]PiknoLinePrice
+}
+
+type PiknoLineUsage struct {
+	Resolution      string
+	Requests        int
+	Seconds         int
+	Images          int
+	ReferenceImages int
+}
+
+type PiknoLineQuote struct {
+	PublicModel string
+	Revision    int64
+	Provider    string
+	Kind        string
+	ChannelID   int
+	Unit        string
+	Quota       int
+}
+
+func MigratePiknoLines(db *gorm.DB) error {
+	if db == nil {
+		return errors.New("line database is unavailable")
+	}
+	return db.AutoMigrate(&PiknoLine{})
+}
+
+func decodePiknoLineConfig(raw string) (*PiknoLineConfig, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var config PiknoLineConfig
+	if err := common.Unmarshal([]byte(raw), &config); err != nil {
+		return nil, errors.New("stored line configuration is invalid")
+	}
+	return &config, nil
+}
+
+func encodePiknoLineConfig(config *PiknoLineConfig) (string, error) {
+	if config == nil {
+		return "", nil
+	}
+	body, err := common.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func clonePiknoLineConfig(config *PiknoLineConfig) (*PiknoLineConfig, error) {
+	if config == nil {
+		return nil, nil
+	}
+	raw, err := encodePiknoLineConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return decodePiknoLineConfig(raw)
+}
+
+func linePriceKey(resolution, unit string) string {
+	return strings.ToLower(strings.TrimSpace(resolution)) + "\x00" + strings.ToLower(strings.TrimSpace(unit))
+}
+
+var piknoLineSyncMu sync.Mutex
+
+// SyncPiknoLines refreshes provider-owned facts while retaining operator-owned
+// names, open/closed intent, and retail quota. Channel selection is always
+// derived from the provider connection and is never an operator input.
+func SyncPiknoLines(seeds []PiknoLineSeed, actor int) error {
+	if len(seeds) == 0 || len(seeds) > 1000 {
+		return errors.New("line sync returned an invalid model count")
+	}
+	piknoLineSyncMu.Lock()
+	defer piknoLineSyncMu.Unlock()
+	seen := make(map[string]bool, len(seeds))
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		for index := range seeds {
+			seed := seeds[index]
+			if !piknoPublicModelPattern.MatchString(seed.PublicModel) || seen[seed.PublicModel] {
+				return errors.New("line sync contains an invalid or duplicate public model")
+			}
+			seen[seed.PublicModel] = true
+			var row PiknoLine
+			err := lockForUpdate(tx).Where("public_model = ?", seed.PublicModel).First(&row).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				seed.Revision = 0
+				raw, marshalErr := encodePiknoLineConfig(&seed)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				row = PiknoLine{PublicModel: seed.PublicModel, Version: 1, DraftConfig: raw, UpdatedAt: common.GetTimestamp(), UpdatedBy: actor}
+				if createErr := tx.Create(&row).Error; createErr != nil {
+					return createErr
+				}
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			base, decodeErr := decodePiknoLineConfig(row.DraftConfig)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			if base == nil {
+				base, decodeErr = decodePiknoLineConfig(row.PublishedConfig)
+				if decodeErr != nil {
+					return decodeErr
+				}
+			}
+			if base != nil {
+				if strings.TrimSpace(base.DisplayName) != "" {
+					seed.DisplayName = base.DisplayName
+				}
+				seed.Enabled = base.Enabled
+				retail := make(map[string]int, len(base.Prices))
+				for _, price := range base.Prices {
+					retail[linePriceKey(price.Resolution, price.Unit)] = price.RetailQuota
+				}
+				for priceIndex := range seed.Prices {
+					if quota, ok := retail[linePriceKey(seed.Prices[priceIndex].Resolution, seed.Prices[priceIndex].Unit)]; ok {
+						seed.Prices[priceIndex].RetailQuota = quota
+					}
+				}
+			}
+			for _, price := range seed.Prices {
+				if price.RetailQuota > 0 {
+					seed.ExplicitFree = false
+					break
+				}
+			}
+			seed.Revision = 0
+			raw, marshalErr := encodePiknoLineConfig(&seed)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			result := tx.Model(&PiknoLine{}).Where("public_model = ? AND version = ?", row.PublicModel, row.Version).Updates(map[string]any{
+				"draft_config": raw, "version": row.Version + 1, "updated_at": common.GetTimestamp(), "updated_by": actor,
+			})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrPiknoLineConflict
+			}
+		}
+
+		var existing []PiknoLine
+		if err := tx.Find(&existing).Error; err != nil {
+			return err
+		}
+		for _, row := range existing {
+			if seen[row.PublicModel] {
+				continue
+			}
+			config, err := decodePiknoLineConfig(row.DraftConfig)
+			if err != nil {
+				return err
+			}
+			if config == nil {
+				config, err = decodePiknoLineConfig(row.PublishedConfig)
+				if err != nil {
+					return err
+				}
+			}
+			if config == nil || !config.UpstreamAvailable {
+				continue
+			}
+			config.UpstreamAvailable = false
+			config.PriceIssue = true
+			config.Revision = 0
+			raw, err := encodePiknoLineConfig(config)
+			if err != nil {
+				return err
+			}
+			result := tx.Model(&PiknoLine{}).Where("public_model = ? AND version = ?", row.PublicModel, row.Version).Updates(map[string]any{
+				"draft_config": raw, "version": row.Version + 1, "updated_at": common.GetTimestamp(), "updated_by": actor,
+			})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return ErrPiknoLineConflict
+			}
+		}
+		return nil
+	})
+	if err == nil {
+		invalidatePiknoLineCache()
+	}
+	return err
+}
+
+func UpdatePiknoLineDraft(publicModel string, patch PiknoLinePatch, actor int) (*PiknoLineAdminView, error) {
+	if !piknoPublicModelPattern.MatchString(publicModel) || patch.ExpectedVersion < 1 {
+		return nil, errors.New("invalid line update")
+	}
+	var updatedVersion int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var row PiknoLine
+		if err := lockForUpdate(tx).Where("public_model = ?", publicModel).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrPiknoLineNotFound
+			}
+			return err
+		}
+		if row.Version != patch.ExpectedVersion {
+			return ErrPiknoLineConflict
+		}
+		config, err := decodePiknoLineConfig(row.DraftConfig)
+		if err != nil {
+			return err
+		}
+		if config == nil {
+			config, err = decodePiknoLineConfig(row.PublishedConfig)
+			if err != nil {
+				return err
+			}
+		}
+		if config == nil {
+			return errors.New("line has no editable configuration")
+		}
+		if patch.DisplayName != nil {
+			name := strings.TrimSpace(*patch.DisplayName)
+			if name == "" || len([]rune(name)) > 160 {
+				return errors.New("line name must contain 1 to 160 characters")
+			}
+			config.DisplayName = name
+		}
+		if patch.Enabled != nil {
+			config.Enabled = *patch.Enabled
+		}
+		if patch.Prices != nil {
+			allowed := make(map[string]int, len(config.Prices))
+			for index, price := range config.Prices {
+				allowed[linePriceKey(price.Resolution, price.Unit)] = index
+			}
+			seen := make(map[string]bool, len(*patch.Prices))
+			for _, price := range *patch.Prices {
+				key := linePriceKey(price.Resolution, price.Unit)
+				index, ok := allowed[key]
+				if !ok || seen[key] || price.RetailQuota < 0 || price.RetailQuota > common.MaxQuota {
+					return errors.New("line price update is invalid")
+				}
+				seen[key] = true
+				config.Prices[index].RetailQuota = price.RetailQuota
+			}
+			if len(seen) != len(config.Prices) {
+				return errors.New("all line price rows are required")
+			}
+			for _, price := range config.Prices {
+				if price.RetailQuota > 0 {
+					config.ExplicitFree = false
+					break
+				}
+			}
+		}
+		config.Revision = 0
+		raw, err := encodePiknoLineConfig(config)
+		if err != nil {
+			return err
+		}
+		updatedVersion = row.Version + 1
+		result := tx.Model(&PiknoLine{}).Where("public_model = ? AND version = ?", publicModel, row.Version).Updates(map[string]any{
+			"draft_config": raw, "version": updatedVersion, "updated_at": common.GetTimestamp(), "updated_by": actor,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrPiknoLineConflict
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	NotifyPiknoCatalogChange()
+	return GetPiknoLineAdmin(publicModel, updatedVersion)
+}
+
+func providerHost(provider string) string {
+	switch provider {
+	case "packy":
+		return "cf.api.fan"
+	case "sanbao":
+		return "sanbaobeauty.com"
+	case "canseedream":
+		return "see.ximeiedu.org"
+	case "hamster-tools":
+		return "www.piknoai.com"
+	default:
+		return ""
+	}
+}
+
+func channelBelongsToPiknoProvider(channel *Channel, config *PiknoLineConfig) bool {
+	if channel == nil || config == nil || strings.TrimSpace(channel.Key) == "" {
+		return false
+	}
+	parsed, err := url.Parse(channel.GetBaseURL())
+	if err != nil || !strings.EqualFold(parsed.Hostname(), providerHost(config.Provider)) {
+		return false
+	}
+	if config.PluginKey != "" {
+		if !channel.GetSetting().BindsTaskPlugin(config.PluginKey) {
+			return false
+		}
+		if piknoFixedTool(config) {
+			// Each business channel declares only its own tool. The customer
+			// group and protected execution credential remain shared.
+			expected := false
+			for _, name := range channel.GetModels() {
+				if name == config.UpstreamModel || name == config.PublicModel {
+					expected = true
+					continue
+				}
+				return false
+			}
+			return expected
+		}
+		return true
+	}
+	return config.Provider == "packy" && channel.Type == constant.ChannelTypeOpenAI
+}
+
+// RecommendPiknoChannel returns a channel only when the provider mapping is
+// unambiguous. Ambiguity is an operator-visible blocker, never a random choice.
+func RecommendPiknoChannel(config PiknoLineConfig) int {
+	var channels []Channel
+	if DB == nil || DB.Find(&channels).Error != nil {
+		return 0
+	}
+	matched := 0
+	for index := range channels {
+		if channelBelongsToPiknoProvider(&channels[index], &config) {
+			if matched != 0 {
+				return 0
+			}
+			matched = channels[index].Id
+		}
+	}
+	return matched
+}
+
+func validatePiknoLineConfig(tx *gorm.DB, row *PiknoLine, config *PiknoLineConfig) []string {
+	reasons := make([]string, 0)
+	add := func(reason string) {
+		if !slices.Contains(reasons, reason) {
+			reasons = append(reasons, reason)
+		}
+	}
+	if config == nil {
+		return []string{"缺少线路草稿"}
+	}
+	if !piknoPublicModelPattern.MatchString(config.PublicModel) || row == nil || config.PublicModel != row.PublicModel {
+		add("公开模型 ID 无效")
+	}
+	if strings.TrimSpace(config.DisplayName) == "" {
+		add("缺少线路名称")
+	}
+	if !config.Enabled {
+		add("尚未勾选开放线路")
+	}
+	if !config.UpstreamAvailable {
+		add("上游当前不可用")
+	}
+	if config.BillingIssueCode != "" {
+		switch config.BillingIssueCode {
+		case "unknown_billing_unit":
+			add("上游未声明计费单位，暂不能开放")
+		case "invalid_billing_unit":
+			add("上游计费单位不受支持，暂不能开放")
+		case "unknown_price_spec":
+			add("上游未声明有效的计费规格，暂不能开放")
+		default:
+			add("线路计费规则尚未确认，暂不能开放")
+		}
+	} else if config.PriceIssue || len(config.Prices) == 0 {
+		add("线路计费规则尚未确认，请同步上游目录")
+	}
+	if config.BillingUnit != "" && ((config.Kind == "video" && config.BillingUnit != "request" && config.BillingUnit != "second") || (config.Kind == "image" && config.BillingUnit != "image")) {
+		add("存在不支持的计费单位")
+	}
+	if config.ExplicitFree && !piknoExplicitFreeTool(config) {
+		add("免费标记仅允许已核定的深度视频工具")
+	}
+	for _, price := range config.Prices {
+		if (price.RetailQuota <= 0 && !(price.RetailQuota == 0 && piknoExplicitFreeTool(config))) || price.RetailQuota > common.MaxQuota {
+			add("所有售价必须大于 0")
+		}
+		if price.Unit != "request" && price.Unit != "second" && price.Unit != "image" {
+			add("存在不支持的计费单位")
+		}
+		if config.BillingUnit != "" && price.Unit != config.BillingUnit {
+			add("客户售价计费单位与线路声明不一致")
+		}
+	}
+	if config.Kind != "image" && config.Kind != "video" {
+		add("仅支持图片或视频线路")
+	}
+	if config.Kind == "video" && !piknoFixedTool(config) && (len(config.Resolutions) == 0 || len(config.Durations) == 0) {
+		add("视频分辨率或时长范围为空")
+	}
+	if providerHost(config.Provider) == "" || strings.TrimSpace(config.UpstreamModel) == "" {
+		add("上游映射无效")
+	}
+	if config.ChannelID <= 0 {
+		add("未找到唯一的上游连接，请检查该供应商的凭据和地址")
+		return reasons
+	}
+	var channel Channel
+	if err := tx.First(&channel, "id = ?", config.ChannelID).Error; err != nil {
+		add("绑定渠道不存在")
+		return reasons
+	}
+	if !channelBelongsToPiknoProvider(&channel, config) {
+		if piknoFixedTool(config) {
+			add("工具渠道必须仅声明当前工具模型，数字人与黑白深度分别绑定专用渠道")
+		} else {
+			add("上游连接缺少凭据或供应商不匹配")
+		}
+	}
+	if config.PluginKey != "" {
+		if PiknoLineSyncEnabled() && config.AdapterVersion != "" && (config.Provider == "sanbao" || config.Provider == "canseedream") {
+			if !syncPluginDeclared(tx, config) {
+				add("任务协议正在同步，请稍后重试")
+			}
+		} else {
+			plugin, ok := jsplugin.DefaultRegistry.Get(config.PluginKey)
+			if !ok {
+				add("任务协议尚未就绪，请同步上游目录")
+			} else if !slices.Contains(plugin.Meta.Models, config.UpstreamModel) {
+				add("该线路的任务协议尚未适配，请更新协议支持")
+			}
+		}
+	}
+	allowedOldChannel := 0
+	if row != nil {
+		if published, _ := decodePiknoLineConfig(row.PublishedConfig); published != nil && published.Enabled {
+			allowedOldChannel = published.ChannelID
+		}
+	}
+	var channels []Channel
+	if err := tx.Select("id", "models", "model_mapping", "status").Find(&channels).Error; err != nil {
+		add("无法检查模型别名冲突")
+		return reasons
+	}
+	for index := range channels {
+		candidate := &channels[index]
+		if candidate.Id == config.ChannelID || candidate.Id == allowedOldChannel {
+			continue
+		}
+		if slices.Contains(candidate.GetModels(), config.PublicModel) {
+			add("公开模型 ID 已被其他渠道占用")
+		}
+	}
+	return reasons
+}
+
+func PiknoLineBlockingReasons(publicModel string) ([]string, error) {
+	var row PiknoLine
+	if err := DB.Where("public_model = ?", publicModel).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPiknoLineNotFound
+		}
+		return nil, err
+	}
+	config, err := decodePiknoLineConfig(row.DraftConfig)
+	if err != nil {
+		return nil, err
+	}
+	if config == nil {
+		config, err = decodePiknoLineConfig(row.PublishedConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return piknoLineOpenReasons(DB, &row, config), nil
+}
+
+// Opening is an explicit operator action. A closed line is a state, not a
+// configuration failure. Never require a separate enabled checkbox first.
+func piknoLineOpenReasons(tx *gorm.DB, row *PiknoLine, config *PiknoLineConfig) []string {
+	if config == nil {
+		return []string{"尚无线路配置，请先同步上游"}
+	}
+	candidate := *config
+	candidate.Enabled = true
+	reasons := validatePiknoLineConfig(tx, row, &candidate)
+	if len(reasons) == 0 && PiknoSyncPublicationReadyTx(tx, &candidate, time.Now().Unix()) != nil {
+		return []string{"线路同步或任务协议尚未就绪，请查看同步状态"}
+	}
+	return reasons
+}
+
+func normalizeModelList(models []string) []string {
+	result := make([]string, 0, len(models))
+	for _, value := range models {
+		value = strings.TrimSpace(value)
+		if value != "" && !slices.Contains(result, value) {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func applyPiknoLineProjection(tx *gorm.DB, oldConfig, newConfig *PiknoLineConfig) error {
+	ids := make([]int, 0, 2)
+	if oldConfig != nil && oldConfig.Enabled && oldConfig.ChannelID > 0 {
+		ids = append(ids, oldConfig.ChannelID)
+	}
+	if newConfig != nil && newConfig.Enabled && newConfig.ChannelID > 0 && !slices.Contains(ids, newConfig.ChannelID) {
+		ids = append(ids, newConfig.ChannelID)
+	}
+	slices.Sort(ids)
+	for _, channelID := range ids {
+		var channel Channel
+		if err := lockForUpdate(tx).First(&channel, "id = ?", channelID).Error; err != nil {
+			return err
+		}
+		models := normalizeModelList(channel.GetModels())
+		mapping := make(map[string]string)
+		if raw := strings.TrimSpace(channel.GetModelMapping()); raw != "" && raw != "{}" {
+			if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
+				return fmt.Errorf("channel %d model mapping is invalid: %w", channelID, err)
+			}
+		}
+		if oldConfig != nil && oldConfig.Enabled && oldConfig.ChannelID == channelID {
+			models = slices.DeleteFunc(models, func(value string) bool { return value == oldConfig.PublicModel })
+			delete(mapping, oldConfig.PublicModel)
+		}
+		if newConfig != nil && newConfig.Enabled && newConfig.ChannelID == channelID {
+			if !slices.Contains(models, newConfig.PublicModel) {
+				models = append(models, newConfig.PublicModel)
+			}
+			mapping[newConfig.PublicModel] = newConfig.UpstreamModel
+			channel.Status = common.ChannelStatusEnabled
+			if piknoFixedTool(newConfig) {
+				channel.Group = "tool-standard"
+			} else if newConfig.Kind == "image" {
+				channel.Group = "image-standard"
+			} else {
+				channel.Group = "video-standard"
+			}
+		}
+		mappingRaw, err := common.Marshal(mapping)
+		if err != nil {
+			return err
+		}
+		channel.Models = strings.Join(models, ",")
+		channel.ModelMapping = common.GetPointer(string(mappingRaw))
+		if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
+			"models": channel.Models, "model_mapping": channel.ModelMapping,
+			"status": channel.Status, "group": channel.Group,
+		}).Error; err != nil {
+			return err
+		}
+		if err := channel.UpdateAbilities(tx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func refreshPiknoRoutingCaches() {
+	invalidatePiknoLineCache()
+	InitChannelCache()
+	rebuildTaskAliasView()
+}
+
+func PublishPiknoLine(publicModel string, expectedVersion int64, actor int) (*PiknoLineAdminView, error) {
+	return mutatePiknoLinePublication(publicModel, expectedVersion, actor, "publish")
+}
+
+func DisablePiknoLine(publicModel string, expectedVersion int64, actor int) (*PiknoLineAdminView, error) {
+	return mutatePiknoLinePublication(publicModel, expectedVersion, actor, "disable")
+}
+
+func RollbackPiknoLine(publicModel string, expectedVersion int64, actor int) (*PiknoLineAdminView, error) {
+	return mutatePiknoLinePublication(publicModel, expectedVersion, actor, "rollback")
+}
+
+func mutatePiknoLinePublication(publicModel string, expectedVersion int64, actor int, action string) (*PiknoLineAdminView, error) {
+	if !piknoPublicModelPattern.MatchString(publicModel) || expectedVersion < 1 {
+		return nil, errors.New("invalid line publication request")
+	}
+	var nextVersion int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var row PiknoLine
+		if err := lockForUpdate(tx).Where("public_model = ?", publicModel).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrPiknoLineNotFound
+			}
+			return err
+		}
+		if row.Version != expectedVersion {
+			return ErrPiknoLineConflict
+		}
+		oldConfig, err := decodePiknoLineConfig(row.PublishedConfig)
+		if err != nil {
+			return err
+		}
+		var target *PiknoLineConfig
+		switch action {
+		case "publish":
+			target, err = decodePiknoLineConfig(row.DraftConfig)
+			if err != nil {
+				return err
+			}
+			if target == nil {
+				target, err = clonePiknoLineConfig(oldConfig)
+				if err != nil {
+					return err
+				}
+			}
+			if target != nil {
+				target.Enabled = true
+			}
+			if reasons := validatePiknoLineConfig(tx, &row, target); len(reasons) > 0 {
+				return fmt.Errorf("%w: %s", ErrPiknoLineNotReady, strings.Join(reasons, "；"))
+			}
+		case "disable":
+			target, err = clonePiknoLineConfig(oldConfig)
+			if err != nil {
+				return err
+			}
+			if target == nil || !target.Enabled {
+				return errors.New("line is not currently open")
+			}
+			target.Enabled = false
+		case "rollback":
+			target, err = decodePiknoLineConfig(row.PreviousConfig)
+			if err != nil {
+				return err
+			}
+			if target == nil {
+				return errors.New("line has no previous publication")
+			}
+			if target.Enabled {
+				if reasons := validatePiknoLineConfig(tx, &row, target); len(reasons) > 0 {
+					return fmt.Errorf("%w: %s", ErrPiknoLineNotReady, strings.Join(reasons, "；"))
+				}
+			}
+		default:
+			return errors.New("unsupported line publication action")
+		}
+		if target != nil && target.Enabled && action != "disable" {
+			if err := PiknoSyncPublicationReadyTx(tx, target, time.Now().Unix()); err != nil {
+				return fmt.Errorf("%w: 当前目录或任务适配器尚未就绪", ErrPiknoLineNotReady)
+			}
+		}
+		if action == "publish" && row.DraftConfig == "" && oldConfig != nil && oldConfig.Enabled && configFingerprint(oldConfig) == configFingerprint(target) {
+			nextVersion = row.Version
+			return nil
+		}
+		if action == "publish" && PiknoLineSyncEnabled() && target != nil && (target.Provider == "sanbao" || target.Provider == "canseedream") {
+			if err := tx.Model(&PiknoLineSyncState{}).Where("public_model = ? AND pause_reason = ?", target.PublicModel, "schema_changed").Updates(map[string]any{"paused": false, "pause_reason": ""}).Error; err != nil {
+				return err
+			}
+		}
+		nextVersion = row.Version + 1
+		target.Revision = nextVersion
+		if err := applyPiknoLineProjection(tx, oldConfig, target); err != nil {
+			return err
+		}
+		targetRaw, err := encodePiknoLineConfig(target)
+		if err != nil {
+			return err
+		}
+		previousRaw := row.PublishedConfig
+		if action == "rollback" {
+			previousRaw = row.PublishedConfig
+		}
+		result := tx.Model(&PiknoLine{}).Where("public_model = ? AND version = ?", publicModel, row.Version).Updates(map[string]any{
+			"published_config": targetRaw,
+			"previous_config":  previousRaw,
+			"draft_config":     "",
+			"version":          nextVersion,
+			"updated_at":       common.GetTimestamp(),
+			"updated_by":       actor,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrPiknoLineConflict
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	refreshPiknoRoutingCaches()
+	return GetPiknoLineAdmin(publicModel, nextVersion)
+}
+
+func rowPiknoLineAdminView(row PiknoLine) (*PiknoLineAdminView, error) {
+	draft, err := decodePiknoLineConfig(row.DraftConfig)
+	if err != nil {
+		return nil, err
+	}
+	published, err := decodePiknoLineConfig(row.PublishedConfig)
+	if err != nil {
+		return nil, err
+	}
+	previous, err := decodePiknoLineConfig(row.PreviousConfig)
+	if err != nil {
+		return nil, err
+	}
+	editable := draft
+	if editable == nil {
+		editable = published
+	}
+	reasons := []string{}
+	if draft != nil || published != nil && !published.Enabled {
+		reasons = piknoLineOpenReasons(DB, &row, editable)
+	}
+	hasPending := draft != nil && (published == nil || configFingerprint(draft) != configFingerprint(published))
+	return &PiknoLineAdminView{
+		Sync:        PiknoLineSyncAdmin(row.PublicModel),
+		PublicModel: row.PublicModel, Version: row.Version, Draft: draft, Published: published, Previous: previous,
+		CanPublish: editable != nil && len(reasons) == 0 && (hasPending || published == nil || !published.Enabled), HasPendingChanges: hasPending, BlockingReasons: reasons, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy,
+	}, nil
+}
+
+func GetPiknoLineAdmin(publicModel string, expectedVersion int64) (*PiknoLineAdminView, error) {
+	var row PiknoLine
+	if err := DB.Where("public_model = ?", publicModel).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPiknoLineNotFound
+		}
+		return nil, err
+	}
+	if expectedVersion > 0 && row.Version != expectedVersion {
+		return nil, ErrPiknoLineConflict
+	}
+	return rowPiknoLineAdminView(row)
+}
+
+func ListPiknoLineAdmin() ([]PiknoLineAdminView, error) {
+	var rows []PiknoLine
+	if err := DB.Order("public_model").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]PiknoLineAdminView, 0, len(rows))
+	for _, row := range rows {
+		view, err := rowPiknoLineAdminView(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, *view)
+	}
+	return result, nil
+}
+
+type piknoLineCacheState struct {
+	mu        sync.Mutex
+	expiresAt time.Time
+	byModel   map[string]PiknoLineConfig
+}
+
+var publishedPiknoLineCache piknoLineCacheState
+
+func invalidatePiknoLineCache() {
+	publishedPiknoLineCache.mu.Lock()
+	publishedPiknoLineCache.expiresAt = time.Time{}
+	publishedPiknoLineCache.byModel = nil
+	publishedPiknoLineCache.mu.Unlock()
+	NotifyPiknoCatalogChange()
+}
+
+func loadPublishedPiknoLineMap() (map[string]PiknoLineConfig, error) {
+	publishedPiknoLineCache.mu.Lock()
+	defer publishedPiknoLineCache.mu.Unlock()
+	if publishedPiknoLineCache.byModel != nil && time.Now().Before(publishedPiknoLineCache.expiresAt) {
+		copyMap := make(map[string]PiknoLineConfig, len(publishedPiknoLineCache.byModel))
+		for key, value := range publishedPiknoLineCache.byModel {
+			copyMap[key] = value
+		}
+		return copyMap, nil
+	}
+	var rows []PiknoLine
+	if err := DB.Select("public_model", "published_config").Where("published_config <> ?", "").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	loaded := make(map[string]PiknoLineConfig, len(rows))
+	for _, row := range rows {
+		config, err := decodePiknoLineConfig(row.PublishedConfig)
+		if err != nil {
+			return nil, err
+		}
+		if config != nil {
+			loaded[row.PublicModel] = *config
+		}
+	}
+	publishedPiknoLineCache.byModel = loaded
+	publishedPiknoLineCache.expiresAt = time.Now().Add(10 * time.Second)
+	copyMap := make(map[string]PiknoLineConfig, len(loaded))
+	for key, value := range loaded {
+		copyMap[key] = value
+	}
+	return copyMap, nil
+}
+
+func GetPublishedPiknoLine(publicModel string) (*PiknoLineConfig, error) {
+	lines, err := loadPublishedPiknoLineMap()
+	if err != nil {
+		return nil, err
+	}
+	config, ok := lines[publicModel]
+	if !ok || !config.Enabled {
+		return nil, ErrPiknoLineNotFound
+	}
+	if err := PiknoSyncLineReadyTx(DB, &config, time.Now().Unix()); err != nil {
+		return nil, ErrPiknoLineNotFound
+	}
+	channel, err := CacheGetChannel(config.ChannelID)
+	if err != nil || channel.Status != common.ChannelStatusEnabled {
+		return nil, ErrPiknoLineNotFound
+	}
+	return clonePiknoLineConfig(&config)
+}
+
+func ListPublishedPiknoLines() ([]PiknoLineConfig, error) {
+	lines, err := loadPublishedPiknoLineMap()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]PiknoLineConfig, 0, len(lines))
+	for _, config := range lines {
+		if !config.Enabled {
+			continue
+		}
+		if err := PiknoSyncLineReadyTx(DB, &config, time.Now().Unix()); err != nil {
+			continue
+		}
+		channel, channelErr := CacheGetChannel(config.ChannelID)
+		if channelErr != nil || channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		result = append(result, config)
+	}
+	slices.SortFunc(result, func(left, right PiknoLineConfig) int { return strings.Compare(left.PublicModel, right.PublicModel) })
+	return result, nil
+}
+
+// EnabledPiknoLineModelsForGroups returns the routed model names for the
+// requested groups. A map condition lets GORM quote the reserved group column
+// for SQLite, PostgreSQL, and MySQL, and unlike the legacy helper this function
+// does not discard database errors.
+func EnabledPiknoLineModelsForGroups(groups []string) (map[string]bool, error) {
+	normalized := make([]string, 0, len(groups))
+	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group != "" && !slices.Contains(normalized, group) {
+			normalized = append(normalized, group)
+		}
+	}
+	result := make(map[string]bool)
+	if len(normalized) == 0 {
+		return result, nil
+	}
+	var names []string
+	err := DB.Model(&Ability{}).
+		Distinct("model").
+		Where(map[string]any{"group": normalized, "enabled": true}).
+		Pluck("model", &names).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		result[name] = true
+	}
+	return result, nil
+}
+
+func positiveBoundedUsage(value, fallback int) (int, error) {
+	if value == 0 {
+		value = fallback
+	}
+	if value < 1 || value > 600 {
+		return 0, errors.New("line usage is outside the published range")
+	}
+	return value, nil
+}
+
+func QuotePublishedPiknoLine(publicModel string, channelID int, usage PiknoLineUsage) (*PiknoLineQuote, error) {
+	config, err := GetPublishedPiknoLine(publicModel)
+	if err != nil {
+		return nil, err
+	}
+	if config.ChannelID != channelID {
+		return nil, errors.New("selected channel does not match the published line")
+	}
+	if config.ExplicitFree && !piknoExplicitFreeTool(config) {
+		return nil, errors.New("invalid explicit free tool policy")
+	}
+	resolution := strings.ToLower(strings.TrimSpace(usage.Resolution))
+	var selected *PiknoLinePrice
+	for index := range config.Prices {
+		candidate := &config.Prices[index]
+		candidateResolution := strings.ToLower(strings.TrimSpace(candidate.Resolution))
+		if candidateResolution == resolution || candidateResolution == "default" && selected == nil {
+			selected = candidate
+			if candidateResolution == resolution {
+				break
+			}
+		}
+	}
+	if selected == nil && len(config.Prices) == 1 && (resolution == "" || resolution == "auto" || resolution == "unspecified") {
+		selected = &config.Prices[0]
+	}
+	if selected == nil || (selected.RetailQuota <= 0 && !(selected.RetailQuota == 0 && piknoExplicitFreeTool(config))) {
+		return nil, errors.New("request resolution has no published price")
+	}
+	units := 0
+	switch selected.Unit {
+	case "request":
+		units, err = positiveBoundedUsage(usage.Requests, 1)
+	case "second":
+		units, err = positiveBoundedUsage(usage.Seconds, 0)
+		if err == nil && config.Kind == "video" && !slices.Contains(config.Durations, float64(units)) {
+			err = errors.New("request duration is not supported by the published line")
+		}
+	case "image":
+		units, err = positiveBoundedUsage(usage.Images, 0)
+	default:
+		err = errors.New("published line has an unsupported price unit")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if selected.RetailQuota > common.MaxQuota/units {
+		return nil, errors.New("published line quote exceeds the quota limit")
+	}
+	quota := selected.RetailQuota * units
+	if usage.ReferenceImages < 0 || usage.ReferenceImages > 20 {
+		return nil, errors.New("invalid reference image count")
+	}
+	if usage.ReferenceImages > 0 && config.ReferenceSurchargeQuota > 0 {
+		if config.ReferenceSurchargeQuota > common.MaxQuota-quota {
+			return nil, errors.New("published line quote exceeds the quota limit")
+		}
+		quota += config.ReferenceSurchargeQuota
+	}
+	return &PiknoLineQuote{PublicModel: config.PublicModel, Revision: config.Revision, Provider: config.Provider, Kind: config.Kind, ChannelID: config.ChannelID, Unit: selected.Unit, Quota: quota}, nil
+}
+
+func piknoFixedTool(config *PiknoLineConfig) bool {
+	return config != nil && config.Kind == "video" && config.Provider == "hamster-tools" && config.PluginKey == "pikno-tools" &&
+		((config.PublicModel == "pikno-tool-digital" && config.UpstreamModel == "digital") || (config.PublicModel == "pikno-tool-depth" && config.UpstreamModel == "depth"))
+}
+
+func piknoExplicitFreeTool(config *PiknoLineConfig) bool {
+	return piknoFixedTool(config) && config.PublicModel == "pikno-tool-depth" && config.ExplicitFree && len(config.Prices) == 1 &&
+		config.Prices[0].Unit == "request" && config.Prices[0].Resolution == "default" && config.Prices[0].RetailQuota == 0 && config.ReferenceSurchargeQuota == 0
+}
+
+// A zero quote is a deliberate published policy, never a missing price.
+func PiknoLineAllowsZeroQuote(config *PiknoLineConfig) bool { return piknoExplicitFreeTool(config) }

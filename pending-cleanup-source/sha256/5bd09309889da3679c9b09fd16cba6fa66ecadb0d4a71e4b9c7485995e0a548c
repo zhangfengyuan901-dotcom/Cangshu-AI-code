@@ -1,0 +1,250 @@
+{
+  "format": 1,
+  "version": "1.7.75",
+  "releaseDirectory": "output/hamster-release-1.7.75",
+  "asarSHA256": "f1ea8e660413463d0ae922a347fd414d7cea42fe808cd580adbe2fa04b819b62",
+  "portable": {
+    "path": "output/hamster-release-1.7.75/仓鼠AI-1.7.75.exe",
+    "sha256": "c123abf1741f2489e1e3585335e8d2c68a3a9ffaa21ab3e8a92e8cc765dbd829"
+  },
+  "resources": {
+    "hamster-canvas/dist/assets/index-B64aKSFV.css": {
+      "bytes": 29658,
+      "sha256": "00d995adcb0d00666604efe24a5721a25081c13728f5d2d9401cd65f6c5f2cc1"
+    },
+    "hamster-canvas/dist/assets/index-DZjAcPLk.js": {
+      "bytes": 428963,
+      "sha256": "7ce8a58c1937410d73ed6e37e3d6a9ae970e7f7d04ccbaa8ad2aa7afa545953d"
+    },
+    "hamster-canvas/dist/BeatDesign-LICENSE.txt": {
+      "bytes": 11337,
+      "sha256": "feb954c9763fff6112bd6412014ae03f76e18e6b559774447dc2d08b57c27e0c"
+    },
+    "hamster-canvas/dist/dependency-licenses.txt": {
+      "bytes": 186641,
+      "sha256": "ff7cae02f56d87c5a0231196bdfc36ee8ebf2c6396d22db76ab7671a05da3043"
+    },
+    "hamster-canvas/dist/index.html": {
+      "bytes": 398,
+      "sha256": "60e7371fadd4133294acee6b675a66d41fb85e63c4c94e817bd3a34e29eda1fd"
+    },
+    "hamster-canvas/dist/NOTICE.txt": {
+      "bytes": 757,
+      "sha256": "b33595579820c569ee7b26e0ba0e28479f4d8e63f4964c9806fd956697510562"
+    },
+    "hamster-canvas/server.mjs": {
+      "bytes": 4103,
+      "sha256": "fbae564604c856f597d9f8ddd9a5dff078ccbfd52d54ee4ae50142f1c88bfe48"
+    },
+    "installed-runtime-check.py": {
+      "bytes": 1809,
+      "sha256": "0f73019fd70be722e9d582bf7d41282f6bd74c3eddf0931897b4c055ec2f6660"
+    },
+    "node-runtime/LICENSE": {
+      "bytes": 145485,
+      "sha256": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+    },
+    "node-runtime/node.exe": {
+      "bytes": 86973768,
+      "sha256": "9c9245166b4a8e182e0b797da9c20136117ff24368eaff1fec8343a123c8db0e"
+    },
+    "node-runtime/runtime.json": {
+      "bytes": 98,
+      "sha256": "6af50fbde65a8183d247f2d28504d4fa6d13f370240b83a25c07f917b1ea9f15"
+    },
+    "python-runtime.json": {
+      "bytes": 347065,
+      "sha256": "12b42eb4bf94e21f8af84f11644e4463e3cd84bad2bf1baa5cfc6b0f544010bc"
+    },
+    "python-runtime.zip": {
+      "bytes": 70648349,
+      "sha256": "ab8a4b17e5d654bf4400688db04087823834de2808efe751b6b27e301e6a6312"
+    },
+    "smart-video-agent/.hamster-workflow-version": {
+      "bytes": 4,
+      "sha256": "ddb5c6d217ea442d92dcdead04dade6263ea482787904ab5c50a86d142b3c07d"
+    },
+    "smart-video-agent/chat-ui/chat.css": {
+      "bytes": 14518,
+      "sha256": "f9923a0b600a11837e21f742c48353908817b043d8fc1e1644d0017e1aa1a057"
+    },
+    "smart-video-agent/chat-ui/chat.js": {
+      "bytes": 34315,
+      "sha256": "ee4234ce461be63dd3f83a89c46ccc1c52f8c958ac9de38942eceffb37d29adb"
+    },
+    "smart-video-agent/chat-ui/index.html": {
+      "bytes": 6827,
+      "sha256": "1c079b490239a23cd4dc0e2645b20fbf0b0b7452bf88dceb8df5d80e34d58cfd"
+    },
+    "smart-video-agent/chat.py": {
+      "bytes": 62631,
+      "sha256": "71d52272a6c1d5b62d38e63c4d5026c2a7c09edd94c2d3f5e634fe277a5fdceb"
+    },
+    "smart-video-agent/chat_media.py": {
+      "bytes": 491,
+      "sha256": "e85d184fcd399c1490612b5cfbc0f430c851b027f048ef51e88ca3db50947c43"
+    },
+    "smart-video-agent/chat_policy.py": {
+      "bytes": 4974,
+      "sha256": "1049165adc0290e255803f08ab9183a08ff2abd8fbf4d5c2888b9a56439a5e11"
+    },
+    "smart-video-agent/config.byteplus.yaml.example": {
+      "bytes": 627,
+      "sha256": "46ee1d1d328bc393b1f14b9c08dcde7acf9aecc4fa0e1b41381f0d0921a58a51"
+    },
+    "smart-video-agent/config.yaml.example": {
+      "bytes": 558,
+      "sha256": "58f66effbc7dfdb5ef954f640e1300606a9a255768a5af3b654f16c357978aef"
+    },
+    "smart-video-agent/fault_report.py": {
+      "bytes": 1461,
+      "sha256": "7f09e0bfdadcb41baf794191a7e43af8b2dad0ac83e4b9fe08e137bb1145c502"
+    },
+    "smart-video-agent/LICENSE": {
+      "bytes": 10143,
+      "sha256": "5df2a0d87d6c562f0ea11c688ac52532aa28d744cabc7994ff0537f64b3b3320"
+    },
+    "smart-video-agent/pyproject.toml": {
+      "bytes": 404,
+      "sha256": "69457aeaa6a50e7fdfe4ed28246b35b10ba5c8c51c7838398c24df917d7fa123"
+    },
+    "smart-video-agent/requirements.txt": {
+      "bytes": 126,
+      "sha256": "78054f6be4ed3373b7513fcf60e669d1cb44325b020b00739654478ec475d8e2"
+    },
+    "smart-video-agent/runtime-requirements.lock": {
+      "bytes": 19977,
+      "sha256": "90c2b228a4052eed77967762d37f6c75c7bb890660456c8b6c699a104b150691"
+    },
+    "smart-video-agent/studio-ui/hamster-logo.png": {
+      "bytes": 990110,
+      "sha256": "588804327961b21ce2d9b927c79a110ab21854d5a46ec9952cbeca037df292fe"
+    },
+    "smart-video-agent/studio-ui/hamster-mark.png": {
+      "bytes": 25879,
+      "sha256": "25a66ae4875727676da86a78ef503941030bb7d725fbec49ff39fa8f38518dd0"
+    },
+    "smart-video-agent/studio-ui/shared/asset-library.mjs": {
+      "bytes": 10655,
+      "sha256": "7b19d1c16bbd22d1f45947690234b122225abfe31a4485315751f8626873d58a"
+    },
+    "smart-video-agent/studio-ui/shared/assets.css": {
+      "bytes": 2524,
+      "sha256": "777a0713fa15a4bd9e2e3182f4c183d986244a8e1fd9d14a6cc1fb8f9501c896"
+    },
+    "smart-video-agent/studio-ui/shared/fault-events.mjs": {
+      "bytes": 1400,
+      "sha256": "b916ce4e8e6178afa70962f4c60ad564c9f041f007c384074b061f226ac70736"
+    },
+    "smart-video-agent/studio-ui/workbench.css": {
+      "bytes": 1080,
+      "sha256": "8867a2c290175bb83ea58191d05da754b189bf658cdceabe3e99a2dbf20b7406"
+    },
+    "smart-video-agent/studio.py": {
+      "bytes": 8329,
+      "sha256": "8af9274967196ed14b1acabf5d560790f4654e3680b38804da4128de4a6ca801"
+    },
+    "smart-video-agent/uv.lock": {
+      "bytes": 85828,
+      "sha256": "057dc50f63f357943e3f5f4747be9d0bf0e43dd3de840cdf2beaef54586244c6"
+    },
+    "smart-video-agent/web.py": {
+      "bytes": 1301,
+      "sha256": "fab1a761f86622818ec0673f00fc0968bfc8a8f7192cc8c03e35abc300ef2554"
+    },
+    "smart-video-agent/__init__.py": {
+      "bytes": 636,
+      "sha256": "61e09c29c79d02a3f1992dcbce4a8f24e5a8cfd0152e8a84d7bddc2bc82d9079"
+    }
+  },
+  "builder": {
+    "appId": "com.hamster.ai",
+    "productName": "仓鼠AI",
+    "files": [
+      "server.js",
+      "assets.cjs",
+      "canvas.cjs",
+      "canvas-launcher.cjs",
+      "billing-client.cjs",
+      "wallet.cjs",
+      "pikno.cjs",
+      "pikno-client.cjs",
+      "reverse.cjs",
+      "reverse-client.cjs",
+      "reverse-media.cjs",
+      "pikno-key-store.cjs",
+      "legacy-routes.mjs",
+      "tasks.cjs",
+      "inference.cjs",
+      "pikno-inference.cjs",
+      "media.cjs",
+      "media-metadata.cjs",
+      "diagnostics.cjs",
+      "codex-local.cjs",
+      "codex-routes.cjs",
+      "relay-account-view.cjs",
+      "startup-preferences.cjs",
+      "reporter.cjs",
+      "report-schema.cjs",
+      "runtime.cjs",
+      "installed-runtime.cjs",
+      "public/**/*",
+      "electron/**/*",
+      "package.json",
+      "direct-media.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "@resources/hamster-canvas",
+        "to": "hamster-canvas"
+      },
+      {
+        "from": "@resources/node-runtime",
+        "to": "node-runtime"
+      },
+      {
+        "from": "@resources/installed-runtime-check.py",
+        "to": "installed-runtime-check.py"
+      },
+      {
+        "from": "@resources/python-runtime.zip",
+        "to": "python-runtime.zip"
+      },
+      {
+        "from": "@resources/python-runtime.json",
+        "to": "python-runtime.json"
+      },
+      {
+        "from": "@resources/smart-video-agent",
+        "to": "smart-video-agent"
+      }
+    ],
+    "directories": {
+      "app": "@stage",
+      "output": "@artifacts",
+      "buildResources": "@app/build"
+    },
+    "win": {
+      "icon": "@app/build/icon.ico",
+      "target": [
+        "portable"
+      ],
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "@stage/electron/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "仓鼠AI-${version}-便携版.exe"
+    },
+    "electronDist": "@app/node_modules/electron/dist",
+    "electronVersion": "33.4.11"
+  },
+  "sourceIsOfficial": true,
+  "sourceManifest": "release/source-manifest.json"
+}

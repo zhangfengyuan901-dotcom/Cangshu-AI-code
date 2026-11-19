@@ -1,0 +1,457 @@
+const assert = require('node:assert/strict');
+const {spawn, spawnSync} = require('node:child_process');
+const {createHash} = require('node:crypto');
+const fs = require('node:fs');
+const http = require('node:http');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const {setTimeout: sleep} = require('node:timers/promises');
+
+const modes = ['window-close', 'app-quit'];
+const temporaryParent = fs.realpathSync(os.tmpdir());
+const prefix = 'hamster-full-fix-qa-';
+
+// Invoked while Electron is stopped on its first entry statement.
+function isolate(load, root) {
+  const {app, BrowserWindow, dialog, ipcMain, session, shell} = load('electron');
+  const fs = load('node:fs');
+  const path = load('node:path');
+  const net = load('node:net');
+  const record = (event, fields = {}) => {
+    fs.appendFileSync(path.join(root, 'events.ndjson'), `${JSON.stringify({event, ...fields})}\n`);
+  };
+
+  for (const name of ['appData', 'userData', 'sessionData', 'desktop', 'home', 'temp']) {
+    app.setPath(name, path.join(root, name));
+  }
+  const isolated = ['appData', 'userData', 'sessionData', 'desktop', 'home', 'temp']
+    .every(name => app.getPath(name) === path.join(root, name));
+  record('isolation-installed');
+  const requestLock = app.requestSingleInstanceLock;
+  app.requestSingleInstanceLock = function (...args) {
+    const result = requestLock.apply(this, args);
+    record('instance-lock', {acquired: result});
+    return result;
+  };
+
+  const allowedHost = host => ['127.0.0.1', '::1', '[::1]', 'localhost'].includes(host);
+  const allowsWebRequest = value => {
+    try {
+      const url = new URL(value);
+      return allowedHost(url.hostname) || ['data:', 'blob:', 'devtools:'].includes(url.protocol);
+    } catch {
+      return false;
+    }
+  };
+  const guardSession = current => current.webRequest.onBeforeRequest((request, callback) => {
+    const allowed = allowsWebRequest(request.url);
+    if (!allowed) record('blocked-electron-network');
+    callback({cancel: !allowed});
+  });
+  app.on('session-created', guardSession);
+  app.whenReady().then(() => {
+    guardSession(session.defaultSession);
+    record('app-ready');
+  });
+  const fetch = globalThis.fetch;
+  globalThis.fetch = (resource, ...options) => {
+    if (allowsWebRequest(resource?.url ?? resource)) return fetch(resource, ...options);
+    record('blocked-node-fetch');
+    return Promise.reject(new Error('QA blocks external requests'));
+  };
+  const connect = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function (...args) {
+    const normalized = Array.isArray(args[0]) ? args[0] : args;
+    const first = normalized[0];
+    const host = typeof first === 'object' && first !== null ? first.host : normalized[1];
+    const ipc = typeof first === 'object' && first !== null ? first.path :
+      typeof first === 'string' && !/^\d+$/.test(first);
+    if (!ipc && (host == null || typeof host === 'function' || allowedHost(host))) {
+      return connect.apply(this, args);
+    }
+    record('blocked-node-socket');
+    throw new Error('QA blocks external connections');
+  };
+  shell.openExternal = async () => {
+    record('blocked-shell-open');
+    throw new Error('QA blocks external navigation');
+  };
+
+  // Observe the packaged cleanup and keep the default error handler from displaying a modal.
+  const handle = ipcMain.handle;
+  const removeHandler = ipcMain.removeHandler;
+  ipcMain.handle = function (channel, handler) {
+    const result = handle.call(this, channel, handler);
+    if (channel === 'hamster-desktop-account') record('account-ipc-registered');
+    return result;
+  };
+  ipcMain.removeHandler = function (channel) {
+    const result = removeHandler.call(this, channel);
+    if (channel === 'hamster-desktop-account') record('account-ipc-removed');
+    return result;
+  };
+  dialog.showErrorBox = () => record('error-dialog');
+  process.on('uncaughtExceptionMonitor', error => {
+    record('uncaught-main', {
+      objectDestroyed: error?.name === 'TypeError' && error?.message === 'Object has been destroyed',
+      browserWindowDispose: /\bat BrowserWindow\.dispose\b/.test(error?.stack ?? ''),
+    });
+  });
+  app.on('browser-window-created', (_event, win) => {
+    win.webContents.once('destroyed', () => record('contents-destroyed'));
+    win.once('closed', () => record('window-closed'));
+  });
+  app.once('window-all-closed', () => record('window-all-closed'));
+  app.once('before-quit', () => record('before-quit'));
+  app.once('will-quit', () => record('will-quit'));
+  app.once('quit', (_event, code) => record('quit', {code}));
+  process.once('exit', code => record('process-exit', {code}));
+
+  globalThis.__shutdownQA = {
+    async ready() {
+      const win = BrowserWindow.getAllWindows()[0];
+      const contents = win?.webContents;
+      if (!contents || contents.isDestroyed() || contents.isLoading()) return false;
+      if (!contents.getURL().startsWith('http://127.0.0.1:')) return false;
+      return contents.executeJavaScript(`Boolean(document.getElementById('localAccountIdentity') &&
+        typeof window.hamsterDesktopAccount?.command === 'function')`);
+    },
+    origin() {
+      return new URL(BrowserWindow.getAllWindows()[0].webContents.getURL()).origin;
+    },
+    trigger(mode) {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win || win.isDestroyed()) throw new Error('QA requires a ready window');
+      setImmediate(() => {
+        record('triggered', {mode});
+        if (mode === 'window-close') win.close();
+        else app.quit();
+      });
+      return true;
+    },
+  };
+  return {isolated, version: app.getVersion(), packaged: app.isPackaged, pid: process.pid};
+}
+
+function childEnvironment(root) {
+  const keys = ['PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'ProgramData',
+    'ProgramFiles', 'ProgramFiles(x86)', 'CommonProgramFiles'];
+  const clean = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => keys.some(name => name.toLowerCase() === key.toLowerCase())));
+  return {...clean, APPDATA: path.join(root, 'appData'), LOCALAPPDATA: path.join(root, 'localAppData'),
+    USERPROFILE: path.join(root, 'home'), TEMP: path.join(root, 'temp'), TMP: path.join(root, 'temp')};
+}
+
+async function reservePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+
+async function waitFor(check, timeout) {
+  const deadline = Date.now() + timeout;
+  do {
+    const value = await check();
+    if (value) return value;
+    await sleep(100);
+  } while (Date.now() < deadline);
+  return null;
+}
+
+async function verifyMedia(origin, root) {
+  const base = new URL(origin);
+  assert.equal(base.protocol, 'http:');
+  assert.equal(base.hostname, '127.0.0.1');
+  assert.ok(base.port);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6q8AAAAASUVORK5CYII=', 'base64');
+  const added = await fetch(new URL('/api/assets/import?category=scene&name=isolated.png', base), {
+    method: 'POST', body: png, signal: AbortSignal.timeout(5000), redirect: 'error',
+  });
+  assert.equal(added.status, 201);
+  const asset = await added.json();
+  assert.match(asset.id, /^[a-f0-9]{32}$/);
+  const preview = new URL(`/api/assets/${asset.id}/file`, base);
+  const ranged = await fetch(preview, {headers: {Range: 'bytes=0-7'}, signal: AbortSignal.timeout(5000), redirect: 'error'});
+  assert.equal(ranged.status, 206);
+  assert.equal(ranged.headers.get('content-range'), `bytes 0-7/${png.length}`);
+  assert.deepEqual(Buffer.from(await ranged.arrayBuffer()), png.subarray(0, 8));
+  const etag = ranged.headers.get('etag');
+  assert.ok(etag);
+  const unchanged = await fetch(preview, {headers: {'If-None-Match': etag}, signal: AbortSignal.timeout(5000), redirect: 'error'});
+  assert.equal(unchanged.status, 304);
+
+  let pendingStarted = false;
+  let pendingClosed = false;
+  const upstream = http.createServer((req, res) => {
+    if (req.url === '/pending.png') {
+      pendingStarted = true;
+      res.once('close', () => { pendingClosed = true; });
+      res.writeHead(200, {'Content-Type': 'image/png', 'Content-Length': png.length + 64});
+      res.write(png);
+      return;
+    }
+    res.writeHead(200, {'Content-Type': 'image/png', 'Content-Length': png.length});
+    res.end(png);
+  });
+  await new Promise((resolve, reject) => {
+    upstream.once('error', reject);
+    upstream.listen(0, '127.0.0.1', resolve);
+  });
+  const controller = new AbortController();
+  try {
+    const results = path.join(root, 'desktop', '仓鼠AI生成结果');
+    const save = (route, taskId, signal) => fetch(new URL('/api/save-result', base), {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, signal, redirect: 'error',
+      body: JSON.stringify({url: `http://127.0.0.1:${upstream.address().port}/${route}`, taskId, outputType: 'png'}),
+    });
+    const saved = await save('finished.png', 'isolated-smoke', AbortSignal.timeout(5000));
+    assert.equal(saved.status, 200);
+    const output = await saved.json();
+    assert.equal(output.ok, true);
+    assert.equal(path.dirname(output.localPath), results);
+    assert.equal(path.basename(output.localPath), output.fileName);
+    assert.deepEqual(fs.readFileSync(output.localPath), png);
+
+    const partials = () => fs.readdirSync(results).filter(name => name.endsWith('-isolated-cancel.png'));
+    const pending = save('pending.png', 'isolated-cancel', controller.signal).then(
+      () => false, error => error?.name === 'AbortError',
+    );
+    const wrotePartial = await waitFor(() => pendingStarted && partials().some(name =>
+      fs.statSync(path.join(results, name), {throwIfNoEntry: false})?.size > 0), 8000);
+    assert.ok(wrotePartial);
+    controller.abort();
+    assert.equal(await pending, true);
+    assert.ok(await waitFor(() => pendingClosed && partials().length === 0, 5000));
+    assert.deepEqual(fs.readFileSync(output.localPath), png);
+    return {range: 206, cache: 304, compatibilitySave: 200, disconnectCancelledUpstream: true,
+      partialRemoved: true, completedFilePreserved: true};
+  } finally {
+    controller.abort();
+    await new Promise(resolve => {
+      upstream.close(resolve);
+      upstream.closeAllConnections();
+    });
+  }
+}
+
+async function connectInspector(endpoint) {
+  const ws = new WebSocket(endpoint);
+  const pending = new Map();
+  let id = 0;
+  let paused;
+  ws.addEventListener('message', ({data}) => {
+    const message = JSON.parse(String(data));
+    if (message.method === 'Debugger.paused') paused = message.params;
+    const response = pending.get(message.id);
+    if (response) {
+      pending.delete(message.id);
+      clearTimeout(response.timer);
+      if (message.error) response.reject(new Error('QA inspector protocol error'));
+      else response.resolve(message.result);
+    }
+  });
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, {once: true});
+    ws.addEventListener('error', reject, {once: true});
+  });
+  return {
+    close: () => ws.close(),
+    paused: () => paused,
+    send(method, params = {}) {
+      return new Promise((resolve, reject) => {
+        const current = ++id;
+        const timer = setTimeout(() => {
+          pending.delete(current);
+          reject(new Error('QA inspector response timeout'));
+        }, 60000);
+        pending.set(current, {resolve, reject, timer});
+        ws.send(JSON.stringify({id: current, method, params}));
+      });
+    },
+  };
+}
+
+function processGone(pid) {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error.code === 'ESRCH';
+  }
+}
+
+function readEvents(root) {
+  try {
+    return fs.readFileSync(path.join(root, 'events.ndjson'), 'utf8').trim()
+      .split('\n').filter(Boolean).map(line => JSON.parse(line));
+  } catch (error) {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) return [];
+    throw error;
+  }
+}
+
+async function testPortable(exe, version, mode) {
+  const root = fs.mkdtempSync(path.join(temporaryParent, prefix));
+  const result = {mode, stage: 'launch'};
+  let wrapper, inspector, mainPid;
+  let wrapperExit = null;
+  try {
+    for (const name of ['appData', 'localAppData', 'userData', 'sessionData', 'desktop', 'home', 'temp']) {
+      fs.mkdirSync(path.join(root, name));
+    }
+    const port = await reservePort();
+    wrapper = spawn(exe, [`--inspect-brk=${port}`, '--disable-background-networking'], {
+      cwd: root, windowsHide: true, env: childEnvironment(root), stdio: 'ignore',
+    });
+    wrapper.on('error', () => { wrapperExit = {code: null, signal: null}; });
+    wrapper.on('exit', (code, signal) => { wrapperExit = {code, signal}; });
+    result.stage = 'attach';
+    const endpoint = await waitFor(async () => {
+      if (wrapperExit) throw new Error('QA portable launcher exited early');
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/json/list`, {signal: AbortSignal.timeout(300)});
+        if (response.ok) {
+          const address = (await response.json())[0]?.webSocketDebuggerUrl;
+          if (address?.startsWith(`ws://127.0.0.1:${port}/`)) return address;
+        }
+      } catch {}
+      return null;
+    }, 90000);
+    assert.ok(endpoint);
+    inspector = await connectInspector(endpoint);
+    await inspector.send('Debugger.enable');
+    await inspector.send('Runtime.enable');
+    await inspector.send('Runtime.runIfWaitingForDebugger');
+    const paused = await waitFor(inspector.paused, 6000);
+    assert.ok(paused?.callFrames?.length);
+
+    result.stage = 'isolate';
+    const injection = await inspector.send('Debugger.evaluateOnCallFrame', {
+      callFrameId: paused.callFrames[0].callFrameId,
+      expression: `(${isolate.toString()})(require, ${JSON.stringify(root)})`,
+      returnByValue: true,
+    });
+    assert.equal(injection.exceptionDetails, undefined);
+    const facts = injection.result.value;
+    mainPid = facts.pid;
+    assert.equal(facts.version, version);
+    assert.equal(facts.isolated, true);
+    assert.equal(facts.packaged, true);
+    assert.ok(Number.isInteger(mainPid) && mainPid > 0);
+    result.packaged = true;
+    result.isolatedPaths = true;
+    result.networkGuardBeforeMain = true;
+    await inspector.send('Debugger.resume');
+
+    result.stage = 'ready';
+    const evaluate = (expression, awaitPromise = false) => inspector.send('Runtime.evaluate', {
+      expression, awaitPromise, returnByValue: true,
+    });
+    const ready = await waitFor(async () => {
+      try {
+        const state = await evaluate('globalThis.__shutdownQA.ready()', true);
+        return state.result?.value === true;
+      } catch {
+        return false;
+      }
+    }, 30000);
+    assert.equal(ready, true);
+    result.accountUiReady = true;
+    if (mode === 'window-close') {
+      result.stage = 'media';
+      const origin = await evaluate('globalThis.__shutdownQA.origin()');
+      result.media = await verifyMedia(origin.result?.value, root);
+    }
+
+    result.stage = 'trigger';
+    const triggered = await evaluate(`globalThis.__shutdownQA.trigger(${JSON.stringify(mode)})`);
+    assert.equal(triggered.result?.value, true);
+    result.stage = 'exit';
+    const exitAttempt = await waitFor(() => readEvents(root).some(entry =>
+      entry.event === 'quit' || entry.event === 'uncaught-main' || entry.event === 'process-exit'), 8000);
+    // Node's inspector can hold an exiting Electron process until the client detaches.
+    inspector.close();
+    inspector = null;
+    await waitFor(() => wrapperExit && processGone(mainPid), 10000);
+    result.wrapperExitCode = wrapperExit?.code ?? null;
+    result.wrapperExited = wrapperExit !== null;
+    result.mainExited = processGone(mainPid);
+    result.events = readEvents(root);
+    assert.ok(exitAttempt);
+    result.stage = 'completed';
+  } catch (error) {
+    result.failure = error?.code === 'ERR_ASSERTION' ? 'assertion' : 'runtime';
+    result.events = readEvents(root);
+  } finally {
+    inspector?.close();
+    if (wrapper?.pid && !wrapperExit) {
+      spawnSync('taskkill', ['/pid', String(wrapper.pid), '/t', '/f'], {windowsHide: true, stdio: 'ignore'});
+      result.forcedCleanup = true;
+    }
+    if (mainPid && !processGone(mainPid)) {
+      try { process.kill(mainPid); } catch {}
+      result.forcedCleanup = true;
+      await waitFor(() => processGone(mainPid), 3000);
+    }
+    const resolved = fs.realpathSync(root);
+    if (path.dirname(resolved) === temporaryParent && path.basename(resolved).startsWith(prefix)) {
+      try {
+        await fs.promises.rm(resolved, {recursive: true, force: true, maxRetries: 12, retryDelay: 200});
+      } catch (error) {
+        result.temporaryCleanupFailed = true;
+        if (['EBUSY', 'EACCES', 'EPERM', 'ENOTEMPTY'].includes(error.code)) result.cleanupErrorCode = error.code;
+      }
+    }
+  }
+  const count = event => result.events.filter(entry => entry.event === event).length;
+  result.accountIpcRegistrations = count('account-ipc-registered');
+  result.accountIpcRemovals = count('account-ipc-removed');
+  result.uncaughtMainExceptions = count('uncaught-main');
+  result.mainErrorDialogs = count('error-dialog');
+  result.destroyedObjectInDispose = result.events.some(entry => entry.event === 'uncaught-main' &&
+    entry.objectDestroyed && entry.browserWindowDispose);
+  result.cleanExit = result.stage === 'completed' && result.wrapperExited && result.wrapperExitCode === 0 &&
+    result.mainExited && !result.forcedCleanup &&
+    result.accountIpcRegistrations === 1 && result.accountIpcRemovals === 1 &&
+    result.uncaughtMainExceptions === 0 && result.mainErrorDialogs === 0 &&
+    ['triggered', 'contents-destroyed', 'window-closed', 'before-quit', 'will-quit'].every(event => count(event) === 1) &&
+    result.events.some(entry => entry.event === 'quit' && entry.code === 0) &&
+    result.events.some(entry => entry.event === 'process-exit' && entry.code === 0);
+  return result;
+}
+
+async function main() {
+  const [exeArgument, version] = process.argv.slice(2);
+  assert.match(version, /^\d+\.\d+\.\d+$/);
+  const exe = path.resolve(exeArgument);
+  const sha256 = (await new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = fs.createReadStream(exe);
+    stream.on('error', reject);
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  }));
+  const checks = [];
+  for (const mode of modes) checks.push(await testPortable(exe, version, mode));
+  const matchesExpected = Boolean(checks[0].media) && checks.every(check => check.cleanExit);
+  const summary = {version, role: 'candidate', sha256, matchesExpected, checks};
+  fs.writeFileSync(path.join(__dirname, 'qa-portable-candidate.json'), JSON.stringify(summary, null, 2) + '\n');
+  console.log(JSON.stringify({version, matchesExpected, checks: checks.map(check => ({
+    mode: check.mode, stage: check.stage, cleanExit: check.cleanExit, media: check.media,
+    uncaughtMainExceptions: check.uncaughtMainExceptions,
+  }))}));
+  if (!matchesExpected) process.exitCode = 1;
+}
+
+if (require.main === module) main().catch(() => {
+  console.error('Portable candidate QA could not run.');
+  process.exitCode = 1;
+});
+
+module.exports={isolate,childEnvironment,reservePort,waitFor,verifyMedia,connectInspector,processGone,readEvents};

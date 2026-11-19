@@ -1,0 +1,263 @@
+{
+  "schema": 1,
+  "archive": ".agents/pending-cleanup-source-aux.zip",
+  "sha256": "2c193ec0243e004fe1d61b63b6fc85d43eb9030544d7bcee0ee6737866e3372e",
+  "unique": 51,
+  "files": [
+    {
+      "path": "output/release-1.7.77-candidate-current/build.cjs",
+      "sha256": "bb70358df0b1394de78f221bf169e0e0c3ce9048d3eb0b310050f2b4d4d7d76e",
+      "bytes": 2317
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/check-formal-release.py",
+      "sha256": "f5c92dc02a74db0deb35f2916184d4fd7c3a3e259c95270303bb7ebada82281b",
+      "bytes": 1554
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/desktop-browser.test.cjs",
+      "sha256": "daa72869792a84172581b4571c76a429dd74d0bdf908b492dd2da78d892fb407",
+      "bytes": 13421
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/electron-enrollment-fixture.cjs",
+      "sha256": "97319ce0dfcdbc835d56f15304be1d82c41efbe63ea6aadd30d38edeac725f29",
+      "bytes": 8247
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/prepare.cjs",
+      "sha256": "15e445d50859c8ce9245964fcd248ef3dd3bc5e9f0b34d5492f616b2cb563e66",
+      "bytes": 4235
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/promote-canonical.cjs",
+      "sha256": "5475b62695070afda7904204524275b097aa2777d2d4d16be124118d2937aa57",
+      "bytes": 8551
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/qa-formal-exe.cjs",
+      "sha256": "72d451d317360dbe1d1061add60c130feb9400c7ee409803f9c0747a8d19053e",
+      "bytes": 8973
+    },
+    {
+      "path": "output/release-1.7.77-candidate-current/record-published-state.py",
+      "sha256": "8c3ee7135f0217b7fd9a9890cba38eb8ff385d00c90831aa89a1cefdc81c859a",
+      "bytes": 5949
+    },
+    {
+      "path": "output/relay-checkout74-current/browser-order-fixture.mjs",
+      "sha256": "6b8b8db22c75863f53d95ce8a3610eb20928ee4cfd2ec925e95df52d268488ae",
+      "bytes": 7188
+    },
+    {
+      "path": "output/relay-checkout74-current/build74.py",
+      "sha256": "398914964b56b79b1fbe6f701510d686fe325da214e0ce30d0d057e2d9ca557c",
+      "bytes": 3812
+    },
+    {
+      "path": "output/relay-checkout74-current/qa-browser-orders.py",
+      "sha256": "7a02f2e6de1a7ec69d18d176d031fff8007c5c6ba19b1f22dd94d35b13ac8bb7",
+      "bytes": 5676
+    },
+    {
+      "path": "output/relay-checkout74-current/qa-deploy-guards.py",
+      "sha256": "05bd2023547eac56f1f159391e199fb17687e96557956cdebb710b95e2dab3a9",
+      "bytes": 11637
+    },
+    {
+      "path": "output/relay-checkout74-current/release74.py",
+      "sha256": "7533a90c060a57c818956a8fafe642367ff18a29b96d38fb292a5b04383e5c36",
+      "bytes": 7810
+    },
+    {
+      "path": "output/relay-checkout74-current/source/controller/pikno_fixed_cny_test.go",
+      "sha256": "9a7b866fde30403c17319516f05bd318b9aeb3034bf45621976c4fed37592017",
+      "bytes": 9661
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/check-payment-readonly.py",
+      "sha256": "f2037d33637c5bb21fce765b41674576e8a808f4d1c8b6b65ae54b83697412fc",
+      "bytes": 2481
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/package-lock.json",
+      "sha256": "f54a347f4e0cc76493b52bec9f037b7687aa4efbcb222ab4f5feeb37a8ab06e0",
+      "bytes": 132802
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/package.json",
+      "sha256": "0cbac23f3e8d4bd4c9f6f361f9c12649018982528d40aca8648f34a914bdcc32",
+      "bytes": 1042
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/release/current.json",
+      "sha256": "ebe1f5722f796b53cca2f8fd98b2596869605073cf214a03af21cc7d0dade1ab",
+      "bytes": 8610
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/release/source-manifest.json",
+      "sha256": "3375dfdd290cfd097b66bc4d9ef3066ea050e17078d052083126078579d1068f",
+      "bytes": 662654
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/build-custom-installer.cjs",
+      "sha256": "91074111accae8fa2583af1f7f1a25845c294b201ad5f3580c947f9d95d61ec0",
+      "bytes": 12013
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-account-desktop-main.cjs",
+      "sha256": "918098cc2f1ea14a5575a51eae411ac8ca20a1d13cc6a89bbc0f58fedeb4856e",
+      "bytes": 8583
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-account-desktop.cjs",
+      "sha256": "74dfbcbdbeda8e23f4d61028f5a2ba594feb0fa4206a0fda668eb303eecb76bc",
+      "bytes": 25124
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-account-exe.cjs",
+      "sha256": "83cc9f277518c9635a4fc7b383457945477a5a2442a23d373b702c3d261d71e1",
+      "bytes": 6127
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-account-window-faults-main.cjs",
+      "sha256": "de2d64cffaa0d87c584e69ed85fb34d41cb01eb5c64690f63d1f63fda6836dca",
+      "bytes": 9179
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-account-window-faults.cjs",
+      "sha256": "d3e059f1e9040f7f656b3a86829c5f252645e420b7bf227f5a573c8134560084",
+      "bytes": 10525
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-chat-cache-upgrade.cjs",
+      "sha256": "7e6a8e3673c1aaa63fb97088389ed3dd1ad322f531211b4e6ddc6ff071495790",
+      "bytes": 7113
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-local-account-main.cjs",
+      "sha256": "e0af30f9677a6e4edad873eec0ac5fe223a3883686e86d6f83790a41ad2ff155",
+      "bytes": 8703
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/qa-login62.cjs",
+      "sha256": "b10d480d3bd741f2b095c01fda830892991f32da00ae7ed418a234afacdb457a",
+      "bytes": 10199
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/scripts/stage-current-release.cjs",
+      "sha256": "0a13acf8e31f95c7db4b7fe52701e23b24dea65468402c87b6564a3c1dc97b17",
+      "bytes": 7027
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/tests/release-source.test.js",
+      "sha256": "812adfb3acefb5b1da9bd3c0b20529f7ccf49f40986e74aeabe37fc0d0261e2f",
+      "bytes": 5741
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/tests/tutorial-page.test.mjs",
+      "sha256": "edf4f71eee1dd8707cb9854682f67bb38f04e3e7ac01d7f8f6cb8620f6e0903e",
+      "bytes": 8664
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/dev/website/public/tutorials/index.html",
+      "sha256": "2a0e0da25568b64ec3726274b46a4ab4cd1feac39192181e651efe6668c0d60d",
+      "bytes": 12723
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/node-failure-audit-reporter.cjs",
+      "sha256": "c364efe8e713f9599eaf0236e809dbc57fd6acd766469520a76a38f0aed9605e",
+      "bytes": 3027
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/prepare-candidate.cjs",
+      "sha256": "df9abb24e4a09fdf826c6590ff14a089e82e2bdedfdd5404e637696ff2a45720",
+      "bytes": 1692
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-extracted-payload.ps1",
+      "sha256": "9769a2ae2b69f230645d934bfccb8be25335e0ddb54970a032aaa93727244749",
+      "bytes": 9406
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-helpers.cjs",
+      "sha256": "7b796dec486f9e402baa3e453fd1689b785cc3c6c1fbda66744c6995def8121e",
+      "bytes": 19466
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-installation.ps1",
+      "sha256": "22e55a7e5f222204a8247c568243417dfdd034b94d9cf9a761ff4756f87a3433",
+      "bytes": 7125
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-installed.cjs",
+      "sha256": "811afba63fa04dcb57b53b1e7896f9186b0af9e40acbece4caeb20040f411fd6",
+      "bytes": 57181
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-installer-core.cjs",
+      "sha256": "d14f11cb4789d9dfd13d042956ab5ca2b7af58ca4106c7a98c372c00ffb6b179",
+      "bytes": 4596
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-media-worker.cjs",
+      "sha256": "9907b18c8093f1e9404df94319bf1d376dee7e8514cc45118b62d30df46b691e",
+      "bytes": 7409
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/qa-silent-upgrade.ps1",
+      "sha256": "8f81638bba82086c8aa268e9bd4d11a56be9b1f2044a8f305259702e7b6e3035",
+      "bytes": 2002
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/resource-inputs/hamster-canvas/dist/assets/index-B64aKSFV.css",
+      "sha256": "00d995adcb0d00666604efe24a5721a25081c13728f5d2d9401cd65f6c5f2cc1",
+      "bytes": 29658
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/resource-inputs/hamster-canvas/dist/assets/index-DZjAcPLk.js",
+      "sha256": "7ce8a58c1937410d73ed6e37e3d6a9ae970e7f7d04ccbaa8ad2aa7afa545953d",
+      "bytes": 428963
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/resource-inputs/hamster-canvas/dist/index.html",
+      "sha256": "60e7371fadd4133294acee6b675a66d41fb85e63c4c94e817bd3a34e29eda1fd",
+      "bytes": 398
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/source/node_modules/@formkit/auto-animate/package.json",
+      "sha256": "dbff609a9c6392677948350eecb652c553bb0c78aee75010dac2006c4580904e",
+      "bytes": 1583
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/source/node_modules/lucide/package.json",
+      "sha256": "32375a11933648ada616c926f39f18f0faf3ff1b73b58c3d69a141550c13517a",
+      "bytes": 964
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/source/node_modules/pend/package.json",
+      "sha256": "3bbc8c48320e1f3fd6cce3417ee48d555b3aa86e50cc795a6c48b1c556aeedd2",
+      "bytes": 287
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/source/node_modules/yauzl/package.json",
+      "sha256": "f48a228f8d22b5f56f97cd19ff953bf0ecb4ea47727c7089cede30510fcd0914",
+      "bytes": 549
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/source/package.json",
+      "sha256": "3b9079b35f384f03a04f0bed66669a2064726055bd3b2136e52617e36d4ab19e",
+      "bytes": 312
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/stage-candidate.cjs",
+      "sha256": "fc9a7bb3a00540990dab5f0554c32f6afe7c9167cd879ced5e9fd0864ea26196",
+      "bytes": 4721
+    },
+    {
+      "path": "output/relay-ui-repair-1.7.86-current/verify-package.cjs",
+      "sha256": "f757dd8e4270e92f2d913bdf03d024392ed7e4225f2c08cd9500ec0cd8587495",
+      "bytes": 2905
+    }
+  ]
+}

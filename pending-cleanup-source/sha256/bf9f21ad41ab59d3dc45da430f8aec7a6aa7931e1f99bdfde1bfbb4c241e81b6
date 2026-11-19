@@ -1,0 +1,111 @@
+import http from 'node:http';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const frontend = path.resolve('deploy/new-api/backend/web/dist');
+const account = { id: 42, role: 1, username: 'payment-fixture' };
+const orders = new Map();
+let created = 0;
+let cancelled = 0;
+let balance = 0;
+let authorized = 0;
+let legacySubmissions = 0;
+let refreshes = 0;
+let returnAt = 0;
+let firstReturnStatusMs = null;
+const mode = process.argv.includes('--legacy') ? 'legacy' : 'direct';
+const port = mode === 'direct' ? 18276 : 18171;
+
+function json(res, value) {
+  res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(value));
+}
+
+function ok(res, data) { json(res, { success: true, data }); }
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const origin = 'http://127.0.0.1:' + port;
+    const url = new URL(req.url, origin);
+    if (url.pathname === '/api/user/desktop/inspect') return ok(res,{flow_id:'F'.repeat(43),account_matched:true,purpose:'recharge',status:'ready',requires_approval:false,expires_at:Math.floor(Date.now()/1000)+1800});
+    if (url.pathname === '/hub/billing' || url.pathname.startsWith('/static/') || url.pathname.endsWith('.png')) {
+      const filename=url.pathname==='/hub/billing'?'index.html':url.pathname.substring(1);
+      const body=await readFile(path.join(frontend,filename));
+      res.writeHead(200, {'content-type': ({'.html':'text/html','.js':'application/javascript','.css':'text/css','.png':'image/png'})[path.extname(filename)]||'application/octet-stream'}); return res.end(body);
+    }
+    if (url.pathname === '/api/user/auth/refresh') {
+      refreshes++;
+      return ok(res, { user: account, session: { sid: 'fixture-session' }, access_token: 'synthetic-only', access_expires_at: Math.floor(Date.now() / 1000) + 3600 });
+    }
+    if (url.pathname === '/api/status') return ok(res, { quota_per_unit: 1000000, usd_exchange_rate: 1 });
+    if (url.pathname === '/api/user/self') return ok(res, { ...account, quota: balance * 1000000, used_quota: 0, request_count: 0 });
+    if (url.pathname === '/api/user/topup/info') return ok(res, { fixed_cny_topup: true, enable_online_topup: true,
+      payment_compliance_confirmed: true, payment_cancel_supported: mode === 'direct', amount_options: [50], pay_methods: [{ type: 'alipay' }] });
+    if (url.pathname === '/api/user/amount') return ok(res, 50);
+    if (url.pathname === '/api/user/topup/self') return ok(res, { items: Array.from(orders.values()).reverse(), total: orders.size });
+    if (['/api/user/pay','/api/user/topup/checkout'].includes(url.pathname) && req.method === 'POST') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      const form = JSON.parse(body);
+      const tradeNo = url.pathname.endsWith('/checkout') ? form.trade_no : 'USR42NOfixture' + ++created;
+      if (url.pathname.endsWith('/checkout')) assert.ok(orders.get(tradeNo)?.checkout_state === 'ready');
+      else { assert.deepEqual(form, {amount:50, payment_method:'alipay'}); orders.set(tradeNo, {trade_no:tradeNo,money:50,status:'pending',payment_method:'alipay',cancellable:true,checkout_state:'ready'}); }
+      if (url.pathname.endsWith('/checkout')) assert.equal(req.headers['x-hamster-desktop-flow'], 'F'.repeat(43));
+      return json(res, { message: 'success', url: origin + '/pay/lanjing/epay/submit.php', data: {
+        pid: '1', type: 'alipay', out_trade_no: tradeNo, notify_url: origin + '/api/user/epay/notify',
+        return_url: origin + '/account-lite/index.html?tab=topup&payment_return=1&trade_no=' + tradeNo,
+        name: 'TUC50', money: '50.00', sign: '0'.repeat(32), sign_type: 'MD5',
+      } });
+    }
+    if (url.pathname === '/api/user/topup/status') {
+      if (returnAt && firstReturnStatusMs === null && url.searchParams.get('trade_no') === 'USR42NOfixture1') firstReturnStatusMs = Date.now() - returnAt;
+      return ok(res, orders.get(url.searchParams.get('trade_no')));
+    }
+    if (url.pathname === '/api/user/topup/cancel' && req.method === 'POST') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      const row = orders.get(JSON.parse(body).trade_no);
+      if (!row || row.status !== 'pending') return json(res, { success: false });
+      row.status = 'closing';
+      row.cancellable = false;
+      cancelled++;
+      setTimeout(() => { row.status = 'cancelled'; }, 1300);
+      return ok(res, row);
+    }
+    if (['/pay/lanjing/epay/submit.php', '/pay/lanjing/epay/authorize'].includes(url.pathname) && req.method === 'POST') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      const row = orders.get(new URLSearchParams(body).get('out_trade_no'));
+      if (!row) { res.writeHead(400); return res.end(); }
+      if (url.pathname.endsWith('/authorize')) {
+        assert.equal(mode, 'direct'); assert.equal(req.headers.authorization, 'Bearer synthetic-only');
+        assert.equal(new URLSearchParams(body).get('money'), '50.00');
+        authorized++;
+        return json(res, { checkout_url: 'https://1.pay.lanjingzf.com/payPage/pay.html?orderId=' + row.trade_no });
+      }
+      assert.equal(mode, 'legacy'); legacySubmissions++;
+      const returned = '/pay/lanjing/return?order=' + row.trade_no;
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end('<!doctype html><a href="' + returned + '">模拟支付完成</a>');
+    }
+    if (url.pathname === '/pay/lanjing/return') {
+      const row = orders.get(url.searchParams.get('order'));
+      assert.ok(row && row.status === 'pending');
+      returnAt = Date.now();
+      row.status = 'success'; row.cancellable = false; balance += 50;
+      res.writeHead(303, { location: '/account-lite/index.html?tab=topup&payment_return=1&trade_no=' + row.trade_no });
+      return res.end();
+    }
+    if (url.pathname === '/fixture-result') return ok(res, { created, authorized, legacySubmissions, refreshes, cancelled, balance, firstReturnStatusMs });
+    if (url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+    if (!/^\/account-lite\/[A-Za-z.-]+$/.test(url.pathname)) { res.writeHead(404); return res.end(); }
+    const file = path.join(frontend, url.pathname.slice(1));
+    const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css' };
+    res.writeHead(200, { 'content-type': mime[path.extname(file)] + '; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(await readFile(file));
+  } catch {
+    res.writeHead(500); res.end();
+  }
+});
+server.listen(port, '127.0.0.1', () => console.log('fixture ready'));

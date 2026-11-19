@@ -1,0 +1,350 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { serveDownload } from '../website/src/download-handler.js';
+import { routeWebsiteRequest } from '../website/src/download-gateway.js';
+import { readFileSync } from 'node:fs';
+
+const worker = { fetch: (request, env) => routeWebsiteRequest(request, env, normalized => serveDownload(normalized, env)) };
+
+const url = 'https://hamsterai.cc/download/HamsterAI-Portable-1.7.75.exe';
+const releaseObject = 'releases/1.7.75/HamsterAI-Portable-1.7.75.exe';
+
+function environment() {
+  let getOptions;
+  const reads = [];
+  const metadata = {
+    size: 4,
+    httpEtag: '"test"',
+    uploaded: new Date('2026-10-18T10:00:00Z'),
+    writeHttpMetadata(headers) { headers.set('content-type', 'application/octet-stream'); },
+  };
+  return {
+    getOptions: () => getOptions,
+    reads,
+    DOWNLOADS: {
+      async head(key) { reads.push(key); return metadata; },
+      async get(key, options) {
+        reads.push(key);
+        getOptions = options;
+        const conditional = options.onlyIf;
+        if (conditional?.get('if-none-match')?.replace(/^W\//, '') === metadata.httpEtag || conditional?.get('if-match') === '"obsolete"') return metadata;
+        if (Date.parse(conditional?.get('if-modified-since') || '') >= metadata.uploaded.getTime() || Date.parse(conditional?.get('if-unmodified-since') || '') < metadata.uploaded.getTime()) return metadata;
+        const partial = Boolean(options.range);
+        const bytes = new Uint8Array([1, 2, 3, 4]);
+        return {
+          ...metadata,
+          ...(partial ? { range: options.range } : {}),
+          body: partial ? bytes.slice(options.range.offset, options.range.offset + options.range.length) : bytes,
+        };
+      },
+    },
+    ASSETS: { fetch() { throw new Error('Download must not reach static assets'); } },
+  };
+}
+
+test('full download responds 200 without a Content-Range header', async () => {
+  const env = environment();
+  const response = await worker.fetch(new Request(url), env);
+  assert.equal(env.getOptions().range, undefined);
+  assert.deepEqual(env.reads, [releaseObject]);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-range'), null);
+  assert.equal(response.headers.get('content-length'), '4');
+  assert.match(response.headers.get('content-disposition'), /filename="HamsterAI-Portable-1\.7\.75\.exe"/);
+  assert.ok(response.headers.get('content-disposition').includes(encodeURIComponent('仓鼠AI正式版-1.7.75.exe')));
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3, 4]));
+});
+
+test('explicit range request responds 206 with matching byte range', async () => {
+  const env = environment();
+  const response = await worker.fetch(new Request(url, { headers: { Range: 'bytes=1-2' } }), env);
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get('content-range'), 'bytes 1-2/4');
+  assert.equal(response.headers.get('content-length'), '2');
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([2, 3]));
+});
+
+test('HEAD returns complete file metadata', async () => {
+  const env = environment();
+  const response = await worker.fetch(new Request(url, { method: 'HEAD' }), env);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-length'), '4');
+  assert.equal(response.headers.get('cloudflare-cdn-cache-control'), 'no-store');
+  assert.deepEqual(env.reads, [releaseObject]);
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+});
+
+test('conditional GET distinguishes unchanged 304 from failed preconditions 412', async () => {
+  for (const [headers, expected] of [
+    [{ 'If-None-Match': '"test"' }, 304],
+    [{ 'If-None-Match': 'W/"test"' }, 304],
+    [{ 'If-None-Match': '*' }, 304],
+    [{ 'If-Modified-Since': 'Sun, 18 Oct 2026 10:00:00 GMT' }, 304],
+    [{ 'If-Match': '"obsolete"' }, 412],
+    [{ 'If-Match': 'W/"test"' }, 412],
+    [{ 'If-Unmodified-Since': 'Sat, 17 Oct 2026 10:00:00 GMT' }, 412],
+  ]) {
+    const response = await worker.fetch(new Request(url, { headers }), environment());
+    assert.equal(response.status, expected, JSON.stringify(headers));
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+    assert.equal(response.headers.get('content-length'), null);
+    if (expected === 412) assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+});
+
+test('ETag conditionals take precedence over date conditionals and Range', async () => {
+  const env = environment();
+  const response = await worker.fetch(new Request(url, { headers: { 'If-None-Match': '"new"', 'If-Modified-Since': 'Sun, 18 Oct 2026 10:00:00 GMT' } }), env);
+  assert.equal(response.status, 200);
+  assert.equal(env.getOptions().onlyIf.get('if-none-match'), '"new"');
+  assert.equal(env.getOptions().onlyIf.get('if-modified-since'), null);
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [1, 2, 3, 4]);
+  const notModified = await worker.fetch(new Request(url, { headers: { Range: 'bytes=1-2', 'If-None-Match': '"test"' } }), environment());
+  assert.equal(notModified.status, 304);
+  const matchedEnv = environment();
+  const matched = await worker.fetch(new Request(url, { headers: { 'If-Match': '"test"', 'If-Unmodified-Since': 'Sat, 17 Oct 2026 10:00:00 GMT' } }), matchedEnv);
+  assert.equal(matched.status, 200);
+  assert.equal(matchedEnv.getOptions().onlyIf.get('if-match'), '"test"');
+  assert.equal(matchedEnv.getOptions().onlyIf.get('if-unmodified-since'), null);
+});
+
+test('fallback supports byte intervals, suffixes, open intervals and clamped end positions', async () => {
+  for (const [range, contentRange, expected] of [
+    ['bytes=0-0', 'bytes 0-0/4', [1]],
+    ['bytes=1-2', 'bytes 1-2/4', [2, 3]],
+    ['bytes=2-', 'bytes 2-3/4', [3, 4]],
+    ['bytes=-2', 'bytes 2-3/4', [3, 4]],
+    ['bytes=2-99', 'bytes 2-3/4', [3, 4]],
+    ['bytes=-99', 'bytes 0-3/4', [1, 2, 3, 4]],
+  ]) {
+    const env = environment(), response = await worker.fetch(new Request(url, { headers: { Range: range } }), env);
+    assert.equal(response.status, 206, range);
+    assert.equal(response.headers.get('content-range'), contentRange);
+    assert.equal(response.headers.get('content-length'), String(expected.length));
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], expected);
+    assert.ok(env.getOptions().range);
+    assert.equal(env.getOptions().onlyIf.get('if-match'), '"test"');
+  }
+});
+
+test('unsatisfiable ranges return 416 without reading a body; malformed or multiple ranges are ignored', async () => {
+  for (const range of ['bytes=', 'bytes=4-', 'bytes=3-2', 'bytes=-0']) {
+    const env = environment(), response = await worker.fetch(new Request(url, { headers: { Range: range } }), env);
+    assert.equal(response.status, 416, range);
+    assert.equal(response.headers.get('content-range'), 'bytes */4');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+    assert.equal(env.getOptions(), undefined);
+  }
+  for (const range of ['items=1-2', 'bytes=invalid', 'bytes=0-0,2-2', 'bytes=9007199254740992-']) {
+    const response = await worker.fetch(new Request(url, { headers: { Range: range } }), environment());
+    assert.equal(response.status, 200, range);
+    assert.equal(response.headers.get('content-range'), null);
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [1, 2, 3, 4]);
+  }
+});
+
+test('If-Range permits only matching strong ETag or modification date; mismatch sends the entire file', async () => {
+  for (const [ifRange, expected] of [['"test"', 206], ['Sun, 18 Oct 2026 10:00:00 GMT', 206], ['"old"', 200], ['W/"test"', 200], ['Sat, 17 Oct 2026 10:00:00 GMT', 200], ['invalid', 200]]) {
+    const response = await worker.fetch(new Request(url, { headers: { Range: 'bytes=1-2', 'If-Range': ifRange } }), environment());
+    assert.equal(response.status, expected, ifRange);
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], expected === 206 ? [2, 3] : [1, 2, 3, 4]);
+  }
+});
+
+test('HEAD ignores Range and never advertises its empty body as a cacheable complete GET', async () => {
+  const env = environment(), response = await worker.fetch(new Request(url, { method: 'HEAD', headers: { Range: 'bytes=1-2' } }), env);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-length'), '4');
+  assert.equal(response.headers.get('content-range'), null);
+  assert.equal(response.headers.get('cloudflare-cdn-cache-control'), 'no-store');
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+  assert.equal(env.getOptions(), undefined);
+  assert.deepEqual([...new Uint8Array(await (await worker.fetch(new Request(url), env)).arrayBuffer())], [1, 2, 3, 4]);
+});
+
+test('gateway normalizes only released download queries before cached dispatch and preserves Range', async () => {
+  let dispatched;
+  const request = new Request(url + '?tracking=abc&cache=1', { headers: { Range: 'bytes=1-2', 'If-Range': '"test"' } });
+  const response = await routeWebsiteRequest(request, environment(), normalized => { dispatched = normalized; return new Response('sent'); });
+  assert.equal(await response.text(), 'sent');
+  assert.equal(dispatched.url, url);
+  assert.equal(dispatched.headers.get('range'), 'bytes=1-2');
+  assert.equal(dispatched.headers.get('if-range'), '"test"');
+  assert.equal(request.url, url + '?tracking=abc&cache=1');
+});
+
+test('non-download routes remain on Static Assets and do not enter the cached download entrypoint', async () => {
+  const paths = [];
+  const env = { ASSETS: { fetch: request => { paths.push(request.url); return new Response('asset'); } } };
+  const request = new Request('https://hamsterai.cc/tutorials/?page=1');
+  assert.equal(await (await routeWebsiteRequest(request, env, () => assert.fail('must not dispatch download'))).text(), 'asset');
+  assert.deepEqual(paths, [request.url]);
+});
+
+function cachedResponse(status, overrides = {}, onCancel = () => {}) {
+  const headers = {
+    ETag: '"test"',
+    'Last-Modified': 'Sun, 18 Oct 2026 10:00:00 GMT',
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'CF-Cache-Status': 'HIT',
+    ...overrides,
+  };
+  const body = status === 304 ? null : new ReadableStream({ cancel: onCancel });
+  return new Response(body, { status, headers });
+}
+
+test('gateway enforces strong preconditions even when a cache HIT bypasses the source handler', async () => {
+  for (const [headers, expected] of [
+    [{ 'If-Match': '"old-release"' }, 412],
+    [{ 'If-Match': 'W/"test"' }, 412],
+    [{ 'If-Unmodified-Since': 'Sat, 17 Oct 2026 10:00:00 GMT' }, 412],
+    [{ 'If-Match': '"test"', 'If-Unmodified-Since': 'Sat, 17 Oct 2026 10:00:00 GMT' }, 200],
+    [{ 'If-Match': '*' }, 200],
+  ]) {
+    let cancelled = false;
+    const source = cachedResponse(200, { 'Content-Length': '4' }, () => { cancelled = true; });
+    const response = await routeWebsiteRequest(new Request(url, { headers }), {}, () => source);
+    assert.equal(response.status, expected, JSON.stringify(headers));
+    if (expected === 412) {
+      assert.equal(cancelled, true);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('cloudflare-cdn-cache-control'), 'no-store');
+      assert.equal(response.headers.get('content-length'), null);
+      assert.equal((await response.arrayBuffer()).byteLength, 0);
+    } else {
+      assert.equal(response, source);
+      await response.body.cancel();
+    }
+  }
+});
+
+test('gateway preserves valid 304 hits and gives failed strong conditions precedence over 304', async () => {
+  for (const [headers, expected] of [
+    [{ 'If-None-Match': '"test"' }, 304],
+    [{ 'If-Match': '"test"', 'If-None-Match': '"test"' }, 304],
+    [{ 'If-Match': '"old-release"', 'If-None-Match': '"test"' }, 412],
+    [{ 'If-Unmodified-Since': 'Sat, 17 Oct 2026 10:00:00 GMT', 'If-None-Match': '"test"' }, 412],
+  ]) {
+    const source = cachedResponse(304);
+    const response = await routeWebsiteRequest(new Request(url, { headers }), {}, () => source);
+    assert.equal(response.status, expected, JSON.stringify(headers));
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+    if (expected === 304) assert.equal(response, source);
+  }
+});
+
+test('gateway removes cached partial bodies and range headers when 304 or 412 takes precedence', async () => {
+  for (const [headers, expected] of [[{ 'If-Match': '"old-release"' }, 412], [{ 'If-None-Match': '"test"' }, 304]]) {
+    let cancelled = false;
+    const source = cachedResponse(206, { 'Content-Range': 'bytes 1-2/4', 'Content-Length': '2' }, () => { cancelled = true; });
+    const response = await routeWebsiteRequest(new Request(url, { headers: { Range: 'bytes=1-2', ...headers } }), {}, () => source);
+    assert.equal(response.status, expected);
+    assert.equal(cancelled, true);
+    assert.equal(response.headers.get('content-range'), null);
+    assert.equal(response.headers.get('content-length'), null);
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+  }
+});
+
+test('gateway normalizes cached 416 metadata only after preconditions are evaluated', async () => {
+  for (const [extra, expected] of [[{}, 416], [{ 'If-Match': '"test"' }, 416], [{ 'If-Match': '"old-release"' }, 412], [{ 'If-None-Match': '"test"' }, 304]]) {
+    let cancelled = false;
+    const source = cachedResponse(416, { 'Content-Range': 'bytes 0-0/4', 'Content-Length': '0' }, () => { cancelled = true; });
+    const response = await routeWebsiteRequest(new Request(url, { headers: { Range: 'bytes=4-', ...extra } }), {}, () => source);
+    assert.equal(response.status, expected, JSON.stringify(extra));
+    assert.equal(cancelled, true);
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+    if (expected === 416) {
+      assert.equal(response.headers.get('content-range'), 'bytes */4');
+      assert.equal(response.headers.get('content-length'), '0');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    } else {
+      assert.equal(response.headers.get('content-range'), null);
+      assert.equal(response.headers.get('content-length'), null);
+    }
+  }
+  const response = await worker.fetch(new Request(url, { headers: { Range: 'bytes=4-', 'If-Match': '"test"' } }), environment());
+  assert.equal(response.status, 416);
+  assert.equal(response.headers.get('etag'), '"test"');
+});
+
+test('gateway does not turn missing objects or other errors into precondition failures', async () => {
+  const source = new Response('File not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  const response = await routeWebsiteRequest(new Request(url, { headers: { 'If-Match': '"old-release"' } }), {}, () => source);
+  assert.equal(response, source);
+  assert.equal(response.status, 404);
+});
+
+test('missing or temporarily unavailable objects have non-cacheable fixed errors', async () => {
+  for (const [implementation, expected] of [[async () => null, 404], [async () => { throw new Error('private storage diagnostic'); }, 503]]) {
+    const env = environment();
+    env.DOWNLOADS.get = implementation;
+    const response = await worker.fetch(new Request(url), env);
+    assert.equal(response.status, expected);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.doesNotMatch(await response.text(), /private|storage|diagnostic/);
+  }
+});
+
+test('Workers Cache configuration isolates named downloads from gateway and cross-version cache', () => {
+  const config = JSON.parse(readFileSync(new URL('../website/wrangler.jsonc', import.meta.url), 'utf8'));
+  assert.deepEqual(config.cache, { enabled: true, cross_version_cache: false });
+  assert.deepEqual(config.exports.default.cache, { enabled: false });
+  assert.deepEqual(config.exports.Download, { type: 'worker', cache: { enabled: true } });
+  const handler = readFileSync(new URL('../website/src/download-handler.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(handler, /\.clone\(|\.arrayBuffer\(|\.text\(/);
+});
+
+test('only explicitly published portable releases are public; other paths cannot read objects', async () => {
+  const env = environment();
+  for (const path of ['/download/HamsterAI-Portable-1.7.46.exe', '/download/HamsterAI-Portable-1.7.48.exe', '/download/HamsterAI-Portable-1.7.49.exe', '/download/HamsterAI-Portable-1.7.50.exe', '/download/HamsterAI-Portable-1.7.51.exe', '/download/HamsterAI-Portable-1.7.52.exe', '/download/HamsterAI-Portable-1.7.53.exe', '/download/HamsterAI-Portable-1.7.54.exe', '/download/HamsterAI-Portable-1.7.61.exe', '/download/HamsterAI-Portable-1.7.62.exe', '/download/HamsterAI-Portable-1.7.63.exe', '/download/HamsterAI-Portable-1.7.64.exe', '/download/HamsterAI-Portable-1.7.65.exe', '/download/HamsterAI-Setup-1.7.75.exe', '/download/releases/1.7.75/HamsterAI-Portable-1.7.75.exe', '/download/private.exe']) {
+    assert.equal((await worker.fetch(new Request('https://hamsterai.cc' + path), env)).status, 404, path);
+  }
+  assert.deepEqual(env.reads, []);
+});
+
+test('write requests are rejected before reading the published file', async () => {
+  const env = environment();
+  const response = await worker.fetch(new Request(url, { method: 'POST' }), env);
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get('allow'), 'GET, HEAD');
+  assert.deepEqual(env.reads, []);
+});
+
+test('www redirects to the main domain and preserves the current release path', async () => {
+  const env = environment();
+  const response = await worker.fetch(new Request(url.replace('https://', 'https://www.')), env);
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get('location'), url);
+  assert.deepEqual(env.reads, []);
+});
+
+test('home page keeps frozen 1.7.75 metadata and full tutorial retains the account flow', () => {
+  const page = readFileSync(new URL('../website/public/index.html', import.meta.url), 'utf8');
+  const tutorial = readFileSync(new URL('../website/public/tutorials/index.html', import.meta.url), 'utf8');
+  assert.equal([...page.matchAll(/href="\/download\/[^"]+"/g)].length, 1);
+  assert.match(page, /href="\/download\/HamsterAI-Portable-1\.7\.75\.exe"/);
+  assert.match(page, /[\d,]+ 字节/);
+  assert.match(page, /<code\s*>\s*[A-F0-9]{64}<\/code\s*>/);
+  assert.match(page, /仓鼠AI正式版/);
+  assert.match(tutorial, /点击「开通并启用」/);
+  assert.match(tutorial, /已有 Key 可点击「使用已有 Key」或「更换 Key」，明确选择后启用/);
+  assert.match(tutorial, /无需一次开通四类/);
+  assert.match(tutorial, /后台获取当前报价并核对本次总费用与余额/);
+  assert.match(tutorial, /余额不足时显示「前往充值」/);
+  assert.match(tutorial, /图片参考图随生成请求直传/);
+  assert.match(tutorial, /图片和工具结果从上游下载到本机/);
+  assert.match(tutorial, /正常对话在后台静默结算/);
+  assert.doesNotMatch(page, /1\.7\.46|候选|反推|文案改写|创意工作台/);
+});
+
+test('previous official downloads retain their explicit object keys', async () => {
+  for (const version of ['1.7.73','1.7.74']) {
+    const env=environment();
+    const target='https://hamsterai.cc/download/HamsterAI-Portable-'+version+'.exe';
+    const response=await worker.fetch(new Request(target,{method:'HEAD'}),env);
+    assert.equal(response.status,200);
+    assert.deepEqual(env.reads,['releases/'+version+'/HamsterAI-Portable-'+version+'.exe']);
+  }
+});

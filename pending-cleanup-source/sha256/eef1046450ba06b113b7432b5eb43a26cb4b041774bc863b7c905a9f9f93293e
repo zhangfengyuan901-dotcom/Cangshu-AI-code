@@ -1,0 +1,128 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const source = fs.readFileSync(path.join(__dirname, '../smart-video-agent/chat-ui/chat.js'), 'utf8');
+const polling = source.slice(source.indexOf('let pollCount = 0,'), source.indexOf('async function init()'));
+function fixture({iframe = false, observe = false} = {}) {
+  const calls = [], timers = new Map(), listeners = {};
+  const counts = { render: 0, reconcile: 0, history: 0, config: 0 };
+  let next = 0, reply, observer;
+  const window = {}; window.top = iframe ? {} : window;
+  class Observer {
+    constructor(callback) { this.callback = callback; observer = this; }
+    observe(target) { this.target = target; }
+  }
+  const current = { id: 'session', status: 'idle', messages: [], media: [] };
+  const context = vm.createContext({
+    current, selection: 0, submitting: false, uploading: false,
+    document: { visibilityState: 'visible', documentElement: {}, addEventListener: (type, fn) => { listeners[type] = fn; } },
+    window, IntersectionObserver: observe ? Observer : undefined,
+    api: async route => { calls.push(route); return reply ? await reply(route) : structuredClone(current); },
+    render: () => counts.render++, reconcileBills: async () => counts.reconcile++,
+    applyConfiguration: () => counts.config++, refreshAttachmentCapabilities: async () => {}, refreshHistory: async () => counts.history++, controls() {},
+    setTimeout: (fn, delay) => { timers.set(++next, { fn, delay }); return next; },
+    clearTimeout: id => timers.delete(id),
+  });
+  vm.runInContext(polling, context);
+  return {
+    context, calls, timers, listeners, counts, setReply: fn => { reply = fn; },
+    intersect: value => observer.callback([{target: observer.target, isIntersecting: value, intersectionRatio: value ? 1 : 0}]),
+    runTimer: async () => { const [id, timer] = timers.entries().next().value; timers.delete(id); await timer.fn(); },
+  };
+}
+
+test('unchanged session polling preserves message DOM while retaining original billing reconciliation', async () => {
+  const f = fixture();
+  await f.context.poll();
+  assert.deepEqual(f.calls, ['/sessions/session']);
+  assert.equal(f.counts.render, 0);
+  assert.equal(f.counts.reconcile, 1);
+  assert.equal([...f.timers.values()][0].delay, 2000);
+  f.setReply(async () => ({ ...f.context.current, status: 'running', stage: '处理中' }));
+  await f.context.poll();
+  assert.equal(f.counts.render, 1);
+  assert.equal(f.context.current.status, 'running');
+  assert.equal([...f.timers.values()].at(-1).delay, 500);
+});
+
+test('hidden document pauses read polling and becoming visible schedules one immediate refresh', async () => {
+  const f = fixture();
+  f.context.document.visibilityState = 'hidden';
+  await f.context.poll();
+  assert.deepEqual(f.calls, []);
+  assert.equal(f.timers.size, 0);
+  f.context.document.visibilityState = 'visible';
+  f.listeners.visibilitychange();
+  f.listeners.visibilitychange();
+  assert.equal(f.timers.size, 1);
+  assert.equal([...f.timers.values()][0].delay, 0);
+  f.context.document.visibilityState = 'hidden';
+  f.listeners.visibilitychange();
+  assert.equal(f.timers.size, 0);
+});
+
+test('concurrent visibility refresh does not overlap reads or apply a hidden late reply', async () => {
+  const f = fixture();
+  let resolve;
+  f.setReply(() => new Promise(done => { resolve = done; }));
+  const pending = f.context.poll();
+  await f.context.poll();
+  f.listeners.visibilitychange();
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.timers.size, 0);
+  f.context.document.visibilityState = 'hidden';
+  resolve({ ...f.context.current, status: 'running' });
+  await pending;
+  assert.equal(f.counts.render, 0);
+  assert.equal(f.counts.reconcile, 0);
+  assert.equal(f.context.current.status, 'idle');
+  assert.equal(f.timers.size, 0);
+});
+
+test('polling retains periodic configuration and history reads without creating a message', async () => {
+  const f = fixture();
+  for (let i = 0; i < 5; i++) await f.context.poll();
+  assert.equal(f.counts.config, 1);
+  assert.equal(f.counts.history, 1);
+  assert.equal(f.counts.reconcile, 5);
+  assert.ok(f.calls.every(route => route === '/config' || route === '/sessions/session'));
+});
+
+test('CSS-hidden iframe pauses ordinary reads and returns with one immediate session and billing refresh', async () => {
+  const f = fixture({iframe: true, observe: true});
+  await f.context.poll(); assert.equal(f.calls.length, 0); assert.equal(f.timers.size, 0);
+  f.intersect(true); f.intersect(true);
+  assert.equal(f.timers.size, 1); assert.equal([...f.timers.values()][0].delay, 0);
+  await f.runTimer(); assert.equal(f.calls.length, 1); assert.equal(f.counts.reconcile, 1);
+  f.intersect(false); assert.equal(f.context.document.visibilityState, 'visible');
+  assert.equal(f.timers.size, 0); await f.context.poll(); assert.equal(f.calls.length, 1);
+  f.intersect(true); assert.equal([...f.timers.values()][0].delay, 0);
+  await f.runTimer(); assert.equal(f.calls.length, 2); assert.equal(f.counts.reconcile, 2);
+});
+
+test('iframe hiding during a pending read rejects its late snapshot and showing it never overlaps reads', async () => {
+  const f = fixture({iframe: true, observe: true}); let resolve;
+  f.intersect(true);
+  f.setReply(() => new Promise(done => { resolve = done; }));
+  const pending = f.runTimer();
+  f.intersect(false); f.intersect(true); f.intersect(false);
+  assert.equal(f.calls.length, 1); assert.equal(f.timers.size, 0);
+  resolve({...f.context.current, status: 'running'}); await pending;
+  assert.equal(f.counts.render, 0); assert.equal(f.counts.reconcile, 0); assert.equal(f.timers.size, 0);
+  f.intersect(true);
+  assert.equal(f.timers.size, 1); assert.equal([...f.timers.values()][0].delay, 0);
+  f.setReply(async () => ({...f.context.current, status: 'running'}));
+  await f.runTimer(); assert.equal(f.counts.render, 1); assert.equal(f.counts.reconcile, 1);
+});
+
+test('a poll started before submitting or uploading cannot overwrite the active send or reconcile its bill', async () => {
+  for (const busy of ['submitting', 'uploading']) {
+    const f = fixture(); let resolve;
+    f.setReply(() => new Promise(done => { resolve = done; }));
+    const pending = f.context.poll(); f.context[busy] = true;
+    resolve({...f.context.current, status: 'running'}); await pending;
+    assert.equal(f.counts.render, 0); assert.equal(f.counts.reconcile, 0); assert.equal(f.context.current.status, 'idle');
+  }
+});
