@@ -1,0 +1,98 @@
+async (page) => {
+  // All API calls use local fixtures: no paid generation or upload requests.
+  const ids = ['sd_2_5_once_720p','sd_2_5_once_line3','sd_2_5_900_30s'];
+  const names = ['SD2.5-按次-720P','SD2.5-按次-线路3','SD2.5-9图-30秒'];
+  const models = [...ids].reverse().map(id => ({id,name:'Upstream private model',type:'video',resolutions:['720p'],ratios:['9:16','16:9'],durations:[5,10],price_credits:23}));
+  models.push({id:'sd2_9img_full',type:'video',name:'Old route'}, {id:'gpt-image2-2K',type:'image',name:'GPT Image',aspect_ratios:['1:1'],quality_options:['high']});
+  models.push(...['Flare','Sunburst'].map(name=>({id:'image_2_5_'+name.toLowerCase(),type:'image',name:'Image 2.5 '+name,aspect_ratios:['1:1','9:16'],quality_options:['auto'],default_quality:'auto'})));
+  let submitted, uploads=0, savedTasks=[];
+  const errors=[];
+  await page.emulateMedia({reducedMotion:'reduce'});
+  page.on('pageerror', e=>errors.push(e.message));
+  await page.route('**/api/**', async route => {
+    const path=route.request().url().split('?')[0];
+    let body={};
+    if(path.endsWith('/workbench/prepare') || path.endsWith('/chat/status')) body={status:'ready',progress:{percent:100,stage:'工作台已就绪'}};
+    else if(path.endsWith('/config')) body={configured:true,rhConfigured:false,llmConfigured:false};
+    else if(path.endsWith('/diagnostics/status')) body={checks:{port:{state:'available',port:8000}}};
+    else if(path.endsWith('/tasks/import')) {savedTasks=route.request().postDataJSON().tasks;body={tasks:savedTasks};}
+    else if(path.endsWith('/tasks')) body={tasks:savedTasks};
+    else if(path.endsWith('/assets')) body={items:[],root:'offline fixture'};
+    else if(path.endsWith('/models') || path.endsWith('/public-models')) body={data:models};
+    else if(path.endsWith('/me')) throw new Error('Balance endpoint must not be called while balance UI is disabled');
+    else if(path.endsWith('/uploads/raw')) {uploads++;await new Promise(resolve=>setTimeout(resolve,180));body={file:{url:'http://127.0.0.1:8788/hamster-logo.png'}};}
+    else if(path.endsWith('/videos') || path.endsWith('/images')) {submitted=route.request().postDataJSON();body={tasks:[{task_id:'fixture-generated'}]};}
+    else throw new Error('Unexpected API call '+path);
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+  });
+  await page.goto('http://127.0.0.1:8788/');
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('#modelLabel').filter({hasText:names[0]}).waitFor();
+  await page.locator('[data-menu="model"]').click();
+  const labels=await page.locator('.channel-card strong').allTextContents();
+  if(JSON.stringify(labels)!==JSON.stringify(names)) throw new Error('Wrong route order '+labels);
+  if(await page.locator('.channel-card img').count()!==3) throw new Error('Route logos missing');
+  await page.screenshot({path:'output/playwright/hamster-three-routes.png',fullPage:true});
+  await page.locator('.channel-card').nth(0).click();
+  if(await page.locator('#qualityLabel').innerText()!=='720p') throw new Error('720p missing');
+  await page.locator('#prompt').fill('测试线路映射，不调用真实接口');
+  await page.getByRole('button',{name:'发送',exact:true}).click();
+  if(submitted.model!==ids[0] || submitted.resolution!=='720p') throw new Error('Payload mapping mismatch');
+  await page.locator('#urlTile').click();
+  const add=async(kind,index)=>{
+    await page.locator('#urlKind').selectOption(kind);
+    await page.locator('#urlInput').fill('https://example.com/'+index);
+    await page.locator('#urlAdd').click();
+  };
+  for(let i=0;i<9;i++) await add('image','image'+i+'.png');
+  for(let i=0;i<3;i++) await add('video','video'+i+'.mp4');
+  if(await page.locator('#audioFile').isDisabled()) throw new Error('Full-reference route blocked valid audio input');
+  await page.locator('[data-menu="model"]').click();
+  await page.locator('.channel-card').nth(2).click();
+  if(!await page.getByRole('button',{name:'发送',exact:true}).isDisabled()) throw new Error('Switch route did not block invalid media');
+  if(!await page.locator('#videoFile').isDisabled() || !await page.locator('#audioFile').isDisabled()) throw new Error('Image-only restriction missing');
+  if(!/不支持视频/.test(await page.locator('#mediaLimitHint').innerText())) throw new Error('Missing mismatch explanation');
+  for(let i=0;i<3;i++) await page.locator('#mediaList .rm').last().click();
+  if(await page.getByRole('button',{name:'发送',exact:true}).isDisabled()) throw new Error('Valid media still blocked');
+  if(await page.locator('.media-chip').count()!==9 || !await page.locator('#imageFile').isDisabled()) throw new Error('9-image limit incorrect');
+  await page.locator('[data-menu="model"]').click();
+  await page.locator('.channel-card').nth(0).click();
+  while(await page.locator('#mediaList .rm').count()) await page.locator('#mediaList .rm').last().click();
+  const logo=await page.request.get('http://127.0.0.1:8788/hamster-logo.png');
+  const buffer=await logo.body();
+  await page.locator('#imageFile').setInputFiles(Array.from({length:31},(_,i)=>({name:'test'+i+'.png',mimeType:'image/png',buffer})));
+  await page.locator('.media-chip.pending').first().waitFor();
+  if(await page.locator('.media-chip.pending').count()!==30) throw new Error('Selected files are not shown while uploading');
+  if(await page.locator('#imageFile').inputValue()!=='') throw new Error('File input was not reset for retry');
+  await page.waitForFunction(()=>document.querySelectorAll('.media-chip').length===30 && !document.querySelector('.is-uploading'));
+  if(uploads!==30) throw new Error('Over-limit files were uploaded');
+  await page.locator('[data-view="account"]').click();
+  const account=await page.locator('[data-panel="account"]').innerText();
+  if(/余额/.test(await page.locator('body').innerText()) || await page.locator('#creditButton, #creditValue, #accountBalance').count()) throw new Error('Balance UI still present');
+  if(!await page.locator('#accountStatus').innerText()) throw new Error('Config status was removed');
+  if(await page.locator('#costPreview, .composer-actions .cost').count()) throw new Error('Main generation cost display still present');
+  if(await page.locator('#dhCostPreview, #depthCostPreview, .digital-cost, .lucide-zap').count()) throw new Error('Global credit badge still present');
+  if(/RunningHub|三宝|方舟|Upstream|hailuo/i.test(account)) throw new Error('Provider leaked in account');
+  await page.screenshot({path:'output/playwright/hamster-account-branded.png',fullPage:true});
+  await page.evaluate(()=>fetch('/api/tasks/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tasks:[{id:'old',type:'video',modelName:'仓鼠-SD2.5-过真人',status:'failed',cost:20,error:'RunningHub upstream https://www.runninghub.cn',prompt:'历史内容',createdAt:new Date().toISOString()}]})}));
+  await page.locator('[data-view="history"]').click();
+  await page.locator('#historyList').getByText('历史内容',{exact:true}).waitFor();
+  if(/RunningHub|SD2|https:/i.test(await page.locator('#historyList').innerText())) throw new Error('Provider leaked in old history');
+  if(/⚡|积分/.test(await page.locator('#historyList').innerText())) throw new Error('Historical credit display remains');
+  await page.getByRole('button',{name:'生成',exact:true}).click();
+  await page.locator('[data-menu="type"]').click();
+  await page.getByText('图片生成',{exact:true}).click();
+  await page.locator('[data-menu="model"]').click();
+  const imageNames=await page.locator('.channel-card strong').allTextContents();
+  if(JSON.stringify(imageNames)!==JSON.stringify(['Image 2.5 Flare','Image 2.5 Sunburst']))throw new Error('Unexpected image list '+imageNames);
+  await page.screenshot({path:'output/playwright/image25-routes.png',fullPage:true});
+  await page.locator('.channel-card').last().click();
+  while(await page.locator('#mediaList .rm').count())await page.locator('#mediaList .rm').last().click();
+  await page.locator('#prompt').fill('测试 Image 2.5，不调用真实接口');
+  await page.getByRole('button',{name:'发送',exact:true}).click();
+  if(submitted.model!=='image_2_5_sunburst'||submitted.quality!=='auto')throw new Error('Image payload mismatch');
+  if(errors.length) throw new Error(errors.join('\n'));
+  console.log('PASS: three routes, prices, payload, 9/30 limits, switching, upload cap, branded account/history. No paid calls.');
+  await page.unrouteAll({behavior:'wait'});
+  await page.evaluate(()=>localStorage.clear());
+}

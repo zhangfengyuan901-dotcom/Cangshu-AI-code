@@ -1,0 +1,158 @@
+[
+  {
+    "name": "image",
+    "quote": {
+      "model": "pikno-image-price-test",
+      "operation": "image",
+      "resolution": "1024x1024",
+      "quality": "auto",
+      "ratio": "",
+      "seconds": 0,
+      "reference_images": 0,
+      "reference_videos": 0,
+      "reference_audio": 0,
+      "quantity": 2
+    },
+    "submit": {
+      "route": "/v1/images/generations",
+      "body": {
+        "model": "pikno-image-price-test",
+        "prompt": "test-only synthetic image",
+        "n": 1,
+        "size": "1024x1024",
+        "quality": "auto",
+        "response_format": "url"
+      }
+    }
+  },
+  {
+    "name": "image_edit",
+    "quote": {
+      "model": "pikno-image-price-test",
+      "operation": "image_edit",
+      "resolution": "1536x1024",
+      "quality": "high",
+      "ratio": "",
+      "seconds": 0,
+      "reference_images": 1,
+      "reference_videos": 0,
+      "reference_audio": 0,
+      "quantity": 1
+    },
+    "submit": {
+      "route": "/v1/images/edits",
+      "body": {
+        "model": "pikno-image-price-test",
+        "prompt": "test-only synthetic image_edit",
+        "n": 1,
+        "size": "1536x1024",
+        "quality": "high",
+        "response_format": "url",
+        "images": [
+          "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read"
+        ]
+      }
+    }
+  },
+  {
+    "name": "video",
+    "quote": {
+      "model": "pikno-video-price-test",
+      "operation": "video",
+      "resolution": "480p",
+      "quality": "",
+      "ratio": "16:9",
+      "seconds": 4,
+      "reference_images": 1,
+      "reference_videos": 1,
+      "reference_audio": 1,
+      "quantity": 2
+    },
+    "submit": {
+      "route": "/v1/videos",
+      "body": {
+        "model": "pikno-video-price-test",
+        "prompt": "test-only synthetic video",
+        "seconds": 4,
+        "resolution": "480p",
+        "aspect_ratio": "16:9",
+        "image_urls": [
+          {
+            "url": "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read"
+          }
+        ],
+        "video_urls": [
+          {
+            "url": "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read"
+          }
+        ],
+        "audio_urls": [
+          {
+            "url": "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "digital",
+    "quote": {
+      "model": "pikno-tool-digital",
+      "operation": "digital",
+      "resolution": "",
+      "quality": "",
+      "ratio": "",
+      "seconds": 0,
+      "reference_images": 1,
+      "reference_videos": 0,
+      "reference_audio": 1,
+      "quantity": 1
+    },
+    "submit": {
+      "route": "/v1/tools/digital",
+      "body": {
+        "model": "pikno-tool-digital",
+        "images": [
+          {
+            "url": "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read"
+          }
+        ],
+        "videos": [],
+        "audios": [
+          {
+            "url": "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read",
+            "durationSeconds": 10
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "depth",
+    "quote": {
+      "model": "pikno-tool-depth",
+      "operation": "depth",
+      "resolution": "",
+      "quality": "",
+      "ratio": "",
+      "seconds": 0,
+      "reference_images": 0,
+      "reference_videos": 1,
+      "reference_audio": 0,
+      "quantity": 1
+    },
+    "submit": {
+      "route": "/v1/tools/depth",
+      "body": {
+        "model": "pikno-tool-depth",
+        "images": [],
+        "videos": [
+          {
+            "url": "https://www.piknoai.com/media/v1/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?ticket=synthetic-read"
+          }
+        ],
+        "audios": []
+      }
+    }
+  }
+]

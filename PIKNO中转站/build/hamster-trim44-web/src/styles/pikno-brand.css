@@ -1,0 +1,746 @@
+/* 仓鼠AI muted sage, clay and warm neutral brand layer. */
+:root {
+  --radius: 0.625rem;
+  --background: #f3f0eb;
+  --foreground: #34413d;
+  --card: #fffdf9;
+  --card-foreground: #34413d;
+  --popover: #fffdf9;
+  --popover-foreground: #34413d;
+  --primary: #34413d;
+  --primary-foreground: #f3f0eb;
+  --secondary: #dce3d9;
+  --secondary-foreground: #45554c;
+  --muted: #eaece4;
+  --muted-foreground: #69756f;
+  --accent: #dce3d9;
+  --accent-foreground: #34413d;
+  --neutral: #a0aaa1;
+  --neutral-foreground: #34413d;
+  --border: #d6d9cf;
+  --input: #cbd1c6;
+  --ring: #69756f;
+  --chart-1: #34413d;
+  --chart-2: #788d94;
+  --chart-3: #69756f;
+  --chart-4: #a0aaa1;
+  --chart-5: #c7c9bd;
+  --overview-accent-1: #45554c;
+  --overview-accent-2: #69756f;
+  --overview-accent-3: #a0aaa1;
+  --sidebar: #34413d;
+  --sidebar-foreground: #dce3d9;
+  --sidebar-primary: #f3f0eb;
+  --sidebar-primary-foreground: #34413d;
+  --sidebar-accent: #45554c;
+  --sidebar-accent-foreground: #f3f0eb;
+  --sidebar-border: #637369;
+  --sidebar-ring: #a0aaa1;
+}
+
+.dark {
+  --background: #34413d;
+  --foreground: #f3f0eb;
+  --card: #2e3b34;
+  --card-foreground: #f3f0eb;
+  --popover: #45554c;
+  --popover-foreground: #f3f0eb;
+  --primary: #dce3d9;
+  --primary-foreground: #34413d;
+  --secondary: #47564d;
+  --secondary-foreground: #f3f0eb;
+  --muted: #45554c;
+  --muted-foreground: #a0aaa1;
+  --accent: #526358;
+  --accent-foreground: #f3f0eb;
+  --neutral: #a0aaa1;
+  --neutral-foreground: #34413d;
+  --border: rgb(248 249 250 / 12%);
+  --input: rgb(248 249 250 / 18%);
+  --ring: #a0aaa1;
+  --sidebar: #28372f;
+  --sidebar-foreground: #dce3d9;
+  --sidebar-primary: #f3f0eb;
+  --sidebar-primary-foreground: #34413d;
+  --sidebar-accent: #45554c;
+  --sidebar-accent-foreground: #f3f0eb;
+  --sidebar-border: #637369;
+  --sidebar-ring: #a0aaa1;
+}
+
+body {
+  letter-spacing: -0.01em;
+}
+
+.pikno-home {
+  background: #f3f0eb;
+  color: #34413d;
+  min-height: calc(100svh - 4rem);
+  padding: clamp(6.75rem, 11vw, 9.5rem) clamp(1.25rem, 5vw, 5rem) 3.5rem;
+}
+
+.pikno-home__hero {
+  align-items: stretch;
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1.08fr) minmax(22rem, 0.92fr);
+  margin: 0 auto;
+  max-width: 78rem;
+}
+
+.pikno-home__copy {
+  align-self: center;
+  max-width: 46rem;
+}
+
+.pikno-home__eyebrow {
+  color: #69756f;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.22em;
+  margin-bottom: 1.6rem;
+}
+
+.pikno-home h1 {
+  font-size: clamp(3rem, 5.4vw, 5.3rem);
+  font-weight: 560;
+  letter-spacing: -0.065em;
+  line-height: 0.98;
+  margin: 0;
+  max-width: 14ch;
+}
+
+.pikno-home__lead {
+  color: #69756f;
+  font-size: clamp(1rem, 1.45vw, 1.2rem);
+  line-height: 1.75;
+  margin: 2rem 0 0;
+  max-width: 39rem;
+}
+
+.pikno-home__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2.35rem;
+}
+
+.pikno-home__primary-action,
+.pikno-home__secondary-action {
+  border-radius: 999px;
+  height: 3rem;
+  min-width: 8.5rem;
+  padding-inline: 1.5rem;
+}
+
+.pikno-home__primary-action {
+  background: #34413d;
+  color: #f3f0eb;
+}
+
+.pikno-home__primary-action:hover {
+  background: #485b4e;
+}
+
+.pikno-home__secondary-action {
+  background: transparent;
+  border-color: #d6d9cf;
+  color: #34413d;
+}
+
+.pikno-home__trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.65rem;
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+}
+
+.pikno-home__trust li {
+  color: #69756f;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.pikno-home__trust li::before {
+  background: #34413d;
+  content: '';
+  display: inline-block;
+  height: 1px;
+  margin-right: 0.55rem;
+  vertical-align: middle;
+  width: 1.5rem;
+}
+
+.pikno-home__brand-panel {
+  align-items: center;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 9%), transparent 32%),
+    radial-gradient(circle at 74% 14%, #9ba89b 0%, transparent 34%),
+    linear-gradient(145deg, #576b5e 0%, #34413d 58%, #45554c 100%);
+  border: 1px solid #6c7c6d;
+  border-radius: 1.5rem;
+  box-shadow: 0 2.5rem 5rem rgb(11 11 11 / 14%);
+  color: #f3f0eb;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 33rem;
+  overflow: hidden;
+  padding: 3rem;
+  position: relative;
+}
+
+.pikno-home__brand-panel::after {
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    rgb(255 255 255 / 34%) 49%,
+    transparent 63%
+  );
+  content: '';
+  height: 160%;
+  position: absolute;
+  right: -24%;
+  top: -34%;
+  transform: rotate(-21deg);
+  width: 48%;
+}
+
+.pikno-home__halo {
+  border: 1px solid rgb(229 231 235 / 17%);
+  border-radius: 50%;
+  height: 25rem;
+  position: absolute;
+  right: -8rem;
+  top: -9rem;
+  width: 25rem;
+}
+
+.pikno-home__mark {
+  filter: drop-shadow(0 1.5rem 2.2rem rgb(0 0 0 / 35%));
+  height: 11.5rem;
+  object-fit: contain;
+  position: relative;
+  width: 11.5rem;
+  z-index: 1;
+}
+
+.pikno-home__wordmark {
+  font-size: clamp(2.35rem, 4vw, 4rem);
+  font-weight: 570;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  margin-left: 0.18em;
+  margin-top: 1.6rem;
+  position: relative;
+  z-index: 1;
+}
+
+.pikno-home__descriptor {
+  color: #a0aaa1;
+  font-size: 0.68rem;
+  letter-spacing: 0.28em;
+  margin-top: 0.75rem;
+  position: relative;
+  z-index: 1;
+}
+
+.pikno-home__signal {
+  border-top: 1px solid rgb(229 231 235 / 17%);
+  bottom: 1.6rem;
+  color: #bac4b6;
+  display: flex;
+  font-size: 0.57rem;
+  justify-content: space-between;
+  left: 2rem;
+  letter-spacing: 0.18em;
+  padding-top: 0.85rem;
+  position: absolute;
+  right: 2rem;
+}
+
+.pikno-home__capabilities {
+  border-bottom: 1px solid #d6d9cf;
+  border-top: 1px solid #d6d9cf;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: clamp(4rem, 8vw, 7rem) auto 0;
+  max-width: 78rem;
+}
+
+.pikno-home__capabilities article {
+  min-height: 13rem;
+  padding: 2.1rem clamp(1.25rem, 2.8vw, 2.5rem);
+}
+
+.pikno-home__capabilities article + article {
+  border-left: 1px solid #d6d9cf;
+}
+
+.pikno-home__capabilities article > span {
+  color: #a0aaa1;
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+}
+
+.pikno-home__capabilities h2 {
+  font-size: 1.1rem;
+  font-weight: 620;
+  margin: 2.4rem 0 0;
+}
+
+.pikno-home__capabilities p {
+  color: #69756f;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  margin: 0.85rem 0 0;
+  max-width: 18rem;
+}
+
+.pikno-home__signature {
+  color: #69756f;
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  margin: 2rem auto 0;
+  max-width: 78rem;
+  text-transform: uppercase;
+}
+
+.pikno-auth {
+  background:
+    radial-gradient(circle at 73% 12%, rgb(255 255 255 / 92%), transparent 30%),
+    #eeece5;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1.08fr) minmax(28rem, 0.92fr);
+  min-height: 100svh;
+  padding: 0.75rem;
+}
+
+.pikno-auth__brand {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 9%), transparent 32%),
+    radial-gradient(circle at 76% 12%, #9ba89b 0%, transparent 32%),
+    linear-gradient(145deg, #576b5e 0%, #34413d 58%, #45554c 100%);
+  border: 1px solid #6c7c6d;
+  border-radius: 1.5rem;
+  box-shadow: 0 2.5rem 5rem rgb(11 11 11 / 14%);
+  color: #f3f0eb;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: calc(100svh - 1.5rem);
+  overflow: hidden;
+  padding: clamp(2rem, 4vw, 4.5rem);
+  position: relative;
+}
+
+.pikno-auth__brand::before {
+  border: 1px solid rgb(229 231 235 / 14%);
+  border-radius: 50%;
+  content: '';
+  height: 34rem;
+  position: absolute;
+  right: -13rem;
+  top: -15rem;
+  width: 34rem;
+}
+
+.pikno-auth__brand::after {
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    rgb(255 255 255 / 28%) 49%,
+    transparent 63%
+  );
+  content: '';
+  height: 170%;
+  position: absolute;
+  right: -27%;
+  top: -38%;
+  transform: rotate(-21deg);
+  width: 48%;
+}
+
+.pikno-auth__brand-link {
+  align-items: center;
+  color: #f3f0eb;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 650;
+  gap: 0.75rem;
+  letter-spacing: 0.16em;
+  position: relative;
+  text-transform: uppercase;
+  width: fit-content;
+  z-index: 1;
+}
+
+.pikno-auth__brand-link:focus-visible {
+  border-radius: 0.5rem;
+  outline: 2px solid #f3f0eb;
+  outline-offset: 0.4rem;
+}
+
+.pikno-auth__brand-logo {
+  align-items: center;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 50%;
+  display: inline-flex;
+  height: 2.5rem;
+  justify-content: center;
+  padding: 0.25rem;
+  width: 2.5rem;
+}
+
+.pikno-auth__hero {
+  max-width: 46rem;
+  padding-block: clamp(3rem, 9vh, 8rem);
+  position: relative;
+  z-index: 1;
+}
+
+.pikno-auth__eyebrow {
+  color: #a0aaa1;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.24em;
+  margin-bottom: 1.5rem;
+}
+
+.pikno-auth__hero h1 {
+  font-size: clamp(3rem, 4vw, 4.6rem);
+  font-weight: 550;
+  letter-spacing: -0.065em;
+  line-height: 0.92;
+  margin: 0;
+  max-width: 10em;
+}
+
+.pikno-auth__lead {
+  color: #e1e6db;
+  font-size: clamp(0.95rem, 1.2vw, 1.1rem);
+  line-height: 1.75;
+  margin: 2rem 0 0;
+  max-width: 38rem;
+}
+
+.pikno-auth__trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+}
+
+.pikno-auth__trust li {
+  color: #d0dac9;
+  font-size: 0.76rem;
+}
+
+.pikno-auth__trust li::before {
+  background: #a5b49e;
+  content: '';
+  display: inline-block;
+  height: 1px;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+  width: 1.25rem;
+}
+
+.pikno-auth__signal {
+  border-top: 1px solid rgb(229 231 235 / 17%);
+  color: #bac4b6;
+  display: flex;
+  font-size: 0.58rem;
+  justify-content: space-between;
+  letter-spacing: 0.2em;
+  padding-top: 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.pikno-auth__form-shell {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  padding: clamp(1rem, 4vw, 4rem);
+}
+
+.pikno-auth__form-card {
+  --background: #fffdf9;
+  --foreground: #34413d;
+  --card: #fffdf9;
+  --card-foreground: #34413d;
+  --primary: #34413d;
+  --primary-foreground: #f3f0eb;
+  --muted: #eaece4;
+  --muted-foreground: #69756f;
+  --border: #d6d9cf;
+  --input: #cbd1c6;
+  --ring: #69756f;
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: 1.5rem;
+  box-shadow: 0 2rem 5rem rgb(20 22 26 / 10%);
+  color: #34413d;
+  max-width: 33rem;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  width: 100%;
+}
+
+@supports (backdrop-filter: blur(1rem)) {
+  .pikno-auth__form-card {
+    backdrop-filter: blur(1.5rem);
+  }
+}
+
+.pikno-auth__mobile-brand {
+  align-items: center;
+  display: none;
+  font-size: 0.72rem;
+  font-weight: 650;
+  gap: 0.65rem;
+  letter-spacing: 0.15em;
+  margin-bottom: 2rem;
+  text-transform: uppercase;
+}
+
+.pikno-auth__mobile-brand img {
+  height: 2rem;
+  object-fit: contain;
+  width: 2rem;
+}
+
+.pikno-auth-notices {
+  color: #69756f;
+  font-size: 0.72rem;
+  margin-top: 1.75rem;
+  text-align: center;
+}
+
+.pikno-auth-notices a {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.pikno-auth-notices a:focus-visible {
+  border-radius: 0.2rem;
+  outline: 2px solid currentColor;
+  outline-offset: 0.25rem;
+}
+
+@media (max-width: 900px) {
+  .pikno-auth {
+    grid-template-columns: 1fr;
+    overflow: visible;
+    padding: 0.5rem;
+  }
+
+  .pikno-auth__brand {
+    min-height: 18rem;
+    padding: 2rem;
+  }
+
+  .pikno-auth__hero {
+    padding: 2.5rem 0 1.5rem;
+  }
+
+  .pikno-auth__hero h1 {
+    font-size: clamp(2.75rem, 9vw, 4.75rem);
+    max-width: 12em;
+  }
+
+  .pikno-auth__lead {
+    display: none;
+  }
+
+  .pikno-auth__form-shell {
+    padding: 1.5rem 0.5rem 3rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .pikno-auth__brand {
+    min-height: 10.5rem;
+    padding: 1.5rem;
+  }
+
+  .pikno-auth__hero {
+    padding: 1.8rem 0 0;
+  }
+
+  .pikno-auth__eyebrow,
+  .pikno-auth__trust,
+  .pikno-auth__signal {
+    display: none;
+  }
+
+  .pikno-auth__hero h1 {
+    font-size: clamp(2rem, 9vw, 2.8rem);
+    max-width: none;
+  }
+
+  .pikno-auth__form-card {
+    border-radius: 1.15rem;
+    padding: 1.5rem;
+  }
+
+  .pikno-auth__mobile-brand {
+    display: flex;
+  }
+}
+
+@media (max-width: 900px) {
+  .pikno-home__hero {
+    grid-template-columns: 1fr;
+  }
+
+  .pikno-home h1 {
+    max-width: 14ch;
+  }
+
+  .pikno-home__brand-panel {
+    min-height: 28rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .pikno-home {
+    padding-inline: 1rem;
+  }
+
+  .pikno-home h1 {
+    font-size: clamp(2.8rem, 14vw, 4rem);
+  }
+
+  .pikno-home__brand-panel {
+    border-radius: 1.1rem;
+    min-height: 25rem;
+    padding: 2rem;
+  }
+
+  .pikno-home__mark {
+    height: 9rem;
+    width: 9rem;
+  }
+
+  .pikno-home__capabilities {
+    grid-template-columns: 1fr;
+  }
+
+  .pikno-home__capabilities article {
+    min-height: auto;
+    padding: 1.75rem 0.5rem;
+  }
+
+  .pikno-home__capabilities article + article {
+    border-left: 0;
+    border-top: 1px solid #d6d9cf;
+  }
+}
+
+.pikno-about-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  text-underline-offset: 4px;
+}
+
+.pikno-about-link:hover { text-decoration: underline; }
+.pikno-about-link:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 3px; }
+.pikno-about { max-width: 800px; margin: 0 auto; padding: 140px 24px 64px; }
+.pikno-about h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 20px 0; font-weight: 600; }
+.pikno-about h2 { font-size: 1.4rem; font-weight: 600; margin-bottom: 24px; }
+.pikno-about p { line-height: 1.8; margin-bottom: 16px; }
+.pikno-about section { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 32px; }
+.pikno-about a { text-decoration: underline; text-underline-offset: 4px; }
+.pikno-about nav { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 24px; font-size: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pikno-home *,
+  .pikno-home *::before,
+  .pikno-home *::after,
+  .pikno-auth *,
+  .pikno-auth *::before,
+  .pikno-auth *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
+
+/* Neutral surfaces and muted accents also cover the existing administrative UI. */
+:root {
+  --primary: #576b5e;
+  --primary-foreground: #fffdf9;
+  --ring: #788d79;
+  --chart-1: #576b5e;
+  --chart-2: #a77f70;
+  --chart-3: #788d94;
+  --chart-4: #9b977e;
+  --chart-5: #b9b8a4;
+  --overview-accent-1: #576b5e;
+  --overview-accent-2: #a77f70;
+  --overview-accent-3: #788d94;
+  --sidebar: #e6e9e0;
+  --sidebar-foreground: #34413d;
+  --sidebar-primary: #576b5e;
+  --sidebar-primary-foreground: #fffdf9;
+  --sidebar-accent: #d5dece;
+  --sidebar-accent-foreground: #34413d;
+  --sidebar-border: #d1d8cc;
+  --sidebar-ring: #788d79;
+}
+.dark {
+  --background: #27352e;
+  --foreground: #eeeae2;
+  --card: #303f36;
+  --card-foreground: #eeeae2;
+  --popover: #35463b;
+  --popover-foreground: #eeeae2;
+  --primary: #bac9b1;
+  --primary-foreground: #27352e;
+  --muted-foreground: #b5c1b0;
+  --sidebar: #25322b;
+  --sidebar-foreground: #e0e6d9;
+  --sidebar-primary: #bac9b1;
+  --sidebar-primary-foreground: #27352e;
+  --sidebar-accent: #405244;
+  --sidebar-accent-foreground: #eeeae2;
+  --sidebar-border: #4c5d50;
+}
+.pikno-auth { background: #f3f0eb; }
+.pikno-auth__brand, .pikno-home__brand-panel {
+  background: linear-gradient(150deg, #70836e, #526858 70%);
+  border-color: #788a76;
+  box-shadow: 0 18px 46px rgb(67 80 61 / 10%);
+}
+.pikno-auth__brand::after, .pikno-home__brand-panel::after { display: none; }
+.pikno-auth__form-card {
+  --primary: #576b5e;
+  --primary-foreground: #fffdf9;
+  background: #fffdf9;
+  border-color: #e1e0d6;
+  box-shadow: 0 12px 40px rgb(67 80 61 / 6%);
+  backdrop-filter: none;
+}
+.pikno-auth__brand-link { font-size: 1rem; letter-spacing: 0.04em; }
+.pikno-auth__brand-logo { width: 3.2rem; height: 3.2rem; background: #e7eadd; border-color: #d6decb; border-radius: 1rem; }
+.pikno-auth__brand-logo img { image-rendering: auto; }
+.pikno-auth__eyebrow { color: #e1e6d7; letter-spacing: 0.14em; }
+.pikno-auth__hero h1 { line-height: 1.2; letter-spacing: -0.025em; font-weight: 550; }
+.pikno-auth__lead { color: #eef0e7; }
+.pikno-auth__trust li, .pikno-auth__signal { color: #e1e6d7; }
+.pikno-home__mark { filter: none; }
+.pikno-home__wordmark { letter-spacing: 0.06em; margin-left: 0; }
+.pikno-home__descriptor, .pikno-home__signal { color: #e1e6d7; }
+.pikno-home__primary-action { background: #576b5e; color: #fffdf9; }
+.pikno-home__primary-action:hover { background: #485b4e; }

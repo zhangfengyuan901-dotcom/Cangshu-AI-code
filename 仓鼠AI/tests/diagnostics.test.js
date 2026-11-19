@@ -1,0 +1,133 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net');
+const {PassThrough}=require('node:stream');
+const {EventEmitter}=require('node:events');
+const {createDiagnostics,inspectPort,classifyFailure}=require('../diagnostics.cjs');
+const {createSmartVideoLauncher,createApp}=require('../server');
+
+function fixture(t,maxBytes){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hamster-diagnostics-'));
+  const configPath=path.join(root,'config.json');
+  fs.writeFileSync(configPath,JSON.stringify({apiKey:'private-media-123456789',rhApiKey:'abcdef0123456789abcdef0123456789',llmApiKey:'private-llm-987654321'}));
+  const dir=path.join(root,'logs'),exportDir=path.join(root,'exports');
+  const diag=createDiagnostics({dir,exportDir,configPath,version:'test',maxBytes});
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  return {root,dir,exportDir,configPath,diag};
+}
+function childFixture(){const child=new EventEmitter();child.exitCode=null;child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};return child;}
+const noHealth=async()=>{throw new Error('offline fixture');};
+
+test('diagnostic export is parseable, removes secrets, signed URLs and home paths, and never copies business files',t=>{
+  const f=fixture(t);
+  fs.writeFileSync(path.join(f.root,'tasks.json'),JSON.stringify({prompt:'USER_PROMPT_NOT_FOR_EXPORT'}));
+  const sensitive=`private-media-123456789 private-llm-987654321 abcdef0123456789abcdef0123456789 ${os.homedir()} https://host.example/private?token=private-media-123456789`;
+  fs.mkdirSync(f.dir);
+  fs.writeFileSync(path.join(f.dir,'startup.log'),sensitive);
+  fs.writeFileSync(path.join(f.dir,'last-failure.json'),JSON.stringify({code:'DEPENDENCY_MISSING',message:sensitive,path:sensitive,exitCode:1}));
+  const reopened=createDiagnostics({dir:f.dir,exportDir:f.exportDir,version:'test'});
+  assert.equal(reopened.snapshot().lastFailure.code,'DEPENDENCY_MISSING');
+  assert.doesNotMatch(JSON.stringify(reopened.snapshot()),/host\.example|private-media/);
+  reopened.log('launch',{runtime:'embedded',port:8000,command:sensitive,workflow:sensitive});
+  reopened.failure({code:'DEPENDENCY_MISSING',message:sensitive,stack:sensitive});
+  const report=reopened.exportReport({port:{state:'available',port:8000,owners:[{name:sensitive,pid:123}]},extra:sensitive});
+  const data=JSON.parse(fs.readFileSync(report.localPath,'utf8'));
+  assert.equal(data.appVersion,'test');assert.equal(data.configuration,undefined);assert.equal(data.format,'hamster-startup-diagnostics-v2');
+  assert.deepEqual(data.checks.port,{state:'available',port:8000});
+  assert.equal(data.logs.find(log=>log.event==='launch').runtime,'embedded');
+  for(const value of ['private-media-123456789','private-llm-987654321','abcdef0123456789abcdef0123456789','USER_PROMPT_NOT_FOR_EXPORT','?token='])assert.ok(!report.content.includes(value));
+  assert.ok(!report.content.includes(os.homedir().replace(/\\/g,'\\\\')));
+  assert.doesNotMatch(report.content,/host\.example|private-media|USER_PROMPT/);assert.equal(path.dirname(report.localPath),f.exportDir);
+  assert.doesNotMatch(fs.readFileSync(path.join(f.dir,'startup-safe.log'),'utf8'),/host\.example|private-media/);
+  assert.doesNotMatch(fs.readFileSync(path.join(f.dir,'last-failure.json'),'utf8'),/host\.example|private-media/);
+  assert.equal(fs.readFileSync(path.join(f.dir,'startup.log'),'utf8'),sensitive);
+  assert.equal(createDiagnostics({dir:f.dir,exportDir:f.exportDir,configPath:f.configPath}).snapshot().lastFailure.code,'DEPENDENCY_MISSING');
+});
+
+test('startup output handles chunked secrets and UTF-8, drops payloads and stops capturing once service is ready',t=>{
+  const f=fixture(t),stream=new PassThrough(),observed=[];let enabled=true;
+  const flush=f.diag.capture(stream,'stderr',event=>{
+    observed.push(event);
+    if(event.ready)enabled=false;
+  },()=>enabled);
+  const bytes=Buffer.from('ModuleNotFoundError: 缺失模块 private-media-123456789\n');
+  for(let i=0;i<bytes.length;i+=2)stream.write(bytes.subarray(i,i+2));
+  stream.write('INFO: prompt=USER_PROMPT_NOT_FOR_EXPORT\n');
+  stream.write('arbitrary source snippet USER_SOURCE_NOT_FOR_EXPORT\n');
+  stream.write('ERROR: startup fixture Q:/QA-FIXTURE/DIAGNOSTIC_PATH_MARKER.txt\n');
+  stream.write('ERROR: '+ 'x'.repeat(17000)+'SECRET_TAIL_NOT_FOR_EXPORT\n');
+  stream.write('\u001b[32mINFO:\u001b[0m Uvicorn running on LOOPBACK_READY_NOT_FOR_EXPORT\n');
+  stream.write('ModuleNotFoundError: AFTER_READY_NOT_FOR_EXPORT\n');flush();
+  assert.deepEqual(observed.map(event=>event.failure?.code || 'ready'),['DEPENDENCY_MISSING','ready']);
+  const result=f.diag.exportReport();
+  assert.match(result.content,/DEPENDENCY_MISSING/);assert.doesNotMatch(result.content,/缺失模块/);assert.ok(!result.content.includes('private-media-123456789'));
+  const disk=fs.readFileSync(path.join(f.dir,'startup-safe.log'),'utf8');
+  for(const value of ['USER_PROMPT_NOT_FOR_EXPORT','USER_SOURCE_NOT_FOR_EXPORT','DIAGNOSTIC_PATH_MARKER','SECRET_TAIL_NOT_FOR_EXPORT','LOOPBACK_READY_NOT_FOR_EXPORT','AFTER_READY_NOT_FOR_EXPORT']){
+    assert.ok(!result.content.includes(value));assert.ok(!disk.includes(value));
+  }
+});
+
+test('logs are bounded and rotate only their own three files',t=>{
+  const f=fixture(t,200);
+  fs.mkdirSync(f.dir);fs.writeFileSync(path.join(f.dir,'unrelated.log'),'keep');
+  for(let i=0;i<30;i++)f.diag.log('desktop-ready',{port:8000+i,message:'x'.repeat(500)});
+  const files=fs.readdirSync(f.dir);assert.deepEqual(files.sort(),['startup-safe.log','startup-safe.log.1','startup-safe.log.2','unrelated.log']);
+  for(const file of files.filter(name=>name.startsWith('startup-safe.log')))assert.ok(fs.statSync(path.join(f.dir,file)).size<=200);
+  assert.equal(fs.readFileSync(path.join(f.dir,'unrelated.log'),'utf8'),'keep');
+});
+
+test('real port probe detects occupied and available ports without terminating an owner',async t=>{
+  const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  t.after(()=>server.close());
+  const port=server.address().port;
+  const occupied=await inspectPort(port,'127.0.0.1',async()=>[{pid:123,name:'fixture-owner'}]);
+  assert.equal(occupied.state,'occupied');assert.equal(occupied.owners[0].pid,123);assert.ok(server.listening);
+  await new Promise(r=>server.close(r));assert.equal((await inspectPort(port)).state,'available');
+});
+
+test('occupied port blocks startup without exposing process names or identifiers',async t=>{
+  const f=fixture(t);let spawns=0;
+  const launcher=createSmartVideoLauncher({dynamicPorts:false,diagnostics:f.diag,fetchImpl:noHealth,portProbe:async()=>({port:8000,state:'occupied',owners:[{pid:456,name:'other-service'}]}),spawnImpl:()=>{spawns++;return childFixture();}});
+  const result=await launcher.open();assert.equal(result.code,'PORT_IN_USE');assert.match(result.message,/端口被占用/);assert.doesNotMatch(JSON.stringify(result),/other-service|456|PID/);assert.equal(spawns,0);
+  assert.equal(f.diag.snapshot().lastFailure.code,'PORT_IN_USE');
+});
+
+test('compatible service is reused without port probe or duplicate spawn',async()=>{
+  const launcher=createSmartVideoLauncher({fetchImpl:async()=>({status:200,json:async()=>({app:'hamster-smart-video',chat:true,version:26})}),
+    portProbe:()=>{throw new Error('must not probe healthy service');},spawnImpl:()=>{throw new Error('must not spawn');},openExternal:()=>{}});
+  assert.equal((await launcher.open('chat')).status,'ready');
+});
+
+test('dependency stderr survives process close; concurrent launch requests start one process',async t=>{
+  const f=fixture(t),child=childFixture();let spawns=0;
+  const launcher=createSmartVideoLauncher({diagnostics:f.diag,fetchImpl:noHealth,portProbe:async()=>({port:8000,state:'available'}),
+    spawnImpl:()=>{spawns++;return child;}});
+  const results=await Promise.all([launcher.open(),launcher.open('chat')]);
+  assert.ok(results.every(x=>x.status==='starting'));assert.equal(spawns,1);
+  child.stderr.write("Traceback (most recent call last):\nModuleNotFoundError: No module named 'uvicorn'");
+  child.exitCode=1;child.emit('close',1,null);
+  const state=await launcher.status();assert.equal(state.code,'DEPENDENCY_MISSING');assert.equal(state.exitCode,1);
+  assert.match(f.diag.exportReport().content,/DEPENDENCY_MISSING/);assert.doesNotMatch(f.diag.exportReport().content,/uvicorn/);
+});
+
+test('binding race, permission and network failures remain distinguishable from generic exit 1',()=>{
+  assert.equal(classifyFailure('ERROR: [WinError 10048] address already in use').code,'PORT_IN_USE');
+  assert.equal(classifyFailure('PermissionError: [WinError 10013]').code,'PERMISSION_DENIED');
+  assert.equal(classifyFailure('error: failed to download: certificate verification failed').code,'NETWORK_SETUP_FAILED');
+  assert.equal(classifyFailure('exit code 1').code,'STARTUP_FAILED');
+});
+
+test('read-only status does not export; explicit POST creates a desktop diagnostic report without config payload',async t=>{
+  const f=fixture(t);
+  const app=createApp({configPath:f.configPath,diagnostics:f.diag,taskDir:path.join(f.root,'tasks'),
+    smartVideoLauncher:{diagnose:async()=>({service:'stopped',port:{state:'available',port:8000,owners:[{name:'private-process-name',pid:123}]}})}});
+  await new Promise(r=>app.listen(0,'127.0.0.1',r));t.after(()=>app.close());
+  const base=`http://127.0.0.1:${app.address().port}`;
+  const status=await fetch(base+'/api/diagnostics/status');
+  assert.equal(status.status,200);assert.ok(!fs.existsSync(f.exportDir));
+  assert.deepEqual((await status.json()).checks.port,{state:'available',port:8000});
+  assert.equal((await fetch(base+'/api/diagnostics/export')).status,405);
+  const response=await fetch(base+'/api/diagnostics/export',{method:'POST'});
+  assert.equal(response.status,200);const data=await response.json();assert.ok(fs.existsSync(data.localPath));
+  assert.ok(!fs.readFileSync(data.localPath,'utf8').includes('private-media-123456789'));
+});

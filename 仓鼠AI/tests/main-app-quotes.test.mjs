@@ -1,0 +1,179 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {createQuoteController,quoteFingerprint} from '../public/quote-ui.mjs';
+import {quoteValid,quoteSummary,catalogPriceText,formatMoney,estimatePrice} from '../public/canvas-pricing.mjs';
+import {modelOptionsError} from '../public/canvas-core.mjs';
+import {buildVideoPayload,buildImagePayload,hamsterModelName,mediaLimitError} from '../public/core.mjs';
+
+import {toolAvailability,batchIsActive,batchProgressText} from '../public/relay-ui-state.mjs';
+import {mediaUploadMetadata,mediaExpiryError,refreshMediaReferences} from '../public/media-upload-state.mjs';
+
+const source=fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+const section=(start,end)=>{const first=source.indexOf(start),last=source.indexOf(end,first);assert.ok(first>=0&&last>first,start);return source.slice(first,last);};
+const code=[section('function toolStatus(channel)','const toolUploadVersions'),section('// 报价只携带计费参数','/* ---- 数字人请求'),section('function groupMedia()','// The UI reads the local journal'),section('async function dhSubmit()','// ---- 工具箱：黑白深度视频'),section('async function depthSubmit()','function renderRhStatus()'),section('function taskModelLabel(task)','function taskCardHtml(t)')].join('\n');
+const defer=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+const flush=async()=>{for(let i=0;i<14;i++)await Promise.resolve();};
+const operations={onSubmit:'generate',dhSubmit:'digital',depthSubmit:'depth'};
+function fixture({failure,result,deferUpload=false,imageLimit=2,marked=true,quoteFailure,balanceChecked=true}={}){
+  const quoteWait=defer(),upload=defer(),elements=new Map(),quotes=[],paid=[],toasts=[],views=[],batchReads=[];let dialogs=0,recharges=0,uploads=0;
+  const element=selector=>{if(!elements.has(selector)){const node={value:'',disabled:false,textContent:'',open:false,hidden:false,dataset:{},style:{},setAttribute(){},querySelectorAll:()=>[],classList:{toggle(){}},close(){this.open=false;},showModal(){this.open=true;dialogs++;},click(){if(selector==='#payLocalAccount')recharges++;},querySelector:sub=>element(selector+' '+sub)};elements.set(selector,node);}return elements.get(selector);};
+  element('#prompt').value='private prompt';element('#imageEditModel').value='main-image-1234abcd';element('#imageEditInstruction').value='modify local image';element('#imageEditSize').value='1024x1024';element('#imageEditRatio').value='1:1';element('#imageEditQuality').value='auto';
+  const image={id:'main-image-1234abcd',name:'PIKNO 图片优选',type:'image',line_revision:1,max_images:imageLimit,max_media_total:20,concurrency_options:[1,2,4],billing_mode:'relay',currency:'CNY',size_options:['1024x1024','2048x2048'],aspect_ratios:['1:1'],quality_options:['auto'],prices:[{resolution:'default',unit:'image',retail_cny:'0.10'}]},video={id:'main-video-5678abcd',name:'PIKNO 动态视频',type:'video',line_revision:1,max_images:30,max_videos:3,max_audios:3,max_media_total:20,concurrency_options:[1,2,4],billing_mode:'relay',currency:'CNY',ratios:['16:9'],resolutions:['720p'],durations:[4,5],reference_surcharge_cny:'0.02',prices:[{resolution:'720p',unit:'second',retail_cny:'0.10'}]};
+  const expires_at=Math.floor(Date.now()/1000)+600;
+  const state={relayMode:true,relayServerRevision:10,model:video,type:'video',models:[image,video],toolCatalogReady:true,toolChecking:false,toolConnection:{state:'ready'},toolModels:[{id:'tool-digital',name:'PIKNO 数字人',line_revision:1},{id:'tool-depth',name:'PIKNO 深度视频',line_revision:1}],options:{ratio:'16:9',resolution:'720p',duration:4,reference:'all'},concurrency:2,submitting:false,media:[{kind:'image',uiKey:'local-selection',url:'https://private-material.invalid/secret',expires_at}],pendingMedia:[],tasks:[],dh:{image:{fileName:'https://private-material.invalid/portrait',expires_at},audio:{fileName:'https://private-material.invalid/voice',duration:1,expires_at}},depth:{video:{fileName:'https://private-material.invalid/video',expires_at}}};
+  const imageEdit={blob:{local:true},loadId:1,strokes:marked?[{points:[1,2]}]:[],busy:false,loading:false,aborted:false};
+  const context={state,imageEdit,relayConfigRevision:0,modelLoadRevision:0,accountSessionRejected:false,activeFileBatches:{},mediaUploadMetadata,mediaExpiryError,refreshMediaReferences,QUALITY_LABEL:{auto:'自动'},$ :element,
+    quoteValid,quoteSummary,catalogPriceText,formatMoney,estimatePrice,modelOptionsError,quoteFingerprint,createQuoteController:opts=>createQuoteController({...opts,delay:0}),
+    imageModels:()=>[image],hasGenerationKey:()=>true,hasKey:()=>true,rhHasKey:()=>true,requireRhKey:()=>true,accountHint:()=> '请配置 PIKNO Key',mediaLimitError,toolAvailability,batchIsActive,batchProgressText,pricingQuote:()=>({known:true}),publicText:value=>value,
+    groupMedia:()=>({image:state.media.map(m=>({url:m.url})),video:[],audio:[]}),isVideoType:()=>true,buildVideoPayload,buildImagePayload,buildImageEditPrompt:v=>v,hamsterModelName,escapeHtml:value=>String(value),renderBatchControls(){},
+    crypto:{randomUUID:()=> 'mock_request_1234'},extractTaskIds:()=>[],renderMediaLimits(){},dhSetHint(){},depthSetHint(){},renderAllTasks(){},syncTasks:async()=>{},switchView(view){views.push(view);},
+    imageEditFiles:async()=>imageEdit.strokes.length?[{name:'original.png'},{name:'marked.png'}]:[{name:'original.png'}],uploadFile:async()=>{uploads++;if(deferUpload)await upload.promise;return {url:'https://private-material.invalid/uploaded'};},
+    requestOnce:async(path,options)=>{assert.equal(path,'/quotes');quotes.push(options);const p=options.json;if(p.check_balance){await quoteWait.promise;if(quoteFailure)throw quoteFailure;}return {revision:state.relayServerRevision,balance_checked:p.check_balance&&balanceChecked,quote:{id:'opaque_quote_123',model:p.model,name:p.model.startsWith('tool-')?'PIKNO 工具':p.model.includes('image')?image.name:video.name,price_version:1,currency:'CNY',unit:p.model.includes('image')?'image':p.model.startsWith('tool-')?'request':'second',unit_price_cny:'0.10',units:p.duration||1,reference_surcharge_cny:'0.02',per_item_cny:'0.42',quantity:p.concurrency,total_cny:'0.84',expires_at:Math.floor(Date.now()/1000)+120}};},
+    request:async(path,options)=>{if(path==='/relay/batches')return {batches:batchReads};paid.push({path,options});if(failure)throw failure;return result||{accepted:true,task:{key:'returned-task',relay:true,status:'queued',requestId:'mock_request_1234:0'}};},acceptLocalTask:created=>{const rows=created.tasks||[created.task].filter(Boolean);state.tasks.push(...rows);return rows.length>0;},
+    releaseSubmittedMedia:()=>state.media=[],toast:text=>toasts.push(text),handleError:error=>toasts.push(error.message),
+  };
+  vm.createContext(context);vm.runInContext(code,context,{filename:'actual main app quote and submit functions'});
+  return {context,state,imageEdit,element,quotes,paid,toasts,quoteWait,upload,views,batchReads,get dialogs(){return dialogs;},get recharges(){return recharges;},get uploads(){return uploads;},run:name=>context[name]({preventDefault(){}}),dispose:()=>vm.runInContext('quoteController.reset()',context)};
+}
+test('generation estimate uses a valid quote or a local directory preview, never an unknown request price',()=>{
+  const f=fixture(),quote={id:'opaque_quote_123',model:f.state.model.id,price_version:1,currency:'CNY',unit:'second',unit_price_cny:'0.10',units:4,reference_surcharge_cny:'0.02',per_item_cny:'0.42',quantity:2,total_cny:'0.84',expires_at:Math.floor(Date.now()/1000)+120};
+  const estimate=f.element('#generationQuote [data-quote-refresh]');
+  const fingerprint=quoteFingerprint(f.context.quoteSnapshot('generate'));
+  f.context.renderQuoteCard('generate',{fingerprint,status:'ready',quote});assert.equal(estimate.textContent,'预估￥0.84元');
+  quote.total_cny='0.000001';f.context.renderQuoteCard('generate',{fingerprint,status:'ready',quote});assert.equal(estimate.textContent,'预估￥0.000001元');
+  for(const status of ['empty','loading','expired','error']){f.context.renderQuoteCard('generate',{status,quote});assert.equal(estimate.textContent,'预估￥0.84元');assert.equal(estimate.disabled,status==='loading');}
+  f.context.renderQuoteCard('generate',{status:'unknown',quote});assert.equal(estimate.textContent,'预估￥？元');
+  quote.expires_at=1;f.context.renderQuoteCard('generate',{fingerprint,status:'ready',quote});assert.equal(estimate.textContent,'预估￥0.84元');
+  quote.expires_at=Math.floor(Date.now()/1000)+120;vm.runInContext("pendingQuotedSubmissions.set('generate','original_request')",f.context);f.context.renderQuoteCard('generate',{status:'ready',quote});assert.equal(estimate.textContent,'预估￥？元');f.dispose();
+});
+test('generation estimate sits beneath the submit button without the old quote card',()=>{
+  const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8'),form=html.match(/<form id="generationForm"[^]*?<\/form>/)[0];
+  assert.match(form,/<div class="submit-group">\s*<button class="send-button"[^]*?<\/button>\s*<div id="generationQuote" class="generation-estimate"/);
+  assert.doesNotMatch(form,/data-quote-title|data-quote-description|重新报价|获取报价/);
+});
+test('twenty specification changes on every surface stay local and trigger one fresh balance check on generation',async()=>{
+  const f=fixture();
+  for(let i=0;i<20;i++){
+    f.state.options.duration=i%2?4:5;
+    for(const key of ['generate','digital','depth'])f.context.updateSurfaceQuote(key);
+    await flush();
+  }
+  assert.equal(f.quotes.length,0);assert.equal(f.paid.length,0);
+  assert.equal(f.element('.send-button').disabled,false);assert.equal(f.element('#imageEditSubmit').disabled,false);
+  const pending=f.run('onSubmit');await flush();assert.equal(f.quotes.length,1);
+  f.quoteWait.resolve();await pending;assert.equal(f.paid.length,1);assert.equal(f.uploads,0);f.dispose();
+});
+test('missing estimate data does not prevent an explicit authoritative quote and does not become a free price',async()=>{
+  const f=fixture();f.state.model.prices=[];f.context.updateSurfaceQuote('generate');
+  assert.equal(f.element('#generationQuote [data-quote-refresh]').textContent,'预估￥？元');assert.equal(f.element('.send-button').disabled,false);
+  const pending=f.run('onSubmit');await flush();assert.equal(f.quotes.length,1);
+  f.quoteWait.resolve();await pending;assert.equal(f.paid.length,1);f.dispose();
+});
+test('new server price is used for generation even when the directory estimate differs',async()=>{
+  const f=fixture();f.state.model.prices[0].retail_cny='0.01';f.context.updateSurfaceQuote('generate');
+  assert.equal(f.element('#generationQuote [data-quote-refresh]').textContent,'预估￥0.12元');
+  const pending=f.run('onSubmit');await flush();assert.equal(f.quotes.length,1);
+  f.quoteWait.resolve();await pending;assert.equal(f.paid[0].options.json.quote_id,'opaque_quote_123');f.dispose();
+});
+test('removed models, unsupported retained options and reduced quantity never obtain a signed quote',async()=>{
+  for(const change of ['removed','options','quantity']){
+    const f=fixture();
+    if(change==='removed')f.state.models=[];
+    else if(change==='options'){f.state.options.duration=5;f.state.model.durations=[4];}
+    else f.state.model.concurrency_options=[1];
+    assert.match(f.context.generationSelectionError(),/不可用/);f.context.updateSurfaceQuote('generate');
+    assert.equal(f.element('.send-button').disabled,true);assert.equal(f.context.quoteSnapshot('generate'),null);
+    await f.run('onSubmit');assert.equal(f.quotes.length,0);assert.equal(f.paid.length,0);f.dispose();
+  }
+});
+for(const [operation,key] of Object.entries(operations)){
+  test(`${operation}: insufficient balance prompts recharge without submitting or refreshing media`,async()=>{
+    const f=fixture({quoteFailure:Object.assign(Error('wallet'),{status:402,code:'insufficient_balance'})});
+    if(key==='generate')f.state.media[0].expires_at=1;
+    const pending=f.run(operation);await flush();assert.equal(f.quotes.length,1);assert.equal(f.paid.length,0);assert.equal(f.uploads,0);
+    f.quoteWait.resolve();await pending;assert.equal(f.paid.length,0);assert.equal(f.uploads,0);assert.equal(f.dialogs,1);f.dispose();
+  });
+  test(`${operation}: one click with sufficient balance submits the original quote once`,async()=>{
+    const f=fixture(),pending=f.run(operation);await flush();await f.run(operation);assert.equal(f.quotes.length,1);assert.equal(f.paid.length,0);f.quoteWait.resolve();await pending;
+    assert.equal(f.paid.length,1);assert.equal(f.paid[0].options.json.quote_id,'opaque_quote_123');assert.equal(f.paid[0].options.json.concurrency,key==='generate'?2:1);
+    assert.equal(f.dialogs,0);assert.equal(f.quotes[0].json.check_balance,true);assert.equal('prompt' in f.quotes[0].json,false);assert.equal('images' in f.quotes[0].json,false);assert.doesNotMatch(JSON.stringify(f.quotes[0]),/private-material|private prompt/);f.dispose();
+  });
+  test(`${operation}: account switch during the balance check prevents submission`,async()=>{
+    const f=fixture(),pending=f.run(operation);await flush();f.state.relayServerRevision=11;f.quoteWait.resolve();await pending;assert.equal(f.paid.length,0);assert.equal(f.uploads,0);f.dispose();
+  });
+  test(`${operation}: changed quote rejection never retries automatically`,async()=>{
+    const f=fixture({failure:Object.assign(Error('safe price changed'),{status:409,code:'quote_changed'})}),pending=f.run(operation);await flush();f.quoteWait.resolve();await pending;
+    assert.equal(f.paid.length,1);assert.equal(f.quotes.length,1);assert.match(f.toasts.join(' '),/报价已失效/);assert.equal(vm.runInContext(`quoteController.state('${key}').status`,f.context),'expired');f.dispose();
+  });
+  test(`${operation}: ambiguous submission is blocked rather than re-quoted or resent`,async()=>{
+    const f=fixture({failure:Object.assign(Error('synthetic unavailable'),{status:503})}),pending=f.run(operation);await flush();f.quoteWait.resolve();await pending;
+    await f.run(operation);assert.equal(f.paid.length,1);assert.equal(f.quotes.length,1);assert.equal(vm.runInContext(`pendingQuotedSubmissions.has('${key}')`,f.context),true);f.dispose();
+  });
+}
+test('partial batch preserves input and media and reports processed count',async()=>{
+  const f=fixture({result:{accepted:true,tasks:[{key:'failed-attempt',status:'failed'}],stopped:{code:'submission_stopped',submitted:1,total:2}}}),pending=f.run('onSubmit');await flush();f.quoteWait.resolve();await pending;
+  assert.equal(f.element('#prompt').value,'private prompt');assert.equal(f.state.media.length,1);assert.match(f.toasts.at(-1),/已处理 1\/2 份.*剩余未提交/);assert.equal(f.paid.length,1);f.dispose();
+});
+test('unknown task response and zero-task active batch both block a new paid submission',async()=>{
+  for(const result of [{accepted:true,task:{key:'uncertain',status:'unknown'}},{accepted:true,tasks:[],stopped:{submitted:0,total:2}}]){
+    const f=fixture({result}),pending=f.run('onSubmit');await flush();f.quoteWait.resolve();await pending;await f.run('onSubmit');assert.equal(f.paid.length,1);assert.equal(f.element('#prompt').value,'private prompt');assert.equal(f.quotes.length,1);f.dispose();
+  }
+});
+test('new relay history uses its saved published name even for tools, and does not use a new catalog title',()=>{
+  const f=fixture();assert.equal(f.context.taskModelLabel({relay:true,source:'digital',modelName:'历史批准名称',modelId:'tool-digital'}),'历史批准名称');assert.equal(f.context.taskModelLabel({source:'depth'}),'仓鼠深度视频');f.dispose();
+});
+test('20 combined relay references can be quoted and 21 are rejected before quote or paid request',async()=>{
+  for(const [count,allowed] of [[1,true],[20,true],[21,false]]){
+    const f=fixture();f.state.media=Array.from({length:count},(_,index)=>({kind:'image',uiKey:'ref-'+index,url:'https://private-material.invalid/'+index,expires_at:Math.floor(Date.now()/1000)+600}));
+    const pending=f.run('onSubmit');await flush();assert.equal(f.quotes.length,allowed?1:0);assert.equal(f.uploads,0);f.quoteWait.resolve();await pending;assert.equal(f.paid.length,allowed?1:0);if(!allowed)assert.match(f.toasts.at(-1),/素材总数最多20个/);f.dispose();
+  }
+});
+test('fast batch acceptance preserves inputs until unsent items finish and blocks a second generation',async()=>{
+  const batch={id:'b'.repeat(32),requestId:'mock_request_1234',status:'running',submitted:1,remaining:3,quantity:4};
+  const f=fixture({result:{accepted:true,task:{key:'first',status:'submitting'},batch}}),pending=f.run('onSubmit');await flush();f.quoteWait.resolve();await pending;
+  assert.equal(f.state.batches[0].id,batch.id);assert.match(f.toasts.at(-1),/批次已受理/);assert.equal(f.element('#prompt').value,'private prompt');await f.run('onSubmit');assert.equal(f.paid.length,1);assert.equal(f.quotes.length,1);f.dispose();
+});
+test('missing balance acknowledgement and other payment errors block generation without suggesting recharge',async()=>{
+  for(const options of [{balanceChecked:false},{quoteFailure:Object.assign(Error('limit'),{status:402,code:'token_quota'})}]){
+    const f=fixture(options);
+    f.quoteWait.resolve();await f.run('onSubmit');
+    assert.equal(f.paid.length,0);
+    assert.equal(f.dialogs,0);
+    assert.match(f.toasts.at(-1),/无法核算/);
+    f.dispose();
+  }
+});
+test('a wallet race after a successful quote prompts recharge without retrying',async()=>{
+  const f=fixture({failure:Object.assign(Error('wallet'),{status:402,code:'insufficient_balance'})});
+  f.quoteWait.resolve();await f.run('onSubmit');
+  assert.equal(f.paid.length,1);
+  assert.equal(f.quotes.length,1);
+  assert.equal(f.dialogs,1);
+  assert.equal(f.element('#prompt').value,'private prompt');
+  f.context.openGenerationRecharge();
+  assert.deepEqual(f.views,['account']);
+  assert.equal(f.recharges,1);
+  f.element('#payLocalAccount').disabled=true;
+  f.context.openGenerationRecharge();
+  assert.equal(f.recharges,1);
+  f.dispose();
+});
+test('only the current batch balance stop prompts once across polling',async()=>{
+  const batch={id:'a'.repeat(32),requestId:'mock_request_1234',status:'running',submitted:1,remaining:3,quantity:4};
+  const f=fixture({result:{accepted:true,task:{key:'first',status:'submitting'},batch}});
+  f.quoteWait.resolve();await f.run('onSubmit');
+  const stopped={...batch,status:'stopped',stopped:{code:'insufficient_balance',submitted:2,total:4}};
+  f.batchReads.push({...stopped,requestId:'unrelated_batch'});
+  await f.context.syncRelayBatches();
+  assert.equal(f.dialogs,0);
+  f.batchReads.push(stopped);
+  await f.context.syncRelayBatches();
+  assert.match(f.element('#generationBalanceMessage').textContent,/剩余份数/);
+  f.element('#generationBalanceDialog').close();
+  await f.context.syncRelayBatches();
+  assert.equal(f.dialogs,1);
+  assert.equal(f.paid.length,1);
+  f.dispose();
+});

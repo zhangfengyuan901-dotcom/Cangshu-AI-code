@@ -1,0 +1,17 @@
+**
+!src/
+!src/**
+!index.html
+!rsbuild.config.ts
+!package.json
+!bun.lock
+!public/
+!public/**
+!scripts/
+!scripts/*.mjs
+!scripts/assert-router-upgrade-tests.mjs
+!scripts/router-upgrade-errors-reporter.mjs
+!scripts/upgrade42-baseline-failures.json
+!vitest.config.ts
+!.oxlintrc.json
+!tsconfig*.json

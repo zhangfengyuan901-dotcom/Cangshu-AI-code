@@ -1,0 +1,14 @@
+HAMSTER Creative Canvas
+
+Contains modified portions of BeatDesign canvas-projection.ts and a canvas
+interaction adaptation based on BeatDesign's asset-first React Flow design.
+Upstream: https://github.com/BeatAPI/BeatDesign
+License: Apache License 2.0 (see BeatDesign-LICENSE.txt).
+Modifications: HAMSTER document persistence, asset references, five manually
+executed channel nodes, local service bridge and director text import.
+BeatDesign's provider, account configuration, database, MCP server and timeline
+editor are not included in this canvas module.
+
+React and React DOM: MIT. Copyright Meta Platforms, Inc. and affiliates.
+React Flow (@xyflow/react, @xyflow/system): MIT. Copyright webkid GmbH.
+Bundled dependency licenses: dependency-licenses.txt.

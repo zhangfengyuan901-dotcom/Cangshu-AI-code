@@ -1,0 +1,673 @@
+{
+  "format": 2,
+  "version": "1.7.96",
+  "runtimePackage": {
+    "name": "hamster-ai",
+    "version": "1.7.96",
+    "description": "仓鼠AI本地版",
+    "author": "仓鼠AI",
+    "private": true,
+    "main": "electron/main.cjs",
+    "engines": {
+      "node": ">=18"
+    },
+    "dependencies": {
+      "@formkit/auto-animate": "^0.10.0",
+      "lucide": "^1.45.0",
+      "yauzl": "3.4.0"
+    }
+  },
+  "files": {
+    "assets.cjs": {
+      "bytes": 13003,
+      "sha256": "f27069292cc22f27fc48549e34a331c2f52b7be38ce6434abe2fdc53170551ee"
+    },
+    "billing-client.cjs": {
+      "bytes": 1553,
+      "sha256": "26ce8b519240f6475041cb0fc525e83224af985d561d323171630f1ec3c9033f"
+    },
+    "canvas-launcher.cjs": {
+      "bytes": 4936,
+      "sha256": "c434f7ff8314e70e639178ef2e3f88ce8eebf074a3be2c749c1bfa1458714354"
+    },
+    "canvas.cjs": {
+      "bytes": 30926,
+      "sha256": "a3b19a93eb5b9f80233787cebd6573efeaef21f5378a75d0bf98e854d64fcedc"
+    },
+    "diagnostics.cjs": {
+      "bytes": 11976,
+      "sha256": "b0e3f6d3fc219d2e26e60adff84c310b768f68c84f32d6b7425d9b007efeb19b"
+    },
+    "direct-media.cjs": {
+      "bytes": 6991,
+      "sha256": "67a142540135a3c1caf937cc10c425a1837227ddd4a9e4be07482a8edf52521a"
+    },
+    "electron/account-auth.cjs": {
+      "bytes": 14831,
+      "sha256": "0fbec259a5308a8fa19ec4a1094b483f8a396a6c3c1e77b095f0ccca19fbf711"
+    },
+    "electron/account-browser.cjs": {
+      "bytes": 7629,
+      "sha256": "ee67aeda4c2a470d6a2a50d0f881aa0b6bd69e2c7d1f046c32cb21d92cc68158"
+    },
+    "electron/account-desktop.cjs": {
+      "bytes": 3840,
+      "sha256": "8d7b95ca0f108aed20036978130d9f770215da152ab08846dbed6ccc0924c0da"
+    },
+    "electron/account-lifecycle.cjs": {
+      "bytes": 640,
+      "sha256": "398e37b24078a41300af664cbf87a2eb6845c0d237ab0567770990cada0027b3"
+    },
+    "electron/account-payment.cjs": {
+      "bytes": 13133,
+      "sha256": "0f10e3d069cbb4dec0f1cf5a5206346e2cc24d419604845a41691d504afb8cd3"
+    },
+    "electron/account-service.cjs": {
+      "bytes": 20995,
+      "sha256": "3df17d28a11bd77c1c1970a9bfbb4f4305e55a0b67fed8f9ee6383257330227c"
+    },
+    "electron/account-status.css": {
+      "bytes": 804,
+      "sha256": "1babd4e781e665f1b0f02cfdd82456eaac6e09c64d29d6bcd62b4b52793125ce"
+    },
+    "electron/account-status.html": {
+      "bytes": 804,
+      "sha256": "2a8307874a90b93c48a5cd0b1c8b2a6d2da1af88beecf86d6acc98d9e03d0dfa"
+    },
+    "electron/account-status.js": {
+      "bytes": 426,
+      "sha256": "722bed276d9cc568372f54fe96ce84292c1d1b09a685f1f319bad0b3a467defe"
+    },
+    "electron/account-view.cjs": {
+      "bytes": 10546,
+      "sha256": "0b59ed5f4def599fb6abb7770fe8d0f41ab8daf43834241be041a8d1fde7657e"
+    },
+    "electron/app-events.cjs": {
+      "bytes": 1091,
+      "sha256": "ade11819f5be3bc58e4c61413bbb687e4ddfa15ee448dd1f5640b21885c2d05c"
+    },
+    "electron/installed-runtime-check.py": {
+      "bytes": 1809,
+      "sha256": "0f73019fd70be722e9d582bf7d41282f6bd74c3eddf0931897b4c055ec2f6660"
+    },
+    "electron/installer.nsh": {
+      "bytes": 1943,
+      "sha256": "c4e97ce87a3de59569d58754b94bf5f863e9f6930fe789d5998431f95c5bfeb3"
+    },
+    "electron/main.cjs": {
+      "bytes": 10307,
+      "sha256": "ccceb7bdb6f851f7b9bdbb5b19d391e28f36bd6ae36c986e178edb66fe5bb14c"
+    },
+    "electron/navigation.cjs": {
+      "bytes": 1548,
+      "sha256": "36b4ba437f4d116af5300296c9be6849935b7517120fd231abaf26c123c2a4e9"
+    },
+    "electron/reference-upload.cjs": {
+      "bytes": 2470,
+      "sha256": "9edddbacbc856f8bf87c4b41191ffa13aaa7f0d27a2abec45cef6cf7434e5d20"
+    },
+    "electron/work-directory.cjs": {
+      "bytes": 8006,
+      "sha256": "5a25d2dcde967b1e3a930f6def3cef139b38c4d2dbf8a191613a2a826478da12"
+    },
+    "electron/workflow-sync.cjs": {
+      "bytes": 3582,
+      "sha256": "03e60127b43d40354298c1d1e74e0055428302f029f2e65bf3b1769ad0c12a37"
+    },
+    "inference.cjs": {
+      "bytes": 6411,
+      "sha256": "7f184abfe8a99247b527a70f1b56885f8515f4f199542a0bcb519175d5514165"
+    },
+    "installed-runtime.cjs": {
+      "bytes": 4407,
+      "sha256": "512e470aa8cb95efa0a66630612c067be45af5f3a21ba89aed279848c9efd35d"
+    },
+    "interaction-preferences.cjs": {
+      "bytes": 1919,
+      "sha256": "81683c30cffaace2728cd0248ce0e6f6898f7f2e03c63aa3f7d654a6f6cdfea8"
+    },
+    "legacy-routes.mjs": {
+      "bytes": 3372,
+      "sha256": "2777e043b23efc0b914dc25c4e3bcb51184662c4978feac1cde89391701c3add"
+    },
+    "media-metadata.cjs": {
+      "bytes": 5259,
+      "sha256": "d17fcce0438fd18d6254b85f89f13e20d02a40319a8963e01accaba6bd068a9a"
+    },
+    "media.cjs": {
+      "bytes": 6664,
+      "sha256": "53f399895870dc22c1dff4bbf9ec61a49284af6623e4533ca2d3f45a3a44aa97"
+    },
+    "pikno-client.cjs": {
+      "bytes": 45440,
+      "sha256": "411e4bd38027aeae8eebc7af2a2209609153744e0a6b05b5d946bd950467955f"
+    },
+    "pikno-inference.cjs": {
+      "bytes": 12858,
+      "sha256": "7cf5d57af85605b7d488423fe0b559985cbce2d2149ce826a32b77b04be357ab"
+    },
+    "pikno-key-store.cjs": {
+      "bytes": 1579,
+      "sha256": "d83784a605b2eea0410f734bae3a33e5b5c7d6a5b59c7ec1a113d0f9f96df5b9"
+    },
+    "pikno.cjs": {
+      "bytes": 34465,
+      "sha256": "c9c43976b9c05902e65f3ae3f78085c841d5406f20295282b4b2bcfa27703885"
+    },
+    "public/account-native.mjs": {
+      "bytes": 22152,
+      "sha256": "0dd953e05709cf2c3d5f02fdc5d995675e80051a5d47536cef2ce46b0d2f86c7"
+    },
+    "public/account.css": {
+      "bytes": 18058,
+      "sha256": "0bde2bf7c041c2792874a1e49872beb70b4a24404fb992597a5b47f36862f420"
+    },
+    "public/account.mjs": {
+      "bytes": 36151,
+      "sha256": "fb8587a60fb096c78fd79dffd222c16157fad5bef1e83042a6b0d926709fbdb2"
+    },
+    "public/app.js": {
+      "bytes": 127885,
+      "sha256": "951816ca9134bc69425429a46d27e6f8e44638eb7c8046a0237ce099c2aed89a"
+    },
+    "public/asset-library.mjs": {
+      "bytes": 16180,
+      "sha256": "541277aad371c2788fa129e50026707be5b677f18f6a89d05fcd7b01e4ad51e5"
+    },
+    "public/assets.css": {
+      "bytes": 3359,
+      "sha256": "6237ef954d9658e42944127edcb098819976e54b2650f2c4b246577e8f651cfa"
+    },
+    "public/billing-account.mjs": {
+      "bytes": 9530,
+      "sha256": "b4b1349807d4dd9bfb29bf444c51d62db585f75aa5910a1a96ef2185f1692c69"
+    },
+    "public/billing-alipay.jpg": {
+      "bytes": 224360,
+      "sha256": "8759221176d2b449c0eec04ac3c5d81b17977e77de35853718f8ad74512501bc"
+    },
+    "public/canvas-core.mjs": {
+      "bytes": 5811,
+      "sha256": "55339f6cdbb2596169dc4807f8fbabe44a812cf5533f0bcccf80fde5430e08a1"
+    },
+    "public/canvas-pricing.mjs": {
+      "bytes": 7237,
+      "sha256": "ae5b710d63c84e7829447413217c046ce6484d6813e40eb232cec80ffd92301f"
+    },
+    "public/catalog-refresh.mjs": {
+      "bytes": 2221,
+      "sha256": "21d16d6d4b602e97a81ae67d92ab11697a707712997009da57600604915bc6d7"
+    },
+    "public/core.mjs": {
+      "bytes": 8741,
+      "sha256": "c4ecac6d7376a7d34a2a9145e38e5149a1748c19a43e0293a4af632e0653c589"
+    },
+    "public/fault-events.mjs": {
+      "bytes": 1400,
+      "sha256": "b916ce4e8e6178afa70962f4c60ad564c9f041f007c384074b061f226ac70736"
+    },
+    "public/fonts/InterVariable.woff2": {
+      "bytes": 352240,
+      "sha256": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3"
+    },
+    "public/fonts/JetBrainsMono-Regular.woff2": {
+      "bytes": 92164,
+      "sha256": "a9cb1cd82332b23a47e3a1239d25d13c86d16c4220695e34b243effa999f45f2"
+    },
+    "public/fonts/LICENSE-Inter.txt": {
+      "bytes": 4380,
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+    },
+    "public/fonts/LICENSE-JetBrainsMono.txt": {
+      "bytes": 4399,
+      "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad"
+    },
+    "public/fonts/LICENSE-Roboto.txt": {
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    "public/fonts/Roboto-Regular.ttf": {
+      "bytes": 515100,
+      "sha256": "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"
+    },
+    "public/hamster-logo.png": {
+      "bytes": 990110,
+      "sha256": "588804327961b21ce2d9b927c79a110ab21854d5a46ec9952cbeca037df292fe"
+    },
+    "public/hamster-mark.png": {
+      "bytes": 25879,
+      "sha256": "25a66ae4875727676da86a78ef503941030bb7d725fbec49ff39fa8f38518dd0"
+    },
+    "public/hypit-launch.mjs": {
+      "bytes": 1024,
+      "sha256": "23b3d902c4b6c4cf828dfab0c54c743c371f27e3972ced74cbe4622c26146fa3"
+    },
+    "public/hypit.css": {
+      "bytes": 4005,
+      "sha256": "06fa4c3028e2491f762255722e9a09510c60e68b619911729d55fdca334549a5"
+    },
+    "public/hypit.mjs": {
+      "bytes": 36540,
+      "sha256": "f679a729121c25994b28f458bbbd46bb2d87fdfe73996a00ee03ee90d9550196"
+    },
+    "public/index.html": {
+      "bytes": 27773,
+      "sha256": "df8b3d0feb7028c6e8689bce4594cb3eaafc6cd27c264531929a5161229136e8"
+    },
+    "public/inference-indicator.mjs": {
+      "bytes": 2760,
+      "sha256": "17386e3a06612d382723fbca0f4e108ff4b3e5cd835e134a330ba074828a5cf0"
+    },
+    "public/interaction-policy.mjs": {
+      "bytes": 8004,
+      "sha256": "7cfec50d3696153b7cb772cac324a9e51270a1b1bece04b26f3a805d1bf39607"
+    },
+    "public/local-workspace.mjs": {
+      "bytes": 7408,
+      "sha256": "ff8347591629489707b9cab45608ead75763d8ef1f03af539f0ae4c09594b5ea"
+    },
+    "public/material-preview.css": {
+      "bytes": 3637,
+      "sha256": "e678ab2ef393ca214f50218d02f2051cf1e8358e7982c9cf36ad1b2fba88824b"
+    },
+    "public/material-preview.mjs": {
+      "bytes": 13127,
+      "sha256": "d03014af1d81cc760d44bf022779b33b531679bdaf2edb05b09d57c767ae0f7d"
+    },
+    "public/media-upload-state.mjs": {
+      "bytes": 2581,
+      "sha256": "b37aeea78bed72d4cd8bc87c574e5309c63ba6863fd9e4561bd52ff0a6d9484f"
+    },
+    "public/quote-ui.mjs": {
+      "bytes": 6789,
+      "sha256": "80451fb0cc6724de2338d012727bff64785acc4f0528bb36b9d9fc3d1f29ffc7"
+    },
+    "public/relay-account-view.mjs": {
+      "bytes": 7016,
+      "sha256": "d16904ec0365af297bece66cb71b42f300fcc1ee5f57d5ecbd8b7629a4967643"
+    },
+    "public/relay-ui-state.mjs": {
+      "bytes": 1830,
+      "sha256": "393fcac0a2faaf5148a72dd0fd6a676a77855e021f6c571ade8cd31fb6e0af69"
+    },
+    "public/reverse.css": {
+      "bytes": 3555,
+      "sha256": "70619889b7ac7e0b9b3c748002f932beae260522bf12c2c1a375071ac1efb83b"
+    },
+    "public/reverse.mjs": {
+      "bytes": 23182,
+      "sha256": "1009d7ac6fe123c56c8c1ce68ee892c530c3259b3fd5ecf9cdcbf797225b45d6"
+    },
+    "public/startup-ui.mjs": {
+      "bytes": 2476,
+      "sha256": "5c348179c7d42891bb15c7e6cb0c78021938fce4c81ecf86277fe2793ce536c8"
+    },
+    "public/storage-status.mjs": {
+      "bytes": 7498,
+      "sha256": "9e28dccceba16d6d4a2b090aab557be2516b98e6679d8e6f2641599e450a9a5f"
+    },
+    "public/studio-favicon.png": {
+      "bytes": 2596,
+      "sha256": "0e0569010564a8bac7ee739afb4b7a29cf688abe4b00bfa9c4cfddb3f0ecdc5d"
+    },
+    "public/studio-shell.css": {
+      "bytes": 11902,
+      "sha256": "c2bbc4f6d27a531761f5624ad3ffbfa95adf35bd3a7cff5bdb05858ccc825a02"
+    },
+    "public/styles.css": {
+      "bytes": 54344,
+      "sha256": "bde499c4a9ec5a37d32896b6524ba566317c3077e9e426f6758011f16ca32e8b"
+    },
+    "public/task-prompt.mjs": {
+      "bytes": 1214,
+      "sha256": "aec23524044fe10c4ffa4520feeca2e395ea34fd14d4b554ceccd6dd43681342"
+    },
+    "public/typography.css": {
+      "bytes": 1135,
+      "sha256": "0aa58c7e78af4e60a67457784b7f22096ab097cfe408ece69dd4dbe8d98950b4"
+    },
+    "public/vendor/auto-animate-LICENSE.txt": {
+      "bytes": 1052,
+      "sha256": "02d5eb6ab7b888ccff93e1c59b9a4dd4f97b5ac219f4f25cbf12fd5dd538bf3d"
+    },
+    "public/vendor/auto-animate.mjs": {
+      "bytes": 27409,
+      "sha256": "cd5fca8eadcf0fb0474ff672de65851a4f58f1b13d76863bc649c2cf189a51d3"
+    },
+    "public/vendor/lucide-LICENSE.txt": {
+      "bytes": 3208,
+      "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+    },
+    "public/vendor/lucide-subset.js": {
+      "bytes": 17387,
+      "sha256": "20a33f0c6f3395b5f3da219c8ea326d79b97046008463281569a7de2cee7e9b7"
+    },
+    "public/vendor/lucide.min.js": {
+      "bytes": 438648,
+      "sha256": "1876a30f8dd16a23af5ee36d503460202b35af298973e28e194014b79c51fb13"
+    },
+    "reference-media-upload.cjs": {
+      "bytes": 6119,
+      "sha256": "8f7462201fbc12df58cbbb4f90036e02e77a280470408f8f7c5f0939a171b074"
+    },
+    "relay-account-view.cjs": {
+      "bytes": 2419,
+      "sha256": "f3f0cb373f4ce8e42b012928ba9b7aa166dda328ef08131b9bb3a6d0460cb612"
+    },
+    "report-schema.cjs": {
+      "bytes": 2908,
+      "sha256": "78e6b105cf3dce98fc369c50e58b841f61084e2fac8d43742eb6c34d720b1560"
+    },
+    "reporter.cjs": {
+      "bytes": 3329,
+      "sha256": "d67beeae6cdf39e301a501e9bafab2ab7ca55128c1b2af39f629c6acd4a915a8"
+    },
+    "reverse-client.cjs": {
+      "bytes": 5397,
+      "sha256": "49a0ecfdcce8df56298d9b5124d876fb067f44d04e10d2a899fce557d2505837"
+    },
+    "reverse-media.cjs": {
+      "bytes": 5422,
+      "sha256": "442960d6f0bd91acd738b3cca6fd7b5c45b9ae41c5a4010e134971a94272f55d"
+    },
+    "reverse.cjs": {
+      "bytes": 21312,
+      "sha256": "77051fad3495507f465132d4a511fe67b52a39f08619dfdf82c0e94822093a07"
+    },
+    "runtime.cjs": {
+      "bytes": 6183,
+      "sha256": "6c567d87f262cf80f9b95e7c21f1bf57ec95f21d32625e1b859f5d5995b564af"
+    },
+    "server.js": {
+      "bytes": 62369,
+      "sha256": "1bdc849581047fd0613dbbf8c2299b4a384b423bc3dd82e0558f1b3f9cfa5ff1"
+    },
+    "startup-preferences.cjs": {
+      "bytes": 2318,
+      "sha256": "7a12ca6ec2ff6e38266be500dec3e8e0175dcb9b92645dde9fa11d2b44bd450d"
+    },
+    "tasks.cjs": {
+      "bytes": 32050,
+      "sha256": "90bd0c939ea16a9124ddb8bd53399a9c43f22a2944f0fc4f3320305a4d481a9c"
+    },
+    "wallet.cjs": {
+      "bytes": 6401,
+      "sha256": "45390cbdddd51db03a32fef9a8a587034759d1a684ef7bc6ba1bbde122b6844b"
+    },
+    "package-lock.json": {
+      "bytes": 136549,
+      "sha256": "b0401cf8171096caddbaae366d2a6694eb73fe0482f477fad4bd8951f2221523"
+    }
+  },
+  "resourceSources": {
+    "smart-video-agent/.hamster-workflow-version": {
+      "source": "smart-video-agent/.hamster-workflow-version",
+      "bytes": 4,
+      "sha256": "ddb5c6d217ea442d92dcdead04dade6263ea482787904ab5c50a86d142b3c07d"
+    },
+    "smart-video-agent/__init__.py": {
+      "source": "smart-video-agent/__init__.py",
+      "bytes": 636,
+      "sha256": "61e09c29c79d02a3f1992dcbce4a8f24e5a8cfd0152e8a84d7bddc2bc82d9079"
+    },
+    "smart-video-agent/chat-ui/chat.css": {
+      "source": "smart-video-agent/chat-ui/chat.css",
+      "bytes": 17186,
+      "sha256": "91b235f4b957345e72f2e5b7411583b0db14259b946e18527056e7426c792588"
+    },
+    "smart-video-agent/chat-ui/chat.js": {
+      "source": "smart-video-agent/chat-ui/chat.js",
+      "bytes": 49572,
+      "sha256": "d2c6e129946c35d70b0f1a4bb3ac144aa5f832d3b67f5bdb492efcf9436d1d66"
+    },
+    "smart-video-agent/chat-ui/index.html": {
+      "source": "smart-video-agent/chat-ui/index.html",
+      "bytes": 6542,
+      "sha256": "0a7bd840ea8ce3b981c5ab2e72fd11561193ce0e2c93ec4af23e98d11699d7a3"
+    },
+    "smart-video-agent/chat-ui/workspace-activity.mjs": {
+      "source": "smart-video-agent/chat-ui/workspace-activity.mjs",
+      "bytes": 1936,
+      "sha256": "aef2d2f7aa7cbba2239d2c6f7cedb8c69f974a8b133e3f032c4406645c3e9370"
+    },
+    "smart-video-agent/chat.py": {
+      "source": "smart-video-agent/chat.py",
+      "bytes": 81366,
+      "sha256": "61960691e67494fed3f2d082f25f5e2dc629771603c6b8ca65e713a682546e66"
+    },
+    "smart-video-agent/chat_media.py": {
+      "source": "smart-video-agent/chat_media.py",
+      "bytes": 491,
+      "sha256": "e85d184fcd399c1490612b5cfbc0f430c851b027f048ef51e88ca3db50947c43"
+    },
+    "smart-video-agent/chat_policy.py": {
+      "source": "smart-video-agent/chat_policy.py",
+      "bytes": 4974,
+      "sha256": "1049165adc0290e255803f08ab9183a08ff2abd8fbf4d5c2888b9a56439a5e11"
+    },
+    "smart-video-agent/config.byteplus.yaml.example": {
+      "source": "smart-video-agent/config.byteplus.yaml.example",
+      "bytes": 627,
+      "sha256": "46ee1d1d328bc393b1f14b9c08dcde7acf9aecc4fa0e1b41381f0d0921a58a51"
+    },
+    "smart-video-agent/config.yaml.example": {
+      "source": "smart-video-agent/config.yaml.example",
+      "bytes": 558,
+      "sha256": "58f66effbc7dfdb5ef954f640e1300606a9a255768a5af3b654f16c357978aef"
+    },
+    "smart-video-agent/fault_report.py": {
+      "source": "smart-video-agent/fault_report.py",
+      "bytes": 1461,
+      "sha256": "7f09e0bfdadcb41baf794191a7e43af8b2dad0ac83e4b9fe08e137bb1145c502"
+    },
+    "smart-video-agent/LICENSE": {
+      "source": "smart-video-agent/LICENSE",
+      "bytes": 10143,
+      "sha256": "5df2a0d87d6c562f0ea11c688ac52532aa28d744cabc7994ff0537f64b3b3320"
+    },
+    "smart-video-agent/pyproject.toml": {
+      "source": "smart-video-agent/pyproject.toml",
+      "bytes": 404,
+      "sha256": "69457aeaa6a50e7fdfe4ed28246b35b10ba5c8c51c7838398c24df917d7fa123"
+    },
+    "smart-video-agent/requirements.txt": {
+      "source": "smart-video-agent/requirements.txt",
+      "bytes": 126,
+      "sha256": "78054f6be4ed3373b7513fcf60e669d1cb44325b020b00739654478ec475d8e2"
+    },
+    "smart-video-agent/runtime-requirements.lock": {
+      "source": "smart-video-agent/runtime-requirements.lock",
+      "bytes": 19977,
+      "sha256": "90c2b228a4052eed77967762d37f6c75c7bb890660456c8b6c699a104b150691"
+    },
+    "smart-video-agent/studio-ui/hamster-logo.png": {
+      "source": "smart-video-agent/studio-ui/hamster-logo.png",
+      "bytes": 990110,
+      "sha256": "588804327961b21ce2d9b927c79a110ab21854d5a46ec9952cbeca037df292fe"
+    },
+    "smart-video-agent/studio-ui/hamster-mark.png": {
+      "source": "smart-video-agent/studio-ui/hamster-mark.png",
+      "bytes": 25879,
+      "sha256": "25a66ae4875727676da86a78ef503941030bb7d725fbec49ff39fa8f38518dd0"
+    },
+    "smart-video-agent/studio-ui/shared/asset-library.mjs": {
+      "source": "smart-video-agent/studio-ui/shared/asset-library.mjs",
+      "bytes": 10655,
+      "sha256": "7b19d1c16bbd22d1f45947690234b122225abfe31a4485315751f8626873d58a"
+    },
+    "smart-video-agent/studio-ui/shared/assets.css": {
+      "source": "smart-video-agent/studio-ui/shared/assets.css",
+      "bytes": 2524,
+      "sha256": "777a0713fa15a4bd9e2e3182f4c183d986244a8e1fd9d14a6cc1fb8f9501c896"
+    },
+    "smart-video-agent/studio-ui/shared/fault-events.mjs": {
+      "source": "smart-video-agent/studio-ui/shared/fault-events.mjs",
+      "bytes": 1400,
+      "sha256": "b916ce4e8e6178afa70962f4c60ad564c9f041f007c384074b061f226ac70736"
+    },
+    "smart-video-agent/studio-ui/shared/fonts/InterVariable.woff2": {
+      "source": "smart-video-agent/studio-ui/shared/fonts/InterVariable.woff2",
+      "bytes": 352240,
+      "sha256": "693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3"
+    },
+    "smart-video-agent/studio-ui/shared/fonts/JetBrainsMono-Regular.woff2": {
+      "source": "smart-video-agent/studio-ui/shared/fonts/JetBrainsMono-Regular.woff2",
+      "bytes": 92164,
+      "sha256": "a9cb1cd82332b23a47e3a1239d25d13c86d16c4220695e34b243effa999f45f2"
+    },
+    "smart-video-agent/studio-ui/shared/fonts/LICENSE-Inter.txt": {
+      "source": "smart-video-agent/studio-ui/shared/fonts/LICENSE-Inter.txt",
+      "bytes": 4380,
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+    },
+    "smart-video-agent/studio-ui/shared/fonts/LICENSE-JetBrainsMono.txt": {
+      "source": "smart-video-agent/studio-ui/shared/fonts/LICENSE-JetBrainsMono.txt",
+      "bytes": 4399,
+      "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad"
+    },
+    "smart-video-agent/studio-ui/shared/fonts/LICENSE-Roboto.txt": {
+      "source": "smart-video-agent/studio-ui/shared/fonts/LICENSE-Roboto.txt",
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    "smart-video-agent/studio-ui/shared/fonts/Roboto-Regular.ttf": {
+      "source": "smart-video-agent/studio-ui/shared/fonts/Roboto-Regular.ttf",
+      "bytes": 515100,
+      "sha256": "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"
+    },
+    "smart-video-agent/studio-ui/shared/interaction-policy.mjs": {
+      "source": "smart-video-agent/studio-ui/shared/interaction-policy.mjs",
+      "bytes": 8004,
+      "sha256": "7cfec50d3696153b7cb772cac324a9e51270a1b1bece04b26f3a805d1bf39607"
+    },
+    "smart-video-agent/studio-ui/shared/material-preview.css": {
+      "source": "smart-video-agent/studio-ui/shared/material-preview.css",
+      "bytes": 3637,
+      "sha256": "e678ab2ef393ca214f50218d02f2051cf1e8358e7982c9cf36ad1b2fba88824b"
+    },
+    "smart-video-agent/studio-ui/shared/material-preview.mjs": {
+      "source": "smart-video-agent/studio-ui/shared/material-preview.mjs",
+      "bytes": 13127,
+      "sha256": "d03014af1d81cc760d44bf022779b33b531679bdaf2edb05b09d57c767ae0f7d"
+    },
+    "smart-video-agent/studio-ui/shared/typography.css": {
+      "source": "smart-video-agent/studio-ui/shared/typography.css",
+      "bytes": 1135,
+      "sha256": "0aa58c7e78af4e60a67457784b7f22096ab097cfe408ece69dd4dbe8d98950b4"
+    },
+    "smart-video-agent/studio-ui/workbench.css": {
+      "source": "smart-video-agent/studio-ui/workbench.css",
+      "bytes": 995,
+      "sha256": "98affd792d5d3063ef5aa7274a9d6f339dcb59eb44cf2cac909fd07866afe2f2"
+    },
+    "smart-video-agent/studio.py": {
+      "source": "smart-video-agent/studio.py",
+      "bytes": 9250,
+      "sha256": "70902e4d07799481d5496a84473ebc0d07705f162735d8eeb7b3226604698a97"
+    },
+    "smart-video-agent/uv.lock": {
+      "source": "smart-video-agent/uv.lock",
+      "bytes": 85828,
+      "sha256": "057dc50f63f357943e3f5f4747be9d0bf0e43dd3de840cdf2beaef54586244c6"
+    },
+    "smart-video-agent/web.py": {
+      "source": "smart-video-agent/web.py",
+      "bytes": 1301,
+      "sha256": "fab1a761f86622818ec0673f00fc0968bfc8a8f7192cc8c03e35abc300ef2554"
+    },
+    "hamster-canvas/server.mjs": {
+      "source": "canvas/server.mjs",
+      "bytes": 4143,
+      "sha256": "7f329f132c4d458c3c63dea5a30b365f8954ab0d90b0fdf525bf54b295ab8db0"
+    },
+    "installed-runtime-check.py": {
+      "source": "electron/installed-runtime-check.py",
+      "bytes": 1809,
+      "sha256": "0f73019fd70be722e9d582bf7d41282f6bd74c3eddf0931897b4c055ec2f6660"
+    }
+  },
+  "installerInputs": {
+    "installer-ui/Setup.cs": {
+      "bytes": 24261,
+      "sha256": "5ee5d540e2467def9a3949ca783365cf6a257fc3c20435ce41ae0c76ef054d8e"
+    },
+    "installer-ui/Shell.xaml": {
+      "bytes": 26616,
+      "sha256": "c1d4559316f77d246fd7d6fa9d54d61762f9dc293e775d5fc4b3b91a2e0517b3"
+    },
+    "installer-ui/installer.manifest": {
+      "bytes": 1168,
+      "sha256": "25c5fc43345773af5faa88b418a9738aa025b1b3f621d90848712bcdd0dc4a29"
+    },
+    "build/icon.ico": {
+      "bytes": 136762,
+      "sha256": "0239ed970abdaec55792a5ae58b5550ced54993f85300ed7ce2c476932b413fe"
+    },
+    "scripts/build-custom-installer.cjs": {
+      "bytes": 12136,
+      "sha256": "cd30408314f884b4694c1cb2f0f67f0a180e9097ada335f6c15741154622e1ab"
+    }
+  },
+  "buildSources": {
+    "scripts/build-canvas.cjs": {
+      "bytes": 3605,
+      "sha256": "348073e7d63d341a670d84fe0535347121f0c05b740d72d52db5ef9f8b8d1b5c"
+    },
+    "scripts/build-python-runtime.cjs": {
+      "bytes": 4117,
+      "sha256": "a7bd0a073dffbfa372df110cb06c35716dbe5839778f719a9fa881d660988707"
+    },
+    "scripts/runtime-bootstrap.py": {
+      "bytes": 1345,
+      "sha256": "803a1fb0e95a058fddbd686a2623f21ad4c58beefe82678a63e6c9174114ae20"
+    },
+    "canvas/index.html": {
+      "bytes": 299,
+      "sha256": "e99f95054808675e38efe07720e15a29445f485789e90a9c3f891d7ebb0ef38d"
+    },
+    "canvas/package.json": {
+      "bytes": 371,
+      "sha256": "07d2d9c40b1ceb8fc9c2fc6a612b6f8dea2eabcaade60689827d166b34a338ef"
+    },
+    "canvas/pnpm-lock.yaml": {
+      "bytes": 22441,
+      "sha256": "a64ef3592c73e3189b9774cc2f202d66d088083863bf73444c5e6c1a3f3e1269"
+    },
+    "canvas/public/BeatDesign-LICENSE.txt": {
+      "bytes": 11337,
+      "sha256": "feb954c9763fff6112bd6412014ae03f76e18e6b559774447dc2d08b57c27e0c"
+    },
+    "canvas/public/NOTICE.txt": {
+      "bytes": 757,
+      "sha256": "b33595579820c569ee7b26e0ba0e28479f4d8e63f4964c9806fd956697510562"
+    },
+    "canvas/public/fonts/LICENSE-Inter.txt": {
+      "bytes": 4380,
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+    },
+    "canvas/public/fonts/LICENSE-JetBrainsMono.txt": {
+      "bytes": 4399,
+      "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad"
+    },
+    "canvas/public/fonts/LICENSE-Roboto.txt": {
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    "canvas/src/main.jsx": {
+      "bytes": 59520,
+      "sha256": "1538b192bc5d8c72c9b240dd1e52a0512f20d5d3d609f55d42026fe3bedbe6b6"
+    },
+    "canvas/src/projection.mjs": {
+      "bytes": 1375,
+      "sha256": "f3d5e4a7956a65cb3fe48a7a8ae5c721260df2e91e1d60c54635213232532865"
+    },
+    "canvas/src/style.css": {
+      "bytes": 16423,
+      "sha256": "5549ba45b376c9aa2e3989343ab223fcd133283a45a18cb6d2ff77ffef23949f"
+    },
+    "canvas/src/widgets.jsx": {
+      "bytes": 8428,
+      "sha256": "289d9ce2dd33f6e177821b275a583f1b0ad01adf31024d4ab5656165ed21467d"
+    }
+  }
+}

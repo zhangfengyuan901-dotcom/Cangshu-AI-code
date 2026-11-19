@@ -1,0 +1,10 @@
+{
+  "name": "@hamster/hypit-video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal Hypit video adapter for the existing Hamster PIKNO task workflow",
+  "exports": { ".": "./model.js", "./provider": "./provider.js" },
+  "hypit": { "activation": "./activation.js" },
+  "peerDependencies": { "@hypit/hypit": "0.3.1", "@hypit/generation": "0.1.0", "@hypit/runtime-local": "0.1.1" }
+}

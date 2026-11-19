@@ -1,0 +1,22 @@
+# Default source searches exclude generated and historical material.
+# For explicit investigations: rg --no-ignore <pattern> <exact-path>
+/output/
+/仓鼠AI/output/
+/backups/
+/.agents/archive/
+/.agents/maintenance-*/
+**/node_modules/
+**/.git/
+**/.wrangler/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.playwright-cli/
+/仓鼠AI/build/
+/仓鼠AI/canvas/dist/
+/PIKNO中转站/build/hamster-trim44-web/dist/
+/PIKNO中转站/deploy/new-api/backend/web/dist/
+/仓鼠AI/docs/development-memory-history.md
+/仓鼠AI/docs/INFRASTRUCTURE_MEMORY.md
+*.log
+*.pyc

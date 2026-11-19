@@ -1,0 +1,117 @@
+/* Customer account surface. Actual upstream credentials remain in the service. */
+#legacyProviderSettings[hidden]{display:none!important}
+#billingAccount[hidden],#billingWallet[hidden],#billingRecords[hidden],#rechargePayment[hidden]{display:none!important}
+.account-dashboard .registration-card{max-width:660px;padding:32px;margin:0 auto}
+.registration-card h2{font-size:24px;margin:14px 0}.registration-card p{font-size:13px;color:#737981;line-height:1.8}
+#billingLoginForm{display:grid;gap:18px;margin-top:24px}#billingLoginForm input{width:100%;box-sizing:border-box}
+.email-code-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+.email-code-row .plain-button{margin:0;min-height:44px}#loginBilling{margin:0;width:100%}
+#logoutBilling{margin-top:12px}#rechargeAccountLabel{overflow-wrap:anywhere;color:#66717b}
+#rechargeForm input[readonly]{font-variant-numeric:tabular-nums}
+#rechargeForm{font-size:13px;line-height:1.7}#rechargeForm h2{margin-top:0;font-size:22px}
+#rechargeForm .recharge-code img{display:block;width:200px;max-width:100%;height:auto;margin:0 auto}
+[data-panel="account"]{max-width:1160px;margin:auto}
+.account-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:26px}
+.account-heading h1{font-size:30px;font-weight:600;letter-spacing:-1px;margin:10px 0}
+.account-heading p{color:#737981;font-size:13px;margin:0;line-height:1.7}
+.account-status{flex-shrink:0;border:1px solid #e2e6ea;border-radius:30px;padding:8px 13px;color:#737981;background:#fff;font-size:12px}
+.account-status[data-state="connected"]{background:#edf6f1;color:#28634a;border-color:#d4e8dd}
+.account-status[data-state="error"]{background:#fff3ed;color:#9b4c2e;border-color:#f0dacc}
+.account-dashboard .account-card,.account-extras .account-card{max-width:none;margin:0;transform:none;box-shadow:none}
+.wallet-card{border-radius:22px;padding:28px 32px;background:linear-gradient(115deg,#191e26,#29343c);color:#fff;box-shadow:0 15px 36px #1d26321a}
+.wallet-topline{display:flex;justify-content:space-between;align-items:center;gap:15px;font-size:13px;color:#c8d1d8}
+#billingEmail{font-size:12px;overflow-wrap:anywhere}
+.wallet-main{display:flex;justify-content:space-between;align-items:center;gap:24px;margin:28px 0 22px}
+.wallet-label{display:block;color:#b4c1cd;font-size:12px;margin-bottom:10px}
+#billingAvailable{font-size:44px;line-height:1.15;font-weight:550;letter-spacing:-1.6px;font-variant-numeric:tabular-nums}
+.wallet-actions{display:flex;flex-direction:column;align-items:center;gap:12px}
+.wallet-actions #openRecharge{margin:0;background:#cce8d7;color:#193b2b;padding:13px 24px;border-radius:11px;font-size:14px;white-space:nowrap}
+.wallet-actions #openRecharge:hover{background:#e2f3e8}
+.wallet-refresh{display:flex;align-items:center;gap:6px;background:none;border:0;color:#c8d1d8;font:inherit;font-size:12px;cursor:pointer;padding:5px}
+.wallet-refresh svg{width:14px;height:14px}.wallet-refresh:disabled{opacity:.5;cursor:wait}
+#billingAvailable, #localAccountBalance, .wallet-breakdown strong, .local-account-foot strong, .local-usage-amount, .native-payment-total { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+.wallet-breakdown{display:flex;gap:32px;border-top:1px solid #ffffff24;padding-top:17px;font-size:12px;color:#b4c1cd}
+.wallet-breakdown strong{color:#f3f6f8;font-weight:500;margin-left:10px;font-variant-numeric:tabular-nums}
+#walletHint{font-size:11px;color:#a8b6c2;line-height:1.7;margin:14px 0 0}
+.account-dashboard .activation-card{margin-top:18px;padding:20px 24px}
+.activation-card summary,.account-extras>summary{display:flex;justify-content:space-between;gap:12px;align-items:center;cursor:pointer;list-style:none;font-size:14px;font-weight:550}
+.activation-card summary::-webkit-details-marker,.account-extras>summary::-webkit-details-marker{display:none}
+.activation-card summary span{display:flex;align-items:center;gap:9px}
+.activation-card summary small,.account-extras>summary small{font-weight:400;font-size:11px;color:#858c94}
+.activation-card summary::after,.account-extras>summary::after{content:'＋';color:#858c94;font-size:16px}
+.activation-card[open] summary::after,.account-extras[open]>summary::after{content:'−'}
+.activation-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;margin-top:20px}
+.activation-form .plain-button{margin:0;min-height:43px}.activation-form input{min-width:0;width:100%}
+.activation-card .hint{line-height:1.8;margin-bottom:0}
+.account-feedback{font-size:12px;color:#707b85;line-height:1.7;margin:10px 4px 22px;overflow-wrap:anywhere}
+.account-feedback.error{color:#a0482a}
+.account-records{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.account-records .account-card{padding:22px}.account-records h2{margin-bottom:9px}
+.record-caption{font-size:11px;color:#858c94;margin:0 0 20px;line-height:1.7}
+.record-list{font-size:12px;color:#66717b;line-height:1.8;min-height:48px;max-height:240px;overflow:auto;overflow-wrap:anywhere}
+.record-list p{border-top:1px solid #eef0f2;padding:10px 0;margin:0}
+.account-payment-note{display:flex;align-items:flex-start;gap:9px;margin:18px 4px 28px;font-size:11px;color:#7b858e;line-height:1.8}
+.account-payment-note svg{flex-shrink:0;width:16px;height:16px;margin-top:2px}
+.account-extras{border-top:1px solid #e0e5e9;padding:20px 0}.account-extras>summary small{margin-left:auto}
+.account-extra-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.account-extras>.account-card{margin-top:18px}
+.account-extras .hint{line-height:1.8}.account-extras label+label{margin-top:14px}
+.account-gate{width:min(480px,calc(100vw - 32px));border:1px solid #e0e5e9;border-radius:20px;padding:28px;color:#202830;background:#fff}
+.account-gate::backdrop{background:#10182080}.account-gate h2{font-size:20px;line-height:1.5;margin:14px 0}.account-gate p{font-size:13px;line-height:1.9;color:#707b85}
+.account-gate>div{display:flex;gap:12px}
+.relay-steps{display:grid;gap:24px;margin:24px 0;padding-left:24px}
+.relay-steps>li{padding-left:6px}.relay-steps>li>strong{font-size:15px;color:#26333d}
+#relayKeyForm{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:16px}
+#relayKeyForm label{display:grid;gap:8px;font-size:13px;color:#52606b}
+#relayKeyForm input{width:100%;min-width:0;box-sizing:border-box}
+#relayKeyForm button{grid-column:1/-1;justify-self:start;margin:0}
+.relay-connection-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}
+.relay-account .relay-connection{border:1px solid #e2e6ea;border-radius:12px;background:#f7f9fa;padding:14px;margin:0;color:#64717a;overflow-wrap:anywhere}
+.relay-account .relay-connection[data-state="ready"]{background:#edf6f1;color:#28634a;border-color:#d4e8dd}
+.relay-account .relay-connection[data-state="error"]{background:#fff3ed;color:#9b4c2e;border-color:#f0dacc}
+.relay-account .relay-connection[data-state="pending"]{background:#f2f1e9;color:#81765b;border-color:#e4decf}
+.relay-account .relay-connection[data-state="rate_limited"]{background:#f3eee7;color:#8c7055;border-color:#e7dacb}
+.relay-account .relay-connection[data-state="forbidden"],.relay-account .relay-connection[data-state="insufficient_balance"],.relay-account .relay-connection[data-state="unavailable"]{background:#f5eeeb;color:#916b5c;border-color:#e9dbd3}
+.relay-account .relay-storage-warning{border:1px solid #f0dacc;border-radius:10px;padding:12px;color:#9b4c2e;background:#fff3ed}
+.relay-storage-warning[hidden]{display:none!important}.relay-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+.relay-actions .plain-button{margin:0}.relay-account button:disabled{opacity:.5;cursor:not-allowed}
+#rechargeDialog{background:#fff;color:#202830;border-color:#e0e5e9;border-radius:20px}
+#rechargeForm .billing-important{color:#a35b1b}#rechargeForm input:not([type=checkbox]){background:#f6f8fa;color:#202830;border-color:#d8dfe5}
+#rechargeForm button{background:#edf1f4;color:#26333d;border-color:#d8dfe5}#rechargeForm #submitRecharge{background:#203d31;border-color:#203d31;color:#fff}
+#rechargeForm button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:850px){.wallet-card{padding:24px}.account-records,.account-extra-grid{grid-template-columns:1fr}.account-heading h1{font-size:26px}}
+@media(max-width:540px){.account-heading{align-items:flex-start;gap:10px}.account-heading .account-status{margin-right:30px}.account-heading h1{font-size:24px}.wallet-topline{align-items:flex-start;flex-direction:column;gap:8px}.wallet-main{align-items:flex-start;flex-direction:column;gap:20px;margin-top:22px}.wallet-actions{flex-direction:row;flex-wrap:wrap;width:100%;gap:16px}#billingAvailable{font-size:36px}.wallet-breakdown{gap:10px;flex-direction:column}.activation-form{grid-template-columns:1fr}.activation-card summary{flex-wrap:wrap}.activation-card summary small{display:none}.account-dashboard .activation-card{padding:20px}.account-extras>summary{flex-wrap:wrap}.account-extras>summary small{margin-left:0}.account-gate{padding:22px}}
+@media(max-width:540px){#relayKeyForm,.relay-connection-grid{grid-template-columns:1fr}.relay-steps{padding-left:18px}.relay-steps>li{padding-left:2px}.relay-actions .plain-button{flex:1}.account-dashboard .relay-account{padding:22px}}
+
+.relay-account #relayKeyForm .relay-key-remove{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;font-size:12px;font-weight:400;margin-top:-6px}.relay-key-remove input{width:auto!important;min-height:0!important}
+
+/* Account forms stay local; only the payment cashier uses a secure window. */
+.account-dashboard .relay-account-center{padding:18px;border-radius:18px;border:1px solid #dcded7;background:#fbfaf7;margin-bottom:20px}
+.account-dashboard .relay-advanced{padding:22px 24px;background:#fbfaf7;border:1px solid #dcded7;border-radius:14px}
+.relay-advanced>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;color:#5a685e;font-size:14px;font-weight:550}
+.relay-advanced>summary span{font-size:12px;color:#90978e;font-weight:400}
+.relay-advanced .relay-steps{margin-bottom:20px}.relay-advanced p{line-height:1.8;font-size:13px;color:#7a857c}
+.relay-advanced #relayAccountStatus{margin-bottom:0}.relay-advanced input:not([type="checkbox"]){background:#f5f5ef;color:#4d5a50;border-color:#d9ddd3}
+[data-panel="account"]:has(.relay-account-center) .account-heading{margin-bottom:18px}
+.account-dashboard .local-account-home{padding:26px 28px;background:#edf0e9}
+.local-account-header,.local-account-wallet,.local-account-foot,.local-features-heading{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.local-account-header>div{min-width:0}.local-account-header .relay-account-sections{font-size:12px;color:#7d877e;margin:0 0 7px}.local-account-header strong{font-size:16px;color:#35443c;overflow-wrap:anywhere}
+.local-account-home .plain-button,.local-account-features .plain-button,.local-account-dialog .plain-button{margin:0;min-height:40px;padding:10px 17px;font-size:13px;border-radius:10px;background:#5e7465;color:#fff;border:1px solid #5e7465}
+.local-account-home .subtle,.local-account-features .subtle,.local-account-dialog .subtle{background:#f6f7f1;border-color:#d4dcd1;color:#5d6a62}
+.local-account-home button:disabled,.local-account-features button:disabled,.local-account-dialog button:disabled{opacity:.5;cursor:not-allowed}
+.local-text-button{background:none;border:0;padding:5px 0;color:#647b6b;cursor:pointer;font:inherit;font-size:12px;text-decoration:none;text-underline-offset:4px;min-height:32px}.local-text-button:hover{text-decoration:underline}
+.local-account-guest{display:flex;gap:12px;margin-top:24px}.local-account-wallet{margin:28px 0 22px}.local-account-wallet>div>span{display:block;font-size:12px;color:#758176;margin-bottom:8px}.local-account-wallet #localAccountBalance{font-size:42px;line-height:1.2;font-weight:550;color:#354a3b;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;letter-spacing:-1px}
+.local-wallet-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.local-wallet-actions a{text-decoration:none}.local-account-foot{border-top:1px solid #d6ded2;padding-top:12px;font-size:12px;color:#7c867b}.local-account-foot strong{font-weight:500;color:#5c6d5f;font-variant-numeric:tabular-nums;margin-left:8px}
+.local-account-home .account-feedback{margin:10px 0 0;min-height:0}.local-account-home .account-feedback:empty{display:none}
+.local-account-home [hidden],.local-account-features [hidden]{display:none!important}
+.local-features-heading>strong{font-size:15px;color:#3c4c40}.local-features-heading .plain-button{font-size:12px;min-height:34px;padding:7px 12px}
+.local-account-features .relay-connection-grid{gap:12px;margin-top:18px}.local-feature{display:flex;flex-direction:column;align-items:stretch;padding:16px 12px;border:1px solid #dfe3da;border-radius:12px;background:#fffefb;min-width:0}.local-feature>strong{font-size:14px;font-weight:550;color:#4a584d}.local-feature .relay-connection{border:none;border-radius:6px;padding:6px 8px;margin:12px 0;font-size:12px;background:#f4f5ef}.local-feature-actions{display:flex;align-items:stretch;flex-direction:column;gap:4px;margin-top:auto}.local-feature-actions .plain-button{min-height:36px;font-size:12px;padding:8px 6px}.local-feature-actions .local-text-button{font-size:12px}
+.local-account-features #relayToolStatus{font-size:11px;color:#889084;margin:14px 0 0}.local-account-features .relay-actions{justify-content:flex-end;margin-top:12px}.local-account-features #relayAccountStatus{margin:12px 0 0}.local-account-features #relayAccountStatus:empty{display:none}
+.local-account-dialog{width:min(540px,calc(100vw - 48px));max-height:calc(100vh - 64px);max-height:calc(100dvh - 64px);overflow:auto;box-sizing:border-box;padding:24px;border:1px solid #d4dcd1;border-radius:18px;background:#fbfaf7;color:#3c4c40;box-shadow:0 24px 80px #26382d30}.local-account-dialog::backdrop{background:#26382d66}.local-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.local-dialog-header h2{margin:0;font-size:19px;font-weight:550}.local-dialog-header .local-text-button{flex-shrink:0}
+.local-account-dialog form{display:grid;gap:18px}.local-account-dialog label{display:grid;gap:8px;color:#69766b;font-size:13px}.local-account-dialog input,.local-account-dialog select{width:100%;min-width:0;box-sizing:border-box;background:#fffefb;border:1px solid #d7ded3;border-radius:8px;padding:10px;color:#46594a;font:inherit;font-size:14px;min-height:42px}.local-account-dialog form>.plain-button{justify-self:end}.local-account-dialog .account-feedback{margin:4px 0;font-size:12px}.local-account-dialog .account-feedback:empty{display:none}
+.local-key-list,.local-usage-list{margin:12px 0}.local-key-row,.local-usage-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:15px 0;border-bottom:1px solid #e1e4dc}.local-key-row>div,.local-usage-row>div{min-width:0;display:grid;gap:6px}.local-key-row strong,.local-usage-row strong{font-size:13px;font-weight:500;overflow-wrap:anywhere}.local-key-row span,.local-usage-row span{font-size:11px;color:#859080}.local-key-row button{flex-shrink:0}.local-usage-amount{text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}.local-dialog-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px}.local-dialog-pager span{font-size:12px;color:#7a8579}.local-dialog-pager .plain-button{min-height:34px;padding:7px 12px;font-size:12px}
+@media(max-width:1050px){.local-account-features .relay-connection-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:850px){.account-dashboard .relay-account-center{padding:20px}.relay-advanced>summary{align-items:flex-start;flex-direction:column;gap:5px}}
+@media(max-width:540px){.local-account-wallet{align-items:flex-start;flex-direction:column;gap:20px}.local-account-wallet #localAccountBalance{font-size:36px}.local-account-features .relay-connection-grid{grid-template-columns:1fr}.local-account-dialog{padding:20px}.local-usage-row{gap:10px}.local-usage-amount strong{font-size:12px}}
+.local-account-dialog [hidden]{display:none!important}.native-account-caption{font-size:12px;color:#758176;line-height:1.8;overflow-wrap:anywhere;margin:0 0 16px}.native-account-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.native-account-actions button{flex:0 1 auto}.native-account-actions [aria-pressed="true"]{background:#5e7465;color:#fff;border-color:#5e7465}.native-account-consent{display:flex!important;align-items:center;gap:7px!important;flex-wrap:wrap;font-size:12px!important}.native-account-consent input{width:16px!important;min-height:16px!important;margin:0}.native-account-consent a{color:#526f5a}.native-account-challenge{padding:15px;background:#f0f3eb;border:1px solid #dbe3d4;border-radius:12px}.native-account-challenge img{max-width:100%;object-fit:contain;display:block;margin-bottom:10px;background:#fff;border-radius:8px}.native-account-challenge .native-account-actions{margin-top:12px}.native-account-recovery{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}.native-account-section{font-size:14px;font-weight:550;margin:24px 0 8px}.native-payment-choices{display:grid;gap:14px}.native-payment-choices .native-account-caption{margin:0}.native-payment-total{font-size:18px;font-variant-numeric:tabular-nums;color:#354a3b;margin:6px 0}.native-payment-choices>.plain-button{justify-self:start}.native-payment-choices .native-account-actions button{min-width:86px}.local-account-dialog form+nav,.local-account-dialog .native-account-actions:last-child{margin-top:18px}@media(max-width:540px){.native-account-actions{gap:8px}.native-payment-choices .native-account-actions button{min-width:70px}.native-account-recovery{flex-direction:column}}
+.work-directory p { overflow-wrap: anywhere; }
+.work-directory h2 { margin-top: 0; }

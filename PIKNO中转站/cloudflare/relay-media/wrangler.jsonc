@@ -1,0 +1,46 @@
+{
+  "name": "pikno-relay-media",
+  "main": "tos-migration/worker.mjs",
+  "compatibility_date": "2026-10-03",
+  "workers_dev": false,
+  "account_id": "d9203440125f1b112668d39a5efd64c9",
+  "routes": [
+    {
+      "pattern": "www.piknoai.com/media/*",
+      "zone_id": "d4a1f8cdf4b9be64d85c24436ce5725d"
+    },
+    {
+      "pattern": "media.piknoai.com",
+      "custom_domain": true,
+      "zone_id": "d4a1f8cdf4b9be64d85c24436ce5725d"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "UPLOAD_LIMITER",
+      "namespace_id": "1010",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "TOOLS_ENABLED": "true",
+    "CONTROL_OWNER": "ecs",
+    "CONTROL_ORIGIN": "https://origin.piknoai.com",
+    "CONTROL_ORIGIN_HOST": "origin.piknoai.com",
+    "TOS_STORAGE_PROXY_ORIGIN": "https://origin.piknoai.com",
+    "TOS_STORAGE_READ_ONLY": "false"
+  },
+  "keep_vars": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "secrets": {
+    "required": [
+      "TOS_STORAGE_PROXY_SECRET"
+    ]
+  }
+}

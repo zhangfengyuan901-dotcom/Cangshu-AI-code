@@ -1,0 +1,20 @@
+{
+  "name": "pikno-relay-media",
+  "main": "control-migration/worker.mjs",
+  "compatibility_date": "2026-10-03",
+  "workers_dev": false,
+  "account_id": "d9203440125f1b112668d39a5efd64c9",
+  "routes": [{ "pattern": "www.piknoai.com/media/*", "zone_id": "d4a1f8cdf4b9be64d85c24436ce5725d" }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "pikno-relay-inputs" }],
+  "ratelimits": [{ "name": "UPLOAD_LIMITER", "namespace_id": "1010", "simple": { "limit": 20, "period": 60 } }],
+  "vars": {
+    "TOOLS_ENABLED": "true",
+    "CONTROL_OWNER": "ecs",
+    "CONTROL_STORAGE_ENABLED": "true",
+    "CONTROL_ORIGIN": "https://origin.piknoai.com",
+    "CONTROL_ORIGIN_HOST": "origin.piknoai.com"
+  },
+  "keep_vars": true,
+  "preview_urls": false,
+  "observability": { "enabled": false }
+}

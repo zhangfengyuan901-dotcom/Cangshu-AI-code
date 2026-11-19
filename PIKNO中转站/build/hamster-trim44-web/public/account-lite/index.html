@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="same-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>PIKNO · 开发者控制台</title>
+  <link rel="icon" href="/studio-favicon.png"><link rel="stylesheet" href="./account.css">
+</head>
+<body>
+<div class="account-shell">
+  <header class="topbar"><a class="brand" href="/"><img src="/hamster-mark.png" width="34" height="34" alt="仓鼠AI"><span>PIKNO<small>AI API PLATFORM</small></span></a><nav class="portal-nav" aria-label="主导航"><a href="/hub/models">模型广场</a><a href="/hub/pricing">价格</a><a href="/hub/docs">接入文档</a><a href="/hub/dashboard" aria-current="page">控制台</a></nav><div class="identity"><span id="identity">账户中心</span><button id="logout" class="text-button" hidden>退出登录</button></div></header>
+  <main>
+    <div class="intro"><div><p class="eyebrow">DEVELOPER CONSOLE</p><h1>开发者控制台</h1><p class="intro-copy">管理账户余额、API Key 与每一笔调用记录。</p></div><div class="account-actions"><a id="admin-home" class="secondary" hidden>管理后台</a><button id="refresh" class="secondary">刷新账户</button></div></div>
+    <p id="boot-status" class="notice" role="status">页面正在加载；若未能继续，请刷新页面或使用更新的浏览器。</p>
+    <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+    <section id="login-panel" class="login-card" hidden><h2>注册仓鼠AI账户</h2><ol class="setup-steps guest-steps" aria-label="开始使用"><li>注册账户</li><li>开通用途 Key</li><li>激活后使用</li></ol><a target="_top" class="primary link-button" href="/auth-lite/index.html?mode=register&amp;redirect=%2Faccount-lite%2Findex.html">注册账户</a><div class="login-links"><a target="_top" href="/auth-lite/index.html?mode=login&amp;redirect=%2Faccount-lite%2Findex.html">已有账户，登录</a><a target="_top" href="/auth-lite/index.html?mode=forgot&amp;redirect=%2Faccount-lite%2Findex.html">忘记密码</a></div></section>
+    <div id="signed-in" hidden>
+      <section id="desktop-connection" class="desktop-connect-panel" aria-label="连接仓鼠 AI" hidden><div><strong id="desktop-account"></strong><p id="desktop-message" role="status" aria-live="polite">正在核对仓鼠 AI 连接…</p><p id="desktop-code" hidden></p></div><div class="desktop-connect-actions"><button id="desktop-connect" class="primary" type="button" hidden>连接仓鼠 AI</button><button id="desktop-retry" class="secondary" type="button" hidden>重新核对</button><button id="desktop-switch" class="secondary" type="button" hidden>切换网页账号</button></div></section>
+      <section id="setup-guide" class="setup-guide" aria-label="账户连接引导" hidden><ol class="setup-steps"><li id="setup-account-step" data-state="done">账户已登录</li><li id="setup-key-step">开通用途 Key</li><li id="setup-activation-step">逐项激活</li></ol><div class="setup-next"><span id="setup-status" role="status" aria-live="polite"></span><button id="setup-action" class="primary" type="button">查看 API Key</button></div></section>
+      <nav class="tabs" aria-label="账户功能"><button data-tab="balance" aria-selected="true">账户余额</button><button data-tab="usage" aria-selected="false">消费记录</button><button data-tab="topup" aria-selected="false">充值</button><button data-tab="keys" aria-selected="false">API Key</button></nav>
+      <section id="balance" class="tab-panel"><div class="balance-grid"><article class="balance-card"><p>当前可用余额</p><div id="balance-value" class="big-number">—</div><button class="light-button" data-go="topup">充值 <span aria-hidden="true">↗</span></button></article><article class="summary-card"><p>累计消费</p><strong id="used-value">—</strong><div class="summary-rule"></div><p>累计请求</p><strong id="request-value">—</strong></article></div><div class="developer-shortcuts"><a target="_top" href="/hub/models"><span>MODEL EXPLORER</span><strong>找到适合你的模型</strong><p>查看已发布模型的规格、价格与参考素材限制。</p><b aria-hidden="true">↗</b></a><a target="_top" href="/hub/docs"><span>BUILD WITH PIKNO</span><strong>从第一个 API 请求开始</strong><p>阅读接入说明与代码示例，在你的应用中调用。</p><b aria-hidden="true">↗</b></a></div></section>
+      <section id="usage" class="tab-panel" hidden><div class="section-head"><h2>消费记录</h2><select id="usage-kind" aria-label="记录类型"><option value="logs">消费明细</option><option value="settlements">生成结算</option></select></div><div id="usage-list" class="records"></div><div class="pager"><button id="usage-prev" class="secondary">上一页</button><span id="usage-page">第 1 页</span><button id="usage-next" class="secondary">下一页</button></div></section>
+      <section id="topup" class="tab-panel" hidden>
+        <div class="section-head"><h2>添加管理员充值</h2><button id="refresh-orders" class="text-button" type="button">刷新余额与记录</button></div>
+        <div class="topup-card manual-recharge">
+          <div>
+            <p id="manual-recharge-account" class="manual-recharge-account" hidden></p>
+            <p>用微信扫码添加管理员，提供中转站用户名或用户 ID 和充值金额。管理员核实到账后手动调整额度。</p>
+            <p class="fine">管理员确认后，点击「刷新余额与记录」，在「账户余额」查看最新额度。</p>
+          </div>
+          <img class="admin-qr" src="/account-lite/admin-wechat.png" width="739" height="672" alt="添加充值管理员的微信二维码">
+        </div>
+        <div class="section-head compact"><h2>历史充值订单</h2></div>
+        <p class="history-caption">如已通过历史订单付款，请联系管理员核对订单号和付款记录。</p>
+        <div id="order-list" class="records"></div>
+        <div class="pager"><button id="order-prev" class="secondary">上一页</button><span id="order-page">第 1 页</span><button id="order-next" class="secondary">下一页</button></div>
+      </section>
+      <section id="keys" class="tab-panel" hidden><div class="section-head"><h2>API Key</h2><button id="new-key" class="primary">开通 API Key</button></div><p id="key-pending" class="notice" hidden></p><div id="key-connection" class="hint-card connection-status" role="status" aria-live="polite" hidden></div><div id="key-list" class="key-list"></div><div class="pager"><button id="key-prev" class="secondary">上一页</button><span id="key-page">第 1 页</span><button id="key-next" class="secondary">下一页</button></div></section>
+    </div>
+  </main>
+  <footer class="account-footer"><span>PIKNO · AI API PLATFORM</span><a href="/">返回首页 ↗</a></footer>
+</div>
+<dialog id="key-dialog"><form id="key-form"><div class="dialog-head"><h2>开通 API Key</h2><button type="button" id="close-key" class="icon-button" aria-label="关闭">×</button></div><label>名称<input name="name" maxlength="40" required placeholder="例如：我的创作工作台" autocomplete="off"></label><label>用途<select name="group" required></select></label><label>有效期<select name="days"><option value="30">30 天</option><option value="7">7 天</option><option value="-1">长期有效</option></select></label><label>Key 消费上限（元）<input name="limit" type="number" min="0.01" step="0.01" placeholder="留空则跟随账户可用余额"></label><p class="fine">消费上限不增加账户余额。</p><p id="key-error" class="dialog-error" role="alert" hidden></p><button class="primary" type="submit">确认开通</button></form></dialog>
+<dialog id="confirm-dialog"><h2 id="confirm-title">确认操作</h2><p id="confirm-message"></p><div class="dialog-actions"><button id="confirm-cancel" class="secondary">取消</button><button id="confirm-ok" class="primary">确认</button></div></dialog>
+<noscript>请启用 JavaScript，以安全管理账户和 API Key。</noscript>
+<script defer src="/account-lite/boot.js" data-entry="account"></script>
+</body></html>

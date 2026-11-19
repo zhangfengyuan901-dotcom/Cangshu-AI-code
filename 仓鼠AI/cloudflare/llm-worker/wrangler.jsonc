@@ -1,0 +1,21 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "hamster-ai-inference",
+  "account_id": "7ad8e2addb69374532fecc2f16a00549",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "services": [{"binding":"BILLING","service":"hamster-billing"}],
+  "vars": {"LLM_BILLING_MODE":"actual_usage_v1","PIKNO_LLM_MODEL_VERIFIED":"false"},
+  "durable_objects": {"bindings":[{"name":"LLM_EXECUTIONS","class_name":"LlmExecutionGuard"}]},
+  "migrations": [{"tag":"paid-llm-execution-v1","new_sqlite_classes":["LlmExecutionGuard"]}],
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "inference.hamsterai.cc", "custom_domain": true }
+  ],
+  "secrets": {
+    "required": ["ARK_API_KEY", "TOKEN_SIGNING_KEY", "PIKNO_ASSISTANT_BRIDGE_SECRET", "PIKNO_LLM_ROUTES"]
+  },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

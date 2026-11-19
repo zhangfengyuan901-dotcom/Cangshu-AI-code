@@ -1,0 +1,45 @@
+services:
+  tool-control:
+    build:
+      context: ../../output/tool-control-build-current/build-context
+      dockerfile: deploy/tool-control/Dockerfile
+    image: pikno-tool-control:candidate
+    restart: "no"
+    deploy:
+      replicas: 1
+    read_only: true
+    init: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 64
+    mem_limit: 768m
+    networks: [relay]
+    env_file: ["${TOOL_CONTROL_ENV_FILE:?Set a private candidate environment file}"]
+    environment:
+      CONTROL_OWNER: "${TOOL_CONTROL_OWNER:-blocked}"
+      CONTROL_BIND: "0.0.0.0"
+      TOS_BUCKET: "cangshu-ai-guangzhou-2026"
+      TOS_REGION: "cn-guangzhou"
+      TOS_ENDPOINT: "https://tos-cn-guangzhou.volces.com"
+      TOS_ACCESS_KEY_FILE: "/run/tos-migration/access-key"
+      TOS_SECRET_KEY_FILE: "/run/tos-migration/secret-key"
+      TOS_RELAY_PROXY_SECRET_FILE: "/run/tos-migration/relay-token"
+      TOS_LEGACY_MEDIA_PROXY_SECRET_FILE: "/run/tos-migration/legacy-media-token"
+      TOS_LEGACY_BILLING_PROXY_SECRET_FILE: "/run/tos-migration/legacy-billing-token"
+      TOS_STORAGE_WRITE_GATE_FILE: "/run/tos-migration/write-gate"
+      TOS_SPOOL_DIRECTORY: "/var/spool/pikno-tos"
+    volumes:
+      - "${TOOL_CONTROL_SECRET_DIR:?Set a private existing secret directory}:/run/control-secrets:ro"
+      - "${TOS_STORAGE_SECRET_DIR:?Set the private TOS secret directory}:/run/tos-migration:ro"
+      - "${TOS_STORAGE_SPOOL_DIR:?Set the writable TOS spool directory}:/var/spool/pikno-tos:rw"
+    # Forced shutdown can leave an original request unknown; never auto-restart it.
+    stop_grace_period: 30m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  relay:
+    external: true
+    name: piknoai-relay_default

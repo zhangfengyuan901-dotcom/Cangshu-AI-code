@@ -1,0 +1,11 @@
+:root { color-scheme: light; font-family: "Microsoft YaHei", system-ui, sans-serif; color: #354640; background: #f4f5f2; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px; }
+main { max-width: 480px; text-align: center; }
+h1 { margin: 24px 0 16px; font-size: 22px; font-weight: 600; }
+p { margin: 12px 0; line-height: 1.8; }
+.hint { color: #737d78; font-size: 13px; }
+.indicator { display: inline-block; width: 36px; height: 36px; border: 3px solid #dbe2dc; border-top-color: #789b88; border-radius: 50%; animation: turn 1s linear infinite; }
+.failed .indicator { border-color: #c6ad86; animation: none; }
+@keyframes turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .indicator { animation: none; } }

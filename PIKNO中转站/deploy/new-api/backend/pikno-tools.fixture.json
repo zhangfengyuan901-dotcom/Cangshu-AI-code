@@ -1,0 +1,335 @@
+{
+  "cases": [
+    {
+      "name": "unknown is not processing",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "taskId": "task_test"
+        },
+        {
+          "status": "unrecognized",
+          "id": "task_test"
+        }
+      ],
+      "expected": {
+        "status": "UNKNOWN",
+        "progress": "0%"
+      }
+    },
+    {
+      "name": "missing output is uncertain",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "taskId": "task_test"
+        },
+        {
+          "status": "completed",
+          "outputs": [],
+          "id": "task_test"
+        }
+      ],
+      "expected": {
+        "status": "UNKNOWN"
+      }
+    },
+    {
+      "name": "success after offload",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "taskId": "task_test"
+        },
+        {
+          "status": "completed",
+          "outputs": [
+            {
+              "url": "https://www.piknoai.com/media/v1/assets/11111111111111111111111111111111?ticket=test",
+              "type": "video"
+            }
+          ],
+          "id": "task_test"
+        }
+      ],
+      "expected": {
+        "status": "SUCCESS",
+        "progress": "100%"
+      }
+    },
+    {
+      "name": "failure is explicit",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "taskId": "task_test"
+        },
+        {
+          "status": "failed",
+          "id": "task_test"
+        }
+      ],
+      "expected": {
+        "status": "FAILURE",
+        "progress": "0%",
+        "reason": "Tool generation failed"
+      }
+    },
+    {
+      "name": "fixed usage",
+      "hook": "extractUsage",
+      "args": [],
+      "expected": {
+        "requests": 1
+      }
+    },
+    {
+      "name": "fixed completion usage",
+      "hook": "extractUsageOnComplete",
+      "args": [],
+      "expected": {
+        "requests": 1
+      }
+    },
+    {
+      "name": "cannot submit ordinary video",
+      "hook": "protocols",
+      "path": [
+        "openai_video",
+        "decodeRequest"
+      ],
+      "args": [
+        {}
+      ],
+      "expectedError": "Use the dedicated tool endpoint"
+    },
+    {
+      "name": "cannot choose foreign execution server",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "https://foreign.example",
+          "apiKey": "test-bridge-secret-12345678901234567890",
+          "publicTaskId": "task_test",
+          "requestBody": {}
+        }
+      ],
+      "expectedError": "Tool execution origin is invalid"
+    },
+    {
+      "name": "public query ID only",
+      "hook": "native",
+      "member": "created",
+      "args": [
+        {},
+        {
+          "task_id": "task_public",
+          "status": "SUCCESS",
+          "data": {
+            "id": "private-worker",
+            "outputs": []
+          }
+        }
+      ],
+      "expected": {
+        "id": "task_public",
+        "status": "completed",
+        "progress": "0%",
+        "outputs": []
+      }
+    },
+    {
+      "name": "invalid digital count",
+      "hook": "native",
+      "member": "digital",
+      "args": [
+        {
+          "body": {
+            "kind": "json",
+            "value": {
+              "model": "pikno-tool-digital",
+              "images": [],
+              "audios": []
+            }
+          }
+        }
+      ],
+      "expectedError": "Tool reference count is invalid"
+    },
+    {
+      "name": "unknown submit stays uncertain",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {
+          "publicTaskId": "task_test"
+        },
+        {
+          "body": {
+            "id": "task_test",
+            "status": "unknown",
+            "outputs": []
+          }
+        }
+      ],
+      "expected": {
+        "taskId": "task_test",
+        "taskData": {
+          "id": "task_test",
+          "status": "unknown",
+          "outputs": []
+        }
+      }
+    },
+    {
+      "name": "mismatched submit receipt is uncertain",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {
+          "publicTaskId": "task_test"
+        },
+        {
+          "body": {
+            "id": "task_other",
+            "status": "queued",
+            "outputs": []
+          }
+        }
+      ],
+      "expectedError": "Tool submission is uncertain; do not resubmit"
+    },
+    {
+      "name": "mismatched query receipt is uncertain",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "taskId": "task_test"
+        },
+        {
+          "id": "task_other",
+          "status": "failed"
+        }
+      ],
+      "expected": {
+        "status": "UNKNOWN"
+      }
+    },
+    {
+      "name": "foreign output is uncertain",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "taskId": "task_test"
+        },
+        {
+          "id": "task_test",
+          "status": "completed",
+          "outputs": [
+            {
+              "type": "video",
+              "url": "https://foreign.example/video.mp4"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "status": "UNKNOWN"
+      }
+    },
+    {
+      "name": "unknown public query is unknown",
+      "hook": "native",
+      "member": "created",
+      "args": [
+        {},
+        {
+          "task_id": "task_public",
+          "status": "IN_PROGRESS",
+          "data": {
+            "status": "unknown",
+            "outputs": []
+          }
+        }
+      ],
+      "expected": {
+        "id": "task_public",
+        "status": "unknown",
+        "progress": "0%",
+        "outputs": []
+      }
+    },
+    {
+      "name": "local polling failure is unknown",
+      "hook": "native",
+      "member": "created",
+      "args": [
+        {},
+        {
+          "task_id": "task_public",
+          "status": "FAILURE",
+          "data": {
+            "status": "processing",
+            "outputs": []
+          }
+        }
+      ],
+      "expected": {
+        "id": "task_public",
+        "status": "unknown",
+        "progress": "0%",
+        "outputs": []
+      }
+    },
+    {
+      "name": "explicit terminal failure is failed",
+      "hook": "native",
+      "member": "created",
+      "args": [
+        {},
+        {
+          "task_id": "task_public",
+          "status": "FAILURE",
+          "data": {
+            "status": "failed",
+            "outputs": []
+          }
+        }
+      ],
+      "expected": {
+        "id": "task_public",
+        "status": "failed",
+        "progress": "0%",
+        "outputs": [],
+        "error": {
+          "message": "Tool generation failed"
+        }
+      }
+    },
+    {
+      "name": "digital duration above 30 rejected",
+      "hook": "native",
+      "member": "digital",
+      "args": [
+        {
+          "body": {
+            "kind": "json",
+            "value": {
+              "model": "pikno-tool-digital",
+              "images": [
+                {
+                  "url": "https://www.piknoai.com/media/v1/assets/11111111111111111111111111111111?ticket=test"
+                }
+              ],
+              "audios": [
+                {
+                  "url": "https://www.piknoai.com/media/v1/assets/22222222222222222222222222222222?ticket=test",
+                  "durationSeconds": 30.1
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expectedError": "Audio duration must be no more than 30 seconds"
+    }
+  ]
+}

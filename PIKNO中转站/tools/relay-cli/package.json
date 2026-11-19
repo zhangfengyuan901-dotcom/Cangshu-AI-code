@@ -1,0 +1,7 @@
+{
+  "name": "pikno-relay-tools",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test ../../cloudflare/relay-media/*.test.mjs" },
+  "devDependencies": { "wrangler": "^4.142.0", "@cloudflare/workers-types": "latest", "miniflare": "latest" }
+}

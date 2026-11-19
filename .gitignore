@@ -1,0 +1,55 @@
+# Dependencies and generated distributions
+node_modules/
+/canvas/dist/
+/canvas-data/
+/dist/
+/dist-*/
+/release-*/
+/build/*
+!/build/icon.ico
+*.asar
+
+# Local credentials and user configuration (templates remain versioned)
+.env
+.dev.vars
+.dev.vars.*
+.env.*
+!.env.example
+!.env.*.example
+config.json
+config.yaml
+config.byteplus.yaml
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python runtimes and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.adk/
+
+# User tasks, assets, results and local test/browser artifacts
+task-history/
+diagnostics/
+/PIKNO诊断/
+studio-data/
+creative-data/
+chat-data/
+merged_videos/
+/output/
+/tmp-fixtures/
+/.playwright-cli/
+/sanbao-studio/
+/_ref_sanbao_*
+*.log
+*.part
+*.tmp
+.wrangler/
+worker-configuration.d.ts
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+# Admin CSS uses Tailwind v4; these are compilation floors, not a test claim.
+Chrome >= 111
+Edge >= 111
+Firefox >= 128
+Safari >= 16.4
+iOS >= 16.4

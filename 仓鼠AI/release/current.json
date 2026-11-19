@@ -1,0 +1,96 @@
+{
+  "format": 2,
+  "version": "1.7.96",
+  "sourceManifest": "release/source-manifest.json",
+  "builder": {
+    "appId": "com.hamster.ai",
+    "productName": "仓鼠AI",
+    "files": [
+      "server.js",
+      "assets.cjs",
+      "canvas.cjs",
+      "canvas-launcher.cjs",
+      "billing-client.cjs",
+      "wallet.cjs",
+      "pikno.cjs",
+      "pikno-client.cjs",
+      "reverse.cjs",
+      "reverse-client.cjs",
+      "reverse-media.cjs",
+      "pikno-key-store.cjs",
+      "legacy-routes.mjs",
+      "tasks.cjs",
+      "inference.cjs",
+      "pikno-inference.cjs",
+      "media.cjs",
+      "media-metadata.cjs",
+      "diagnostics.cjs",
+      "relay-account-view.cjs",
+      "startup-preferences.cjs",
+      "reporter.cjs",
+      "report-schema.cjs",
+      "runtime.cjs",
+      "installed-runtime.cjs",
+      "public/**/*",
+      "electron/**/*",
+      "package.json",
+      "direct-media.cjs",
+      "interaction-preferences.cjs",
+      "reference-media-upload.cjs",
+      "!codex-local.cjs",
+      "!codex-routes.cjs",
+      "!public/codex-chat.css",
+      "!public/codex-chat.mjs"
+    ],
+    "extraResources": [
+      {
+        "from": "@resources/hamster-canvas",
+        "to": "hamster-canvas"
+      },
+      {
+        "from": "@resources/installed-runtime-check.py",
+        "to": "installed-runtime-check.py"
+      },
+      {
+        "from": "@resources/python-runtime.zip",
+        "to": "python-runtime.zip"
+      },
+      {
+        "from": "@resources/python-runtime.json",
+        "to": "python-runtime.json"
+      },
+      {
+        "from": "@resources/smart-video-agent",
+        "to": "smart-video-agent"
+      }
+    ],
+    "directories": {
+      "app": "@stage",
+      "output": "@artifacts",
+      "buildResources": "@build-inputs"
+    },
+    "win": {
+      "icon": "@build-inputs/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "@stage/electron/installer.nsh",
+      "artifactName": "仓鼠AI-${version}-安装引擎.exe",
+      "installerLanguages": [
+        "zh_CN"
+      ],
+      "language": "2052",
+      "runAfterFinish": false
+    },
+    "electronDist": "@app/node_modules/electron/dist",
+    "electronVersion": "33.4.11"
+  }
+}

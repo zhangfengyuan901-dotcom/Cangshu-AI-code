@@ -1,0 +1,29 @@
+name: pikno-direct-origin
+services:
+  ingress:
+    image: nginx@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951
+    restart: unless-stopped
+    entrypoint: [nginx, -g, "daemon off;"]
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE, SETUID, SETGID, CHOWN]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 120s
+    ports:
+      - "${INGRESS_BIND_IP:-127.0.0.1}:${INGRESS_HTTPS_PORT:-8443}:443"
+      - "${INGRESS_BIND_IP:-127.0.0.1}:${INGRESS_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${INGRESS_CERT_DIR:?Set the reviewed certificate directory}:/etc/nginx/tls:ro
+      - ${INGRESS_ACME_DIR:?Set the ACME webroot directory}:/var/www/acme:ro
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=16m
+      - /var/run:rw,noexec,nosuid,size=1m
+    networks: [relay]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+networks:
+  relay:
+    external: true
+    name: piknoai-relay_default

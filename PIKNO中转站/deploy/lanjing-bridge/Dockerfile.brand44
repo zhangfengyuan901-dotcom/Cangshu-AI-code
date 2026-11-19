@@ -1,0 +1,2 @@
+FROM pikno-lanjing-bridge:fixed-cny-1
+COPY --chown=node:node server.mjs /app/server.mjs

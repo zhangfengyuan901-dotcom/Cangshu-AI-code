@@ -1,0 +1,121 @@
+package piknocatalog
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestAvailabilityClosuresIndependentOfOtherCatalogFields(t *testing.T) {
+	for _, test := range []struct {
+		provider string
+		body     string
+		ids      []string
+	}{
+		{"sanbao", `{"data":[{"id":"a","type":"video","enabled":false,"billing":{},"resolutions":"broken"},{"id":"image","type":"image","enabled":false},{"id":"b","type":"video","available":false},{"id":"c","type":"video","disabled":true}]}`, []string{"sanbao/a", "sanbao/b", "sanbao/c"}},
+		{"canseedream", `{"defaults":{"pointPricing":"broken","videoProviders":[{"id":"a","enabled":false,"allowedDurations":"broken"},{"id":"b","available":false},{"id":"c","disabled":true}]}}`, []string{"canseedream/video/a", "canseedream/video/b", "canseedream/video/c"}},
+	} {
+		value, err := ParseAvailabilityClosures(test.provider, []byte(test.body))
+		require.NoError(t, err)
+		require.Equal(t, test.provider, value.Provider)
+		require.Equal(t, test.ids, value.ClosedIDs)
+		require.True(t, ValidAvailabilityClosures(value))
+	}
+}
+
+func TestAvailabilityClosuresNeverInferShutdownOrReopen(t *testing.T) {
+	body := `{"defaults":{"videoProviders":[{"id":"positive","enabled":true,"available":true,"disabled":false},{"id":"absent"},{"id":"invalid","enabled":false,"available":"false"},{"id":"duplicate","enabled":false},{"id":"duplicate","enabled":true},{"id":"../invalid","disabled":true},{"id":12,"disabled":true},{"id":"valid","enabled":false},null]}}`
+	value, err := ParseAvailabilityClosures("canseedream", []byte(body))
+	require.NoError(t, err)
+	require.Equal(t, []string{"canseedream/video/valid"}, value.ClosedIDs)
+	for _, id := range []string{"enabled", "available", "disabled"} {
+		for _, raw := range []string{`"false"`, `0`, `null`, `{}`, `[]`} {
+			body := `{"defaults":{"videoProviders":[{"id":"a","` + id + `":` + raw + `}]}}`
+			value, err := ParseAvailabilityClosures("canseedream", []byte(body))
+			require.NoError(t, err)
+			require.Empty(t, value.ClosedIDs)
+		}
+	}
+}
+
+func TestAvailabilityClosuresRejectAmbiguousJSONAndEnvelope(t *testing.T) {
+	for _, body := range []string{
+		`{}`, `[]`, `{"defaults":{"videoProviders":null}}`, `{"defaults":{"videoProviders":{}}}`,
+		`{"defaults":{"videoProviders":[{"id":"a","enabled":true,"enabled":false}]}}`,
+		`{"defaults":{"videoProviders":[{"id":"a","id":"b","disabled":true}]}}`,
+		`{"defaults":{"videoProviders":[{"id":"a","disabled":true}]}}{}`,
+		`{"defaults":{"videoProviders":[{"id":"a","disabled":true}]}`,
+		`{"defaults":{"videoProviders":[{"id":"a","disabled":true,"other":` + strings.Repeat(`[`, 65) + `0` + strings.Repeat(`]`, 65) + `}]}}`,
+	} {
+		value, err := ParseAvailabilityClosures("canseedream", []byte(body))
+		require.Error(t, err)
+		require.Nil(t, value)
+	}
+	value, err := ParseAvailabilityClosures("untrusted", []byte(syncFixture))
+	require.Error(t, err)
+	require.Nil(t, value)
+	_, err = ParseAvailabilityClosures("canseedream", []byte(strings.Repeat(" ", 2*1024*1024+1)))
+	require.Error(t, err)
+	items := make([]map[string]any, 501)
+	for i := range items {
+		items[i] = map[string]any{"id": "a", "disabled": true}
+	}
+	body, err := json.Marshal(map[string]any{"defaults": map[string]any{"videoProviders": items}})
+	require.NoError(t, err)
+	_, err = ParseAvailabilityClosures("canseedream", body)
+	require.Error(t, err)
+}
+
+func TestAvailabilityClosuresFetchReusesResponseAndSurvivesFullParseFailure(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: syncTransport(func(request *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "GET", request.Method)
+		require.Equal(t, "https://see.ximeiedu.org/health", request.URL.String())
+		body := `{"defaults":{"pointPricing":"malformed","videoProviders":[{"id":"a","disabled":true,"allowedDurations":"malformed"}]}}`
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})}
+	value, err := FetchProviderSnapshot(context.Background(), client, "canseedream", ConditionalCatalog{}, time.Now())
+	require.Error(t, err, "the complete catalog remains invalid")
+	require.Nil(t, value.Snapshot)
+	require.Equal(t, []string{"canseedream/video/a"}, value.Closures.ClosedIDs)
+	require.Equal(t, 1, calls)
+}
+
+func TestAvailabilityClosuresNeverAcceptHTTPOrJSONFailure(t *testing.T) {
+	for _, test := range []struct {
+		status      int
+		body        string
+		conditional ConditionalCatalog
+		error       bool
+	}{
+		{502, `{"defaults":{"videoProviders":[{"id":"a","disabled":true}]}}`, ConditionalCatalog{}, true},
+		{304, ``, ConditionalCatalog{ETag: `"known"`}, false},
+		{200, `{"defaults":{"videoProviders":[{"id":"a","enabled":true,"enabled":false}]}}`, ConditionalCatalog{}, true},
+	} {
+		client := &http.Client{Transport: syncTransport(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: test.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(test.body)), Request: request}, nil
+		})}
+		value, err := FetchProviderSnapshot(context.Background(), client, "canseedream", test.conditional, time.Now())
+		require.Equal(t, test.error, err != nil)
+		require.Nil(t, value.Closures)
+	}
+}
+
+func TestAvailabilityClosuresModelBoundaryRejectsInvalidIdentity(t *testing.T) {
+	for _, value := range []*AvailabilityClosures{
+		nil,
+		{Provider: "untrusted", ClosedIDs: []string{"canseedream/video/a"}},
+		{Provider: "canseedream", ClosedIDs: []string{"sanbao/a"}},
+		{Provider: "canseedream", ClosedIDs: []string{"canseedream/video/../a"}},
+		{Provider: "canseedream", ClosedIDs: []string{"canseedream/video/a", "canseedream/video/a"}},
+	} {
+		require.False(t, ValidAvailabilityClosures(value))
+	}
+}

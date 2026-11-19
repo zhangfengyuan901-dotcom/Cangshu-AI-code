@@ -1,0 +1,46 @@
+services:
+  lanjing-bridge:
+    build:
+      context: ../lanjing-bridge
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - payment_receipts:/data
+    environment:
+      PUBLIC_ORIGIN: "https://www.piknoai.com"
+      LANJING_BASE: "https://2347637.pay.lanjingzf.com"
+      LANJING_MERCHANT_ID: "2347637"
+      NEW_API_ORIGIN: "http://new-api:3000"
+      TZ: Asia/Shanghai
+    secrets:
+      - lanjing_key
+      - epay_key
+      - state_key
+      - resend_config
+    depends_on:
+      new-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/pay/lanjing/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  payment_receipts:
+
+secrets:
+  lanjing_key:
+    file: ${PIKNO_RELAY_PRIVATE_DIR:-./private}/lanjing-key.txt
+  epay_key:
+    file: ${PIKNO_RELAY_PRIVATE_DIR:-./private}/payment-epay-key.txt
+  state_key:
+    file: ${PIKNO_RELAY_PRIVATE_DIR:-./private}/payment-state-key.txt
+  resend_config:
+    file: ${PIKNO_RELAY_PRIVATE_DIR:-./private}/resend.json

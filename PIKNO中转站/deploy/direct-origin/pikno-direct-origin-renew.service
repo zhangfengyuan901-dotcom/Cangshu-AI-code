@@ -1,0 +1,15 @@
+[Unit]
+Description=Renew the PIKNO direct origin HTTPS certificate
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/piknoai-relay/direct-origin/renew-certificate.py renew
+TimeoutStartSec=700
+NoNewPrivileges=true
+PrivateTmp=true
+

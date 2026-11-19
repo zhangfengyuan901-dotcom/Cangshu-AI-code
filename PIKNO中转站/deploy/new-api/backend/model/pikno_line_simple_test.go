@@ -1,0 +1,191 @@
+package model
+
+import (
+	"github.com/stretchr/testify/require"
+	"strings"
+	"testing"
+)
+
+func TestPiknoLineSimpleManualOpenWithoutCheckbox(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.False(t, view.Draft.Enabled)
+	for _, reason := range view.BlockingReasons {
+		require.NotContains(t, reason, "勾选")
+	}
+	prices := view.Draft.Prices
+	prices[0].RetailQuota = 1_700_000
+	view, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 7)
+	require.NoError(t, err)
+	require.True(t, view.CanPublish)
+	require.True(t, view.HasPendingChanges)
+	view, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	require.Nil(t, view.Draft)
+	require.True(t, view.Published.Enabled)
+	require.False(t, view.CanPublish)
+	require.False(t, view.HasPendingChanges)
+	require.Empty(t, view.BlockingReasons)
+	originalVersion, originalRevision := view.Version, view.Published.Revision
+	view, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	require.Equal(t, originalVersion, view.Version)
+	require.Equal(t, originalRevision, view.Published.Revision)
+}
+
+func TestPiknoLineSimpleMissingCostAllowsConfirmedRetail(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	body := strings.Replace(syncModelBody("a"), `,"pointsCost":50`, "", 1)
+	_, err := applySyncTest(t, channel, now, body, true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.False(t, view.Draft.PriceIssue)
+	require.Equal(t, "request", view.Draft.BillingUnit)
+	require.Equal(t, "missing_cost", view.Draft.CostIssueCode)
+	require.False(t, view.Sync.Paused)
+	require.Nil(t, view.Draft.Prices[0].CostCNY)
+	require.Zero(t, view.Draft.Prices[0].RetailQuota)
+	require.False(t, view.CanPublish)
+	prices := view.Draft.Prices
+	prices[0].RetailQuota = 1_700_000
+	view, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 7)
+	require.NoError(t, err)
+	require.True(t, view.CanPublish)
+	view, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	require.Empty(t, view.BlockingReasons)
+	quote, err := QuotePublishedPiknoLine(view.PublicModel, channel, PiknoLineUsage{Resolution: "720p", Requests: 1, Seconds: 4})
+	require.NoError(t, err)
+	require.Equal(t, "request", quote.Unit)
+	require.Equal(t, 1_700_000, quote.Quota)
+}
+
+func TestPiknoLineSimpleCostFailureDoesNotPauseOrChangeRetail(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	missing := strings.Replace(syncModelBody("a"), `,"pointsCost":50`, "", 1)
+	_, err = applySyncTest(t, channel, now+60, missing, true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.False(t, view.Sync.Paused)
+	require.True(t, view.Sync.CostChanged)
+	require.Equal(t, "missing_cost", view.Sync.CostIssueCode)
+	require.Equal(t, 1_700_000, view.Published.Prices[0].RetailQuota)
+	require.Nil(t, view.Published.Prices[0].CostCNY)
+	quote, err := QuotePublishedPiknoLine(view.PublicModel, channel, PiknoLineUsage{Resolution: "720p", Requests: 1, Seconds: 4})
+	require.NoError(t, err)
+	require.Equal(t, 1_700_000, quote.Quota)
+}
+
+func TestPiknoLineSimpleProviderResolutionRatePreservesRetail(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	body := strings.Replace(syncModelBody("a"), `"pricingMode":"fixed","pointsCost":50`, `"pricingMode":"per_second","pointsPerSecond":54,"resolutionPoints":{"720p":104}`, 1)
+	_, err := applySyncTest(t, channel, now, body, true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.False(t, view.Sync.Paused)
+	require.Equal(t, "second", view.Draft.BillingUnit)
+	require.Empty(t, view.Draft.CostIssueCode)
+	require.Equal(t, 1.04, *view.Draft.Prices[0].CostCNY)
+	prices := view.Draft.Prices
+	prices[0].RetailQuota = 300_000
+	view, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 7)
+	require.NoError(t, err)
+	view, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	quote, err := QuotePublishedPiknoLine(view.PublicModel, channel, PiknoLineUsage{Resolution: "720p", Seconds: 4})
+	require.NoError(t, err)
+	require.Equal(t, "second", quote.Unit)
+	require.Equal(t, 1_200_000, quote.Quota)
+}
+
+func TestPiknoLineSimpleUnknownUnitPausesAndRecovers(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	unknown := strings.Replace(syncModelBody("a"), `"pricingMode":"fixed"`, `"pricingMode":"unsupported"`, 1)
+	_, err = applySyncTest(t, channel, now+60, unknown, true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.True(t, view.Sync.Paused)
+	require.Equal(t, "billing_unknown", view.Sync.PauseReason)
+	require.Equal(t, "invalid_billing_unit", view.Draft.BillingIssueCode)
+	require.Len(t, view.Draft.Prices, 1, "retained prices are editing data only while billing is blocked")
+	require.False(t, view.CanPublish)
+	_, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.Error(t, err)
+	_, err = GetPublishedPiknoLine(view.PublicModel)
+	require.Error(t, err)
+	_, err = applySyncTest(t, channel, now+120, syncModelBody("a"), true)
+	require.NoError(t, err)
+	line, err := GetPublishedPiknoLine(view.PublicModel)
+	require.NoError(t, err)
+	require.Equal(t, 1_700_000, line.Prices[0].RetailQuota)
+	view, err = GetPiknoLineAdmin(view.PublicModel, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1_700_000, view.Draft.Prices[0].RetailQuota)
+	require.False(t, view.HasPendingChanges)
+	require.Empty(t, view.BlockingReasons)
+	require.False(t, view.Sync.CostChanged)
+}
+
+func TestPiknoLineSimplePendingRetailSurvivesUnknownUnit(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	prices := append([]PiknoLinePrice(nil), view.Published.Prices...)
+	prices[0].RetailQuota = 1_900_000
+	view, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 7)
+	require.NoError(t, err)
+	unknown := strings.Replace(syncModelBody("a"), `"pricingMode":"fixed"`, `"pricingMode":"unsupported"`, 1)
+	_, err = applySyncTest(t, channel, now+60, unknown, true)
+	require.NoError(t, err)
+	view, err = GetPiknoLineAdmin(view.PublicModel, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1_900_000, view.Draft.Prices[0].RetailQuota)
+	require.True(t, view.Draft.PriceIssue)
+	require.False(t, view.CanPublish)
+	require.Nil(t, view.Draft.Prices[0].CostCNY)
+	_, err = GetPublishedPiknoLine(view.PublicModel)
+	require.Error(t, err)
+	_, err = applySyncTest(t, channel, now+120, syncModelBody("a"), true)
+	require.NoError(t, err)
+	view, err = GetPiknoLineAdmin(view.PublicModel, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1_900_000, view.Draft.Prices[0].RetailQuota)
+	require.Equal(t, 1_700_000, view.Published.Prices[0].RetailQuota)
+	require.True(t, view.HasPendingChanges)
+	require.True(t, view.CanPublish)
+}
+
+func TestPiknoLineSimpleReopenWithoutRecreatingDraft(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	view, err = DisablePiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	require.Nil(t, view.Draft)
+	require.True(t, view.CanPublish)
+	require.Empty(t, view.BlockingReasons)
+	view, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	require.True(t, view.Published.Enabled)
+	require.Equal(t, 1_700_000, view.Published.Prices[0].RetailQuota)
+	require.Empty(t, view.BlockingReasons)
+}

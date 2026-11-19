@@ -1,0 +1,431 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const source=fs.readFileSync(new URL('../public/account.mjs',import.meta.url),'utf8');
+const faultSource=fs.readFileSync(new URL('../public/fault-events.mjs',import.meta.url),'utf8');
+const initial={relayMode:true,configured:false,videoConfigured:false,toolConfigured:false,chatConfigured:false,llmConfigured:false,keyStorage:'protected'};
+const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
+const connection=(image={},video={},tools={},chat={})=>({checkedAt:123,image:{configured:false,state:'unconfigured',connected:false,modelCount:0,...image},video:{configured:false,state:'unconfigured',connected:false,modelCount:0,...video},chat:{configured:false,state:'unconfigured',connected:false,modelCount:0,...chat},tools:{digital:false,depth:false,...tools}});
+const ready={configured:true,state:'ready',connected:true,modelCount:1};
+
+function fixture({config=initial,respond=()=>json(connection()),confirmed=true,active=true,startupState='ready',visibilityState='visible'}={}){
+  const elements=new Map(),calls=[],events=[],removed=[],listeners=new Map(),documentListeners=new Map();
+  let currentConfig=config;
+  let time=Date.now();
+  let navigated=0;
+  const element=id=>{
+    if(!elements.has(id))elements.set(id,{id,textContent:'',innerHTML:'',dataset:{},value:'',disabled:false,hidden:false,attributes:{},setAttribute(name,value){this.attributes[name]=value;},remove(){this.removed=true;},click(){navigated++;}});
+    return elements.get(id);
+  };
+  const dashboard=element('dashboard');
+  const panel={active,classList:{contains:()=>panel.active}};dashboard.closest=()=>panel;
+  const document={body:{dataset:{startupState}},visibilityState,getElementById:element,querySelector:selector=>selector==='.account-dashboard'?dashboard:selector.startsWith('.rail-item[data-view="')?element(selector):null,addEventListener:(type,listener)=>documentListeners.set(type,listener)};
+  const context={
+    Date:class extends Date{static now(){return time;}},
+    document,
+    fetch:async(path,options={})=>{
+      calls.push({path,options});
+      if(path==='/api/config'&&!options.method)return typeof currentConfig==='function'?currentConfig(path,options):json(currentConfig);
+      if(path==='/api/error-report')return json({accepted:true},202);
+      return respond(path,options);
+    },
+    Event:class{constructor(type){this.type=type;}},
+    CustomEvent:class{constructor(type,{detail}={}){this.type=type;this.detail=detail;}},
+    window:{addEventListener:(type,listener)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(listener);},dispatchEvent:event=>{events.push({type:event.type,detail:event.detail,image:element('relayImageKey').value,video:element('relayVideoKey').value,summary:element('relayKeySummary').textContent});for(const listener of listeners.get(event.type)||[])listener(event);}},
+    localStorage:{removeItem:name=>removed.push(name),setItem:()=>assert.fail('Key must not be stored in browser storage')},
+    location:{reload:()=>assert.fail('saving Key must not reload the app')},
+    confirm:()=>typeof confirmed==='function'?confirmed():confirmed,
+  };
+  // Preserve the actual browser helper's validation, field rebuilding and throttling.
+  // This existing vm runner only needs ES module syntax adapted to scoped bindings.
+  const importStatement="import {reportAccountFailure} from './fault-events.mjs';";
+  assert.ok(source.includes(importStatement));
+  const scopedFaultSource=faultSource.replace(/^export /gm,'');
+  const executable=source.replace("import {mountNativeAuth,mountNativePayment} from './account-native.mjs';",'').replace("import {keyDisplayName} from './account-display.mjs';",'').replace(importStatement,`const {reportAccountFailure}=(()=>{${scopedFaultSource}\nreturn {reportAccountFailure};})();`);
+  const initialized=vm.runInNewContext(`(async()=>{${executable}\n})()`,context);
+  return {initialized,element,dashboard,calls,events,removed,advance:ms=>{time+=ms;},setConfig:value=>{currentConfig=value;},nativeConfigured:()=>context.window.dispatchEvent(new context.Event('hamster-relay-native-configured')),switchView:active=>{panel.active=active;context.window.dispatchEvent(new context.CustomEvent('hamster-view-changed',{detail:{view:active?'account':'generate'}}));},startupReady:()=>{document.body.dataset.startupState='ready';context.window.dispatchEvent(new context.Event('hamster-startup-ready'));},setVisibility:value=>{document.visibilityState=value;documentListeners.get('visibilitychange')?.();},get navigated(){return navigated;}};
+}
+const submit=fixture=>fixture.element('relayKeyForm').onsubmit({preventDefault(){}});
+async function until(predicate){for(let i=0;i<50;i++){if(predicate())return;await new Promise(resolve=>setImmediate(resolve));}assert.fail('account state did not settle');}
+
+test('recheck refreshes callable lines without saving Keys, and tool-only access can start',async()=>{
+  const app=fixture({config:{...initial,toolConfigured:true},respond:()=>json({...connection({}, {},{digital:true,depth:true}),tool:ready})});
+  await app.initialized;assert.equal(app.element('startRelay').disabled,false);
+  app.element('startRelay').onclick();assert.equal(app.navigated,1);
+  const before=app.calls.length;await app.element('recheckRelay').onclick();
+  assert.deepEqual(app.calls.slice(before).map(call=>[call.path,call.options.method]),[['/api/relay/connection',undefined]]);
+  assert.deepEqual(app.events.map(event=>event.type),['hamster-onboarding-start','hamster-relay-catalog-refresh']);
+  assert.deepEqual({...app.events[0].detail},{kind:'tool',view:'digital'});
+  assert.match(app.element('relayToolStatus').textContent,/数字人：已开放；深度视频：已开放/);
+});
+
+test('first run keeps account access and folded manual settings without setup prose or requests without a Key',async()=>{
+  const app=fixture();await app.initialized;
+  assert.equal(app.calls.length,1);assert.equal(app.calls[0].path,'/api/config');
+  for(const text of ['个人中心','打开网页版','充值 ↗','登录','高级连接设置','应用功能','保存并自动检测','对话 Key'])assert.ok(app.dashboard.innerHTML.includes(text));
+  assert.match(app.dashboard.innerHTML,/<details class="account-card relay-account relay-advanced"><summary>高级连接设置<\/summary>/);
+  assert.doesNotMatch(app.dashboard.innerHTML,/余额 · 消费记录|独立页面内处理|登录、手动充值并创建 Key|桌面后台接入，免费检测|下方仅供兼容手动配置|依次手动创建图片、视频、工具和对话 Key|确认连接，开始使用|不创建生成任务、不提交推理、不冻结额度、不扣费/);
+  assert.doesNotMatch(app.dashboard.innerHTML,/relay-help|relayKeyStorage|relayChatStatus|打开 PIKNO，用同一个账户|四个 Key 共用账户余额|空白保留已保存的对应 Key|两项工具共用工具 Key|对话和画布功能保留/);
+  assert.doesNotMatch(source,/relay-help|relayKeyStorage|relayChatStatus|对话客户价|Key 由系统加密保护/);
+  assert.match(app.dashboard.innerHTML,/https:\/\/www\.piknoai\.com/);
+  assert.equal(app.element('startRelay').disabled,true);
+  assert.equal(app.element('recheckRelay').disabled,true);
+  assert.equal(app.element('relayStorageWarning').hidden,true);
+  assert.equal(app.element('rechargeDialog').removed,true);
+  assert.doesNotMatch(app.dashboard.innerHTML,/支付宝充值|邮箱注册|可用余额（元）/);
+});
+
+test('application connection state and start stay visible outside folded manual Key settings',async()=>{
+  const app=fixture();await app.initialized;
+  const advanced=app.dashboard.innerHTML.match(/<details class="account-card relay-account relay-advanced">[\s\S]*?<\/details>/)[0];
+  const primary=app.dashboard.innerHTML.slice(0,app.dashboard.innerHTML.indexOf(advanced));
+  for(const id of ['relayImageConnection','relayVideoConnection','relayToolConnection','relayChatConnection','relayToolStatus','relayAccountStatus','recheckRelay','startRelay']){
+    assert.ok(primary.includes(`id="${id}"`));assert.ok(!advanced.includes(`id="${id}"`));
+    assert.equal(app.dashboard.innerHTML.split(`id="${id}"`).length,2);
+  }
+  for(const id of ['relayKeyForm','saveRelayKeys','disconnectRelay','relayStorageWarning'])assert.ok(advanced.includes(`id="${id}"`));
+  assert.doesNotMatch(primary,/relayAccountViewport|openRelayAccountView|<iframe/);
+  assert.doesNotMatch(source,/mountRelayAccountView/);
+  assert.equal(app.calls.length,1);
+});
+
+test('saved Key triggers free detection on opening, with independent image/video and tool states',async()=>{
+  const app=fixture({config:{...initial,configured:true,videoConfigured:true},respond:()=>json(connection(ready,{configured:true,state:'error',message:'sanbao sk-secret https://upstream.test'},{}))});
+  await app.initialized;
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+  assert.equal(app.calls[1].options.method,undefined);assert.equal(app.calls[1].options.cache,'no-store');
+  assert.equal(app.element('relayImageConnection').textContent,'图片：连接正常');
+  assert.equal(app.element('relayVideoConnection').textContent,'视频：不可用');
+  assert.match(app.element('relayToolStatus').textContent,/数字人：尚未开放；深度视频：尚未开放/);
+  assert.doesNotMatch(app.element('relayVideoConnection').textContent,/sanbao|sk-|upstream/);
+  assert.equal(app.element('startRelay').disabled,false);
+});
+
+test('saving one Key trims input, clears fields, preserves the other feature and updates without reload',async()=>{
+  const app=fixture({config:{...initial,videoConfigured:true},respond:(path,options)=>path==='/api/config'?json({ok:true,...initial,configured:true,videoConfigured:true}):json(connection(ready,ready))});
+  await app.initialized;app.calls.length=0;
+  app.element('relayImageKey').value='  image-test-only  ';
+  await submit(app);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+  assert.deepEqual(JSON.parse(app.calls[0].options.body),{piknoImageKey:'image-test-only',piknoVideoKey:'',piknoToolKey:'',piknoChatKey:''});
+  assert.equal(app.calls[0].options.method,'POST');
+  assert.equal(app.element('relayImageKey').value,'');assert.equal(app.element('relayVideoKey').value,'');
+  assert.match(app.element('relayKeySummary').textContent,/图片：已配置；视频：已配置/);
+  assert.equal(app.events.length,1);assert.equal(app.events[0].type,'hamster-relay-configured');
+  assert.equal(app.events[0].image,'');assert.match(app.events[0].summary,/视频：已配置/);
+  assert.deepEqual(app.removed,['hamster_wallet_model_cache_v1']);
+});
+
+test('blank inputs can validate existing configuration and never imply removal',async()=>{
+  const app=fixture({config:{...initial,configured:true},respond:path=>path==='/api/config'?json({ok:true,...initial,configured:true}):json(connection(ready))});
+  await app.initialized;app.calls.length=0;await submit(app);
+  assert.deepEqual(JSON.parse(app.calls[0].options.body),{piknoImageKey:'',piknoVideoKey:'',piknoToolKey:'',piknoChatKey:''});
+  assert.match(app.element('relayKeySummary').textContent,/图片：已配置/);
+  assert.doesNotMatch(app.dashboard.innerHTML,/首次配置时空白表示未配置/);
+});
+test('individual removal is explicit and may be combined with replacing another Key',async()=>{
+  for(const [kind,field] of [['Image','configured'],['Video','videoConfigured'],['Tool','toolConfigured'],['Chat','chatConfigured']]){
+    const app=fixture({config:{...initial,configured:true,videoConfigured:true,toolConfigured:true,chatConfigured:true},respond:path=>path==='/api/config'?json({ok:true,...initial,configured:true,videoConfigured:true,toolConfigured:true,chatConfigured:true,[field]:false}):json(connection(ready,ready))});
+    await app.initialized;app.calls.length=0;
+    const checkbox=app.element('removeRelay'+kind+'Key'),input=app.element('relay'+kind+'Key');input.value='discarded-new-value';checkbox.checked=true;checkbox.onchange();assert.equal(input.value,'');assert.equal(input.disabled,true);
+    await submit(app);const payload=JSON.parse(app.calls[0].options.body);assert.equal(payload['remove_'+kind.toLowerCase()],true);assert.equal(payload['pikno'+kind+'Key'],'');assert.equal(app.calls[0].path,'/api/config');assert.equal(checkbox.checked,false);assert.equal(checkbox.disabled,true);assert.equal(app.events[0].type,'hamster-relay-configured');
+  }
+});
+
+test('invalid Key and mixed account rejection keep current configuration and never expose backend errors',async()=>{
+  for(const code of [400,401,403,409,500]){
+    const app=fixture({config:{...initial,configured:true},respond:path=>path==='/api/config'?json({error:'packy sk-secret https://private.test'},code):json(connection(ready))});
+    await app.initialized;app.calls.length=0;app.element('relayImageKey').value='candidate-only';
+    await submit(app);
+    assert.equal(app.calls.length,2);assert.equal(app.events.length,0);
+    assert.equal(app.calls[1].path,'/api/error-report');assert.deepEqual(JSON.parse(app.calls[1].options.body),{module:'account',code:'ACCOUNT_KEY_IMPORT_FAILED',httpStatus:code});
+    assert.equal(app.element('relayImageKey').value,'candidate-only');
+    assert.match(app.element('relayKeySummary').textContent,/图片：已配置/);
+    assert.doesNotMatch(app.element('relayAccountStatus').textContent,/packy|sk-|private/);
+    assert.equal(app.element('saveRelayKeys').disabled,false);
+    if(code===409)assert.match(app.element('relayAccountStatus').textContent,/同时替换全部已配置 Key/);
+  }
+});
+
+test('recheck is single-flight, prevents save/disconnect races and uses only free GET',async()=>{
+  let release,pending=false;
+  const app=fixture({config:{...initial,configured:true},respond:()=>pending?new Promise(resolve=>{release=resolve;}):json(connection(ready))});
+  await app.initialized;app.calls.length=0;pending=true;
+  const checking=app.element('recheckRelay').onclick();
+  assert.equal(app.element('recheckRelay').disabled,true);assert.equal(app.element('saveRelayKeys').disabled,true);
+  assert.equal(app.element('relayImageKey').disabled,true);
+  assert.equal(app.element('startRelay').disabled,true);
+  await app.element('recheckRelay').onclick();await submit(app);await app.element('disconnectRelay').onclick();
+  assert.equal(app.calls.length,1);assert.equal(app.calls[0].path,'/api/relay/connection');
+  assert.equal(app.calls[0].options.method,undefined);
+  release(json(connection(ready)));await checking;
+  assert.equal(app.element('recheckRelay').disabled,false);assert.equal(app.element('saveRelayKeys').disabled,false);
+});
+
+test('native configuration notification reads safe flags and detects all four without copying or posting Keys',async()=>{
+  const app=fixture({respond:()=>json({...connection(ready,ready,{digital:true,depth:true},ready),tool:ready})});
+  await app.initialized;app.calls.length=0;
+  app.setConfig({...initial,configured:true,videoConfigured:true,toolConfigured:true,chatConfigured:true});
+  app.nativeConfigured();
+  await until(()=>app.element('startRelay').disabled===false);
+  assert.deepEqual(app.calls.map(call=>[call.path,call.options.method]),[['/api/config',undefined],['/api/relay/connection',undefined]]);
+  assert.match(app.element('relayKeySummary').textContent,/图片：已配置；视频：已配置；工具：已配置；对话：已配置/);
+  for(const kind of ['Image','Video','Tool','Chat'])assert.equal(app.element('relay'+kind+'Key').value,'');
+  assert.equal(app.events.filter(event=>event.type==='hamster-relay-catalog-refresh').length,1);
+  assert.deepEqual(app.removed,['hamster_wallet_model_cache_v1']);
+});
+
+test('notifications during native refresh coalesce and the last configuration wins',async()=>{
+  let release,reads=0;
+  const app=fixture({respond:()=>json(connection({}, {}, {},ready))});
+  await app.initialized;app.calls.length=0;
+  app.setConfig(()=>++reads===1?new Promise(resolve=>{release=resolve;}):json({...initial,chatConfigured:true}));
+  app.nativeConfigured();app.nativeConfigured();app.nativeConfigured();
+  assert.equal(reads,1);assert.equal(app.element('saveRelayKeys').disabled,true);
+  release(json({...initial,videoConfigured:true}));
+  await until(()=>app.element('saveRelayKeys').disabled===false&&reads===2);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/config','/api/relay/connection']);
+  assert.match(app.element('relayKeySummary').textContent,/图片：未配置；视频：未配置；工具：未配置；对话：已配置/);
+  assert.equal(app.element('startRelay').textContent,'开始对话');assert.equal(app.element('startRelay').disabled,false);
+  assert.equal(app.calls.some(call=>call.options.method==='POST'),false);
+});
+
+test('native notifications wait for an existing operation and perform one final free refresh',async()=>{
+  let release,waiting=false,chatOnly=false;
+  const app=fixture({config:{...initial,configured:true},respond:()=>waiting?new Promise(resolve=>{release=resolve;}):json(chatOnly?connection({}, {}, {},ready):connection(ready))});
+  await app.initialized;app.calls.length=0;waiting=true;
+  const checking=app.element('recheckRelay').onclick();
+  app.setConfig({...initial,chatConfigured:true});app.nativeConfigured();app.nativeConfigured();app.nativeConfigured();
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/relay/connection']);
+  waiting=false;chatOnly=true;release(json(connection(ready)));await checking;
+  await until(()=>app.calls.length===3&&app.element('saveRelayKeys').disabled===false);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/relay/connection','/api/config','/api/relay/connection']);
+  assert.match(app.element('relayKeySummary').textContent,/对话：已配置/);assert.equal(app.element('startRelay').textContent,'开始对话');
+  assert.equal(app.calls.some(call=>call.options.method==='POST'),false);
+});
+
+test('a newer notification invalidates an old native connection result before it changes ready state',async()=>{
+  let release,checks=0;
+  const app=fixture({respond:()=>++checks===1?new Promise(resolve=>{release=resolve;}):json(connection({}, {}, {},ready))});
+  await app.initialized;app.calls.length=0;app.setConfig({...initial,configured:true});app.nativeConfigured();
+  await until(()=>checks===1);
+  app.setConfig({...initial,chatConfigured:true});app.nativeConfigured();
+  release(json(connection(ready)));
+  await until(()=>checks===2&&app.element('saveRelayKeys').disabled===false);
+  assert.equal(app.element('startRelay').textContent,'开始对话');assert.equal(app.element('startRelay').disabled,false);
+  assert.match(app.element('relayKeySummary').textContent,/图片：未配置；视频：未配置；工具：未配置；对话：已配置/);
+  assert.equal(app.events.filter(event=>event.type==='hamster-relay-catalog-refresh').length,1);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection','/api/config','/api/relay/connection']);
+});
+
+test('failed native config refresh retains flags, blocks start and reports only fixed metadata',async()=>{
+  const app=fixture({config:{...initial,configured:true},respond:()=>json(connection(ready))});
+  await app.initialized;assert.equal(app.element('startRelay').disabled,false);app.calls.length=0;
+  app.setConfig(()=>json({error:'private customer sk-secret https://private.test'},503));app.nativeConfigured();
+  await until(()=>app.element('saveRelayKeys').disabled===false);
+  assert.equal(app.element('startRelay').disabled,true);assert.match(app.element('relayKeySummary').textContent,/图片：已配置/);
+  assert.match(app.element('relayAccountStatus').textContent,/配置状态暂未确认/);assert.doesNotMatch(app.element('relayAccountStatus').textContent,/private|customer|sk-|https/);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/error-report']);
+  assert.deepEqual(JSON.parse(app.calls[1].options.body),{module:'account',code:'ACCOUNT_CONNECT_FAILED',httpStatus:503});
+});
+
+test('manual Key save network exception reports a fixed category and does not repeat configuration',async()=>{
+  const app=fixture({respond:()=>{throw Error('private customer sk-secret https://private.test');}});
+  await app.initialized;app.calls.length=0;app.element('relayImageKey').value='candidate-only';
+  await submit(app);
+  assert.deepEqual(app.calls.map(call=>[call.path,call.options.method]),[['/api/config','POST'],['/api/error-report','POST']]);
+  assert.deepEqual(JSON.parse(app.calls[1].options.body),{module:'account',code:'ACCOUNT_KEY_IMPORT_FAILED',httpStatus:0});
+  assert.equal(app.element('relayImageKey').value,'candidate-only');assert.equal(app.events.length,0);
+  assert.doesNotMatch(app.element('relayAccountStatus').textContent,/private|customer|sk-|https/);
+});
+
+test('failed initial config read reports once without rendering raw response or starting any operation',async()=>{
+  const app=fixture({config:()=>json({error:'private sk-secret'},503)});await app.initialized;
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/error-report']);
+  assert.deepEqual(JSON.parse(app.calls[1].options.body),{module:'account',code:'ACCOUNT_CONNECT_FAILED',httpStatus:503});
+  assert.equal(app.dashboard.textContent,'无法读取账户配置，请重新加载应用。');
+});
+
+test('closed lines and malformed counts do not enable start; tools are explicitly unavailable',async()=>{
+  for(const result of [connection({configured:true,state:'unavailable',connected:true,modelCount:0}),connection({...ready,modelCount:Infinity})]){
+    const app=fixture({config:{...initial,configured:true},respond:()=>json(result)});await app.initialized;
+    assert.equal(app.element('startRelay').disabled,true);
+    assert.match(app.element('relayToolStatus').textContent,/尚未开放/);
+    app.element('startRelay').onclick();assert.equal(app.navigated,0);
+  }
+});
+
+test('detection failures retain configured flags and show fixed safe retry message',async()=>{
+  const app=fixture({config:{...initial,videoConfigured:true},respond:()=>{throw Error('runninghub sk-secret https://private.test');}});
+  await app.initialized;
+  assert.match(app.element('relayKeySummary').textContent,/视频：已配置/);
+  assert.match(app.element('relayAccountStatus').textContent,/已保存的 Key 未被删除/);
+  assert.doesNotMatch(app.element('relayAccountStatus').textContent,/runninghub|sk-|private/);
+  assert.equal(app.element('saveRelayKeys').disabled,false);assert.equal(app.element('startRelay').disabled,true);
+});
+
+test('successful save remains confirmed even if subsequent detection cannot connect',async()=>{
+  const app=fixture({respond:path=>path==='/api/config'?json({ok:true,...initial,configured:true}):Promise.reject(Error('private endpoint'))});
+  await app.initialized;app.element('relayImageKey').value='candidate-only';await submit(app);
+  assert.equal(app.element('relayImageKey').value,'');assert.equal(app.events[0].type,'hamster-relay-configured');
+  assert.match(app.element('relayKeySummary').textContent,/图片：已配置/);
+  assert.match(app.element('relayAccountStatus').textContent,/已保存的 Key 未被删除/);
+});
+
+test('memory mode is clearly warned and protected storage hides the warning',async()=>{
+  const app=fixture({config:{...initial,keyStorage:'memory'}});await app.initialized;
+  assert.equal(app.element('relayStorageWarning').hidden,false);
+  assert.ok(app.dashboard.innerHTML.includes('关闭应用后需要重新填写'));
+});
+
+test('disconnect requires confirmation, removes both locally and preserves user data without reload',async()=>{
+  let allow=false;
+  const app=fixture({config:{...initial,configured:true,videoConfigured:true},confirmed:()=>allow,respond:path=>path==='/api/relay/disconnect'?json({ok:true,...initial}):json(connection(ready,ready))});
+  await app.initialized;app.calls.length=0;
+  await app.element('disconnectRelay').onclick();assert.equal(app.calls.length,0);
+  allow=true;await app.element('disconnectRelay').onclick();
+  assert.equal(app.calls.length,1);assert.equal(app.calls[0].path,'/api/relay/disconnect');assert.equal(app.calls[0].options.method,'POST');
+  assert.match(app.element('relayKeySummary').textContent,/图片：未配置；视频：未配置/);
+  assert.deepEqual(app.events.map(event=>event.type),['hamster-session-invalidated','hamster-relay-configured']);
+  assert.match(app.element('relayAccountStatus').textContent,/余额及本地素材、聊天和任务文件保持不变/);
+  assert.equal(app.element('startRelay').disabled,true);assert.equal(app.element('recheckRelay').disabled,true);
+});
+
+test('start navigates to generation only after usable connection and never submits a paid request',async()=>{
+  const app=fixture({config:{...initial,configured:true},respond:()=>json(connection(ready))});await app.initialized;
+  app.element('startRelay').onclick();assert.equal(app.navigated,1);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+  assert.equal(app.events.length,1);assert.equal(app.events[0].type,'hamster-onboarding-start');
+  assert.doesNotMatch(source,/(?:image|video|tool)\.on(?:input|change)|location\.reload|\/v1\/images|\/v1\/videos/);
+});
+
+test('chat-only account can detect dedicated access and open chat without media requests',async()=>{
+  const chat={...ready,authorized:true,pricing:{currency:'CNY',input_cny_per_million:9,output_cny_per_million:45}};
+  const app=fixture({config:{...initial,chatConfigured:true,llmConfigured:true},respond:()=>json(connection({}, {}, {},chat))});await app.initialized;
+  assert.equal(app.element('startRelay').disabled,false);assert.equal(app.element('startRelay').textContent,'开始对话');
+  app.element('startRelay').onclick();assert.equal(app.navigated,1);
+  assert.match(app.element('relayKeySummary').textContent,/对话：已配置/);
+  assert.equal(app.element('relayChatConnection').textContent,'对话：连接正常');
+  assert.doesNotMatch(app.dashboard.innerHTML,/relayChatStatus|对话客户价/);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+  assert.doesNotMatch(app.dashboard.innerHTML,/沿用图片或视频 Key|无需额外填写 Key|\bARK\b|endpoint/i);
+});
+test('chat-only disabled and insufficient-balance access cannot start a paid conversation',async()=>{
+  for(const state of ['unavailable','insufficient_balance','forbidden','error']){
+    const app=fixture({config:{...initial,chatConfigured:true,llmConfigured:true},respond:()=>json(connection({}, {}, {},{configured:true,state,authorized:true,modelCount:0,message:'ark sk-secret ep-private'}))});await app.initialized;
+    assert.equal(app.element('startRelay').disabled,true);app.element('startRelay').onclick();assert.equal(app.navigated,0);
+    assert.doesNotMatch(app.element('relayChatConnection').textContent,/ark|sk-|ep-private/);
+  }
+});
+test('saving a chat Key clears its input before configuration events and retains safe summary',async()=>{
+  const app=fixture({respond:path=>path==='/api/config'?json({ok:true,...initial,chatConfigured:true,llmConfigured:true}):json(connection({}, {}, {},ready))});await app.initialized;
+  app.element('relayChatKey').value='  chat-test-only  ';await submit(app);
+  assert.equal(JSON.parse(app.calls[1].options.body).piknoChatKey,'chat-test-only');assert.equal(app.element('relayChatKey').value,'');
+  assert.equal(app.events[0].type,'hamster-relay-configured');assert.match(app.events[0].summary,/对话：已配置/);
+});
+
+test('connection 429 keeps configured Key and blocks duplicate free checks until the advertised cooldown',async()=>{
+  let limited=true;const app=fixture({config:{...initial,configured:true},respond:()=>json(connection(limited?{configured:true,state:'rate_limited',httpStatus:429,retryAfterMs:120000}:ready))});await app.initialized;
+  assert.equal(app.element('relayImageConnection').dataset.state,'rate_limited');assert.match(app.element('relayAccountStatus').textContent,/等待 120 秒|不需要重新开通/);
+  const before=app.calls.length;await app.element('recheckRelay').onclick();assert.equal(app.calls.length,before);assert.equal(app.element('startRelay').disabled,true);
+  app.advance(119999);await app.element('recheckRelay').onclick();assert.equal(app.calls.length,before);
+  app.advance(1);limited=false;await app.element('recheckRelay').onclick();assert.equal(app.calls.length,before+1);assert.equal(app.element('startRelay').disabled,false);
+  assert.equal(app.calls.filter(call=>call.path==='/api/error-report').length,0);
+});
+
+test('manual save 429 preserves previous settings and input, suppresses fault report and prevents an immediate repeat',async()=>{
+  const app=fixture({respond:()=>json({retryAfterMs:120000},429)});await app.initialized;app.element('relayImageKey').value='candidate-only';await submit(app);
+  assert.equal(app.element('relayImageKey').value,'candidate-only');assert.match(app.element('relayAccountStatus').textContent,/本次保存未完成，原配置未替换/);
+  const before=app.calls.length;await submit(app);assert.equal(app.calls.length,before);assert.equal(app.calls.filter(call=>call.path==='/api/error-report').length,0);
+});
+
+test('startup gate restores a non-account page without checking any configured feature',async()=>{
+  const app=fixture({config:{...initial,configured:true,videoConfigured:true,toolConfigured:true,chatConfigured:true},startupState:'loading',respond:()=>json(connection(ready,ready,{},ready))});
+  await app.initialized;
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config']);
+  assert.equal(app.element('relayImageConnection').textContent,'图片：待检测');
+  assert.equal(app.element('startRelay').disabled,true);
+  app.switchView(false);app.startupReady();await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config']);
+  app.switchView(true);await until(()=>!app.element('startRelay').disabled);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+});
+
+test('first account remains pending until startup is ready and coalesces repeated ready events',async()=>{
+  const app=fixture({config:{...initial,chatConfigured:true},startupState:'loading',respond:()=>json(connection({}, {}, {},ready))});await app.initialized;
+  app.startupReady();app.startupReady();app.switchView(true);
+  await until(()=>!app.element('startRelay').disabled);
+  assert.equal(app.calls.filter(call=>call.path==='/api/relay/connection').length,1);
+  assert.equal(app.element('startRelay').textContent,'开始对话');
+});
+
+test('background native activation refreshes safe configuration but delays network detection until account is visible',async()=>{
+  const app=fixture({active:false,respond:()=>json(connection({}, {}, {},ready))});await app.initialized;app.calls.length=0;
+  app.setConfig({...initial,chatConfigured:true});app.nativeConfigured();
+  await until(()=>app.element('relayChatConnection').textContent==='对话：待检测'&&!app.element('saveRelayKeys').disabled);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config']);
+  assert.equal(app.element('startRelay').disabled,true);
+  assert.equal(app.events.filter(event=>event.type==='hamster-relay-catalog-refresh').length,0);
+  app.switchView(true);await until(()=>!app.element('startRelay').disabled);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+});
+
+test('hidden application does not detect until foreground, and short revisits reuse only recent real results',async()=>{
+  const app=fixture({config:{...initial,configured:true},visibilityState:'hidden',respond:()=>json(connection(ready))});await app.initialized;
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config']);
+  app.setVisibility('visible');await until(()=>!app.element('startRelay').disabled);
+  app.switchView(false);app.advance(14999);app.switchView(true);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(app.calls.filter(call=>call.path==='/api/relay/connection').length,1);
+  app.switchView(false);app.advance(1);app.switchView(true);await until(()=>app.calls.filter(call=>call.path==='/api/relay/connection').length===2&&!app.element('saveRelayKeys').disabled);
+  assert.equal(app.calls.some(call=>call.options.method==='POST'),false);
+});
+
+test('leaving during a native configuration read starts no follow-up detection',async()=>{
+  let release;const app=fixture({respond:()=>json(connection(ready))});await app.initialized;app.calls.length=0;
+  app.setConfig(()=>new Promise(resolve=>{release=resolve;}));app.nativeConfigured();app.switchView(false);
+  release(json({...initial,configured:true}));await until(()=>!app.element('saveRelayKeys').disabled);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config']);
+  assert.equal(app.element('relayImageConnection').textContent,'图片：待检测');assert.equal(app.element('startRelay').disabled,true);
+  app.switchView(true);await until(()=>!app.element('startRelay').disabled);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/config','/api/relay/connection']);
+});
+
+test('one real ready feature is enough and start selects its matching view without requiring four Keys',async()=>{
+  for(const [kind,field,view]of [['image','configured','generate'],['video','videoConfigured','generate'],['chat','chatConfigured','chat'],['tool','toolConfigured','digital']]){
+    const result=connection();result[kind]=ready;if(kind==='tool')result.tools.digital=true;
+    const app=fixture({config:{...initial,[field]:true},respond:()=>json(result)});await app.initialized;
+    assert.equal(app.element('billingConnection').textContent,'已连接 1/4');assert.equal(app.element('startRelay').disabled,false);
+    app.element('startRelay').onclick();assert.equal(app.navigated,1);
+    assert.deepEqual({...app.events.at(-1).detail},{kind,view});
+    for(const [other,label]of [['image','图片'],['video','视频'],['tool','工具'],['chat','对话']])if(other!==kind)assert.equal(app.element(`relay${other[0].toUpperCase()+other.slice(1)}Connection`).textContent,`${label}：未激活`);
+  }
+});
+
+test('saved but unchecked Key is pending and cannot start, while another ready function stays usable during cooldown',async()=>{
+  const pending=fixture({config:{...initial,configured:true},respond:()=>json(connection({configured:true,state:'pending'}))});await pending.initialized;
+  assert.equal(pending.element('relayImageConnection').textContent,'图片：待检测');assert.equal(pending.element('startRelay').disabled,true);
+  const app=fixture({config:{...initial,configured:true,chatConfigured:true},respond:()=>json(connection(ready,{}, {},{configured:true,state:'rate_limited',retryAfterMs:120000}))});await app.initialized;
+  assert.equal(app.element('relayChatConnection').textContent,'对话：冷却');assert.equal(app.element('startRelay').disabled,false);assert.equal(app.element('billingConnection').textContent,'已连接 1/4');
+  const before=app.calls.length;app.switchView(false);app.advance(20000);app.switchView(true);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(app.calls.length,before);assert.equal(app.element('startRelay').disabled,false);
+  assert.equal(app.calls.filter(call=>call.path==='/api/error-report').length,0);
+});
+
+test('duplicate visibility events do not repeat a failed connection check automatically',async()=>{
+  let reject;const app=fixture({config:{...initial,configured:true},startupState:'loading',respond:()=>new Promise((resolve,fail)=>{reject=fail;})});await app.initialized;
+  app.startupReady();app.startupReady();app.switchView(true);app.setVisibility('visible');reject(Error('synthetic offline'));
+  await until(()=>!app.element('saveRelayKeys').disabled);
+  assert.equal(app.calls.filter(call=>call.path==='/api/relay/connection').length,1);
+  assert.equal(app.element('startRelay').disabled,true);assert.equal(app.element('relayImageConnection').textContent,'图片：不可用');
+});
+
+test('leaving during a check suppresses catalog refresh and a queued native event only reads safe configuration',async()=>{
+  let release,hold=false;const app=fixture({config:{...initial,configured:true},respond:()=>hold?new Promise(resolve=>{release=resolve;}):json(connection(ready))});await app.initialized;app.calls.length=0;hold=true;
+  const checking=app.element('recheckRelay').onclick();app.switchView(false);app.setConfig({...initial,chatConfigured:true});app.nativeConfigured();release(json(connection(ready)));await checking;
+  await until(()=>!app.element('saveRelayKeys').disabled);
+  assert.deepEqual(app.calls.map(call=>call.path),['/api/relay/connection','/api/config']);
+  assert.equal(app.events.filter(event=>event.type==='hamster-relay-catalog-refresh').length,0);
+  assert.equal(app.element('relayChatConnection').textContent,'对话：待检测');assert.equal(app.element('startRelay').disabled,true);
+});

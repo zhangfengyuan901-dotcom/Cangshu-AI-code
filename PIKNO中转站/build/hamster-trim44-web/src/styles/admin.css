@@ -1,0 +1,213 @@
+/* Shared management theme. The shell owns this marker, including body portals. */
+:root[data-admin-theme='pikno'] {
+  color-scheme: dark;
+  --radius: 0.75rem;
+  --app-header-height: 3.75rem;
+  --background: #0b0c10;
+  --foreground: #f2f3f5;
+  --card: #13151b;
+  --card-foreground: #f2f3f5;
+  --popover: #191b24;
+  --popover-foreground: #f2f3f5;
+  --primary: #d5ff70;
+  --primary-foreground: #162008;
+  --secondary: #282333;
+  --secondary-foreground: #e1d5ff;
+  --muted: #20222b;
+  --muted-foreground: #a4a8b8;
+  --accent: #2b2639;
+  --accent-foreground: #e1d5ff;
+  --destructive: #ff8b95;
+  --destructive-foreground: #24090e;
+  --success: #83e4b2;
+  --success-foreground: #082719;
+  --warning: #f4c975;
+  --warning-foreground: #2a1c04;
+  --info: #9dc7ff;
+  --info-foreground: #0c203c;
+  --neutral: #b5bbcd;
+  --neutral-foreground: #15171e;
+  --border: #2b2e3a;
+  --input: #414655;
+  --ring: #b69aee;
+  --chart-1: #d5ff70;
+  --chart-2: #b69aee;
+  --chart-3: #83c7d5;
+  --chart-4: #f4c975;
+  --chart-5: #eaa5c4;
+  --overview-accent-1: #d5ff70;
+  --overview-accent-2: #b69aee;
+  --overview-accent-3: #83c7d5;
+  --sidebar: #101116;
+  --sidebar-foreground: #b5bacb;
+  --sidebar-primary: #d5ff70;
+  --sidebar-primary-foreground: #162008;
+  --sidebar-accent: #25301a;
+  --sidebar-accent-foreground: #d5ff70;
+  --sidebar-border: #282b36;
+  --sidebar-ring: #b69aee;
+  --skeleton-base: #20222b;
+  --skeleton-highlight: #303340;
+  --table-row: #0b0c10;
+  --table-header: #1c1e28;
+  --table-header-hover: #272a36;
+  --table-disabled: #181a21;
+  --table-disabled-hover: #22252e;
+  --table-disabled-border: #3a3e4b;
+}
+
+[data-admin-theme='pikno'] [data-slot='app-header'] {
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+[data-admin-theme='pikno'] [data-slot='system-brand'] {
+  gap: 0;
+  padding-inline: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+}
+
+[data-admin-theme='pikno'] [data-slot='system-brand'] > div {
+  display: none;
+}
+
+[data-admin-theme='pikno'] [data-slot='system-brand'] > span::after {
+  content: '.';
+  color: var(--primary);
+}
+
+[data-admin-theme='pikno'] [data-slot='sidebar-inner'] {
+  border-inline-end: 1px solid var(--sidebar-border);
+}
+
+[data-admin-theme='pikno'] [data-slot='sidebar-content'] {
+  padding-block: 0.75rem;
+}
+
+[data-admin-theme='pikno'] [data-slot='sidebar-group'] {
+  padding-inline: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+[data-admin-theme='pikno'] [data-slot='sidebar-group-label'] {
+  color: var(--muted-foreground);
+  letter-spacing: 0.08em;
+}
+
+[data-admin-theme='pikno'] :is([data-slot='sidebar-menu-button'], [data-slot='sidebar-menu-sub-button']) {
+  border-radius: 0.625rem;
+}
+
+[data-admin-theme='pikno'] [data-slot='sidebar-menu-button'][data-size='default'] {
+  min-height: 2.5rem;
+}
+
+[data-admin-theme='pikno'] :is([data-slot='sidebar-menu-button'], [data-slot='sidebar-menu-sub-button'])[data-active] {
+  box-shadow: inset 2px 0 var(--primary);
+}
+
+[data-admin-theme='pikno'] [data-slot='page-header'] {
+  padding-block: 1.4rem 1.1rem;
+}
+
+[data-admin-theme='pikno'] [data-slot='page-header'] h2 {
+  font-size: clamp(1.1rem, 1.6vw, 1.35rem);
+  font-weight: 650;
+}
+
+[data-admin-theme='pikno'] :is([data-slot='page-header'], [data-slot='page-content'], [data-slot='page-footer']) {
+  padding-inline: clamp(0.875rem, 2vw, 1.75rem);
+}
+
+[data-admin-theme='pikno'] [data-slot='card'] {
+  border-color: var(--border);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+}
+
+/* Preserve pinned-column backgrounds and disabled-row semantics from the table. */
+[data-admin-theme='pikno'] [data-slot='table'] {
+  background: var(--table-row);
+}
+
+[data-admin-theme='pikno'] [data-slot='table-header'] {
+  background: var(--table-header);
+}
+
+[data-admin-theme='pikno'] [data-slot='table-head'] {
+  color: #c4c8d6;
+  height: 2.875rem;
+  font-weight: 600;
+}
+
+[data-admin-theme='pikno'] :is([data-slot='table-head'], [data-slot='table-cell']) {
+  padding-inline: 0.875rem;
+}
+
+/* One opaque surface for each row and its pinned cells, including disabled rows. */
+[data-admin-theme='pikno'] [data-table='managed'] > [data-slot='table-body'] > [data-slot='table-row'] {
+  --admin-row-surface: var(--data-table-card-bg, var(--table-row));
+  background-color: var(--admin-row-surface);
+}
+
+[data-admin-theme='pikno'] [data-table='managed'] > [data-slot='table-body'] > [data-slot='table-row']:is(:hover, :has([aria-expanded='true'])) {
+  --admin-row-surface: var(--data-table-card-bg, color-mix(in oklch, var(--muted) 50%, var(--background)));
+}
+
+[data-admin-theme='pikno'] [data-table='managed'] > [data-slot='table-body'] > [data-slot='table-row'][data-state='selected'] {
+  --admin-row-surface: var(--data-table-card-bg, var(--muted));
+}
+
+[data-admin-theme='pikno'] [data-table='managed'] > [data-slot='table-body'] > [data-slot='table-row'] > [data-slot='table-cell'].sticky {
+  background-color: var(--admin-row-surface);
+}
+
+/* The token scope is on html so all Base UI/Vaul portals inherit it. */
+[data-admin-theme='pikno'] :is([data-slot='dialog-overlay'], [data-slot='alert-dialog-overlay'], [data-slot='sheet-overlay'], [data-slot='drawer-overlay']) {
+  background: rgb(3 4 8 / 72%);
+  backdrop-filter: blur(5px);
+}
+
+[data-admin-theme='pikno'] :is([data-slot='dialog-content'], [data-slot='alert-dialog-content'], [data-slot='sheet-content'], [data-slot='drawer-content']) {
+  border-color: var(--input);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%), 0 0 0 1px var(--border);
+}
+
+[data-admin-theme='pikno'] :is([data-slot='dialog-title'], [data-slot='alert-dialog-title'], [data-slot='sheet-title'], [data-slot='drawer-title']) {
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+[data-admin-theme='pikno'] :is([data-slot='dialog-description'], [data-slot='alert-dialog-description'], [data-slot='sheet-description'], [data-slot='drawer-description']) {
+  line-height: 1.65;
+}
+
+[data-admin-theme='pikno'] :is([data-slot='dropdown-menu-content'], [data-slot='popover-content'], [data-slot='select-content'], [data-slot='combobox-content'], [data-slot='command-dialog']) {
+  box-shadow: 0 16px 44px rgb(0 0 0 / 35%), 0 0 0 1px var(--border);
+}
+
+[data-admin-theme='pikno'] :is(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  [data-admin-theme='pikno'] [data-slot='page-header'] {
+    padding-block: 1rem 0.875rem;
+  }
+
+  [data-admin-theme='pikno'] [data-slot='system-brand'] {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-admin-theme='pikno'] *,
+  [data-admin-theme='pikno'] *::before,
+  [data-admin-theme='pikno'] *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

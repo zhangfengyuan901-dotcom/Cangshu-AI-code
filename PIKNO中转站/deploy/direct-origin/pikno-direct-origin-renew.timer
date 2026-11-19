@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the PIKNO direct origin certificate twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:20:00
+RandomizedDelaySec=1800
+Persistent=true
+Unit=pikno-direct-origin-renew.service
+
+[Install]
+WantedBy=timers.target

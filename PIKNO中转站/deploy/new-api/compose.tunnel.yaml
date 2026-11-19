@@ -1,0 +1,22 @@
+services:
+  new-api:
+    environment:
+      SESSION_COOKIE_SECURE: "true"
+      SESSION_COOKIE_TRUSTED_URL: "https://www.piknoai.com"
+  cloudflared:
+    image: cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
+    secrets:
+      - tunnel_token
+    depends_on:
+      new-api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+secrets:
+  tunnel_token:
+    file: ${PIKNO_RELAY_PRIVATE_DIR:-./private}/tunnel-token.txt

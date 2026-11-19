@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>仓鼠智能体 · 仓鼠AI</title>
+    <link rel="icon" href="/hamster-logo.png" />
+    <link rel="preload" href="/shared/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/shared/typography.css" />
+    <link rel="stylesheet" href="/shared/material-preview.css" />
+    <link rel="stylesheet" href="chat.css" />
+    <link rel="stylesheet" href="/shared/assets.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+  </head>
+  <body>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-heading">
+        <a class="brand" href="/chat/" aria-current="page"
+          ><img src="/hamster-logo.png" alt="仓鼠" /><span
+            >仓鼠AI<small>创意对话工作台</small></span
+          ></a
+        >
+        <button id="closeSidebar" class="icon-button mobile-toggle" type="button" aria-label="收起历史会话">×</button>
+      </div>
+      <button id="newChat" class="new-chat">
+        <span aria-hidden="true">＋</span> 新建对话
+      </button>
+      <label class="search"
+        ><span aria-hidden="true">⌕</span
+        ><input id="search" placeholder="搜索对话" aria-label="搜索对话"
+      /></label>
+      <div class="section-label">
+        最近对话
+        <div id="sessionActions" class="session-actions" hidden>
+          <button id="rename" class="icon-button" type="button" title="重命名当前会话" aria-label="重命名当前会话">✎</button>
+          <button id="delete" class="icon-button" type="button" title="移除当前会话" aria-label="移除当前会话">⌫</button>
+        </div>
+      </div>
+      <nav id="sessions" aria-label="历史会话"></nav>
+      <div class="sidebar-bottom">
+        <div class="local-badge">
+          <span class="dot"></span> 留住灵感，继续创作
+        </div>
+      </div>
+    </aside>
+    <main>
+      <div class="conversation" id="scrollArea">
+        <section id="welcome" class="welcome">
+          <div class="mascot">
+            <img src="/hamster-logo.png" alt="仓鼠AI" />
+          </div>
+          <div class="eyebrow">让灵感有一个好的开始</div>
+          <h1>好想法，从聊一聊开始</h1>
+          <p id="welcomeDescription">
+            豆包 Seed 2.1 Pro 支持文字对话。
+          </p>
+          <div class="suggestions">
+            <button
+              id="welcomeMaterialButton"
+              data-prompt="帮我理解这份素材，先概括重点，再给出值得关注的细节。"
+              hidden
+            >
+              <span>◈</span><b>读懂素材</b
+              ><small id="welcomeMaterialTypes"></small></button
+            ><button
+              data-prompt="我想为产品设计一段自然的带货脚本，请先问我需要补充哪些信息。"
+            >
+              <span>✧</span><b>聊聊创意</b
+              ><small>让一个想法慢慢成形</small></button
+            ><button id="welcomeAsset" hidden>
+              <span>▧</span><b>调用我的资产</b
+              ><small>达人、产品与场景随手可用</small>
+            </button>
+          </div>
+        </section>
+        <section id="messages" class="messages" aria-label="聊天记录"></section>
+      </div>
+      <div class="composer-wrap">
+        <div id="notice" class="notice" role="status" hidden></div>
+        <div id="taskStatus" class="task-status" role="status" hidden></div>
+        <form id="composer" class="composer">
+          <div id="attachments" class="attachments"></div>
+          <textarea
+            id="input"
+            rows="2"
+            maxlength="12000"
+            placeholder="输入消息"
+            aria-label="消息内容"
+          ></textarea>
+          <div class="composer-toolbar">
+            <div>
+              <button type="button" id="toggleSidebar" class="mobile-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="展开历史会话">☰</button>
+              <button type="button" id="upload" hidden>
+                <span aria-hidden="true">＋</span> 上传素材</button
+              ><button type="button" id="asset" hidden><span aria-hidden="true">▧</span> 我的资产</button>
+            </div>
+            <div>
+              <span class="input-hint">Enter 发送 · Shift + Enter 换行</span
+              ><button type="button" id="stop" class="stop" hidden>
+                ■ 停止</button
+              ><button
+                type="submit"
+                id="send"
+                class="send"
+                aria-label="发送消息"
+              >
+                ↑
+              </button>
+            </div>
+          </div>
+        </form>
+        <p id="privacyNotice" class="privacy">
+          AI 内容仅供参考。
+        </p>
+      </div>
+    </main>
+    <input
+      id="fileInput"
+      type="file"
+      multiple
+      hidden
+    />
+    <div id="dropOverlay" class="drop-overlay" hidden>
+      <span>＋</span>
+      <h2>把素材放在这里</h2>
+      <p id="dropDescription"></p>
+    </div>
+    <div id="toast" role="alert" hidden></div>
+    <dialog id="mediaPreviewDialog" aria-labelledby="mediaPreviewTitle">
+      <h2 id="mediaPreviewTitle">附件预览</h2>
+      <div id="mediaPreviewBody"></div>
+      <p id="mediaPreviewNote"></p>
+      <div class="dialog-actions">
+        <a id="mediaPreviewDownload" download>下载本地附件</a>
+        <button id="mediaPreviewClose" type="button">关闭</button>
+      </div>
+    </dialog>
+    <dialog id="renameDialog">
+      <form method="dialog">
+        <h2>给对话起个名字</h2>
+        <input id="titleInput" maxlength="80" required aria-label="会话名称" />
+        <div class="dialog-actions">
+          <button value="cancel" formnovalidate>取消</button
+          ><button value="save" class="primary">保存</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="deleteDialog">
+      <h2>移除这段对话？</h2>
+      <p>
+        会话将从列表移除，记录和附件保留在本地回收区。正在进行的回答会停止，已提交的请求可能仍计费。
+      </p>
+      <form method="dialog" class="dialog-actions">
+        <button value="cancel">取消</button
+        ><button value="delete" class="primary">移除对话</button>
+      </form>
+    </dialog>
+    <script type="module" src="chat.js"></script>
+  </body>
+</html>

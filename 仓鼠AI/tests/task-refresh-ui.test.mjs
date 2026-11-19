@@ -1,0 +1,185 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {batchIsActive} from '../public/relay-ui-state.mjs';
+
+const source = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+const start = source.indexOf('// The UI reads the local journal');
+const end = source.indexOf('// ---- 任务流 & 历史 ----', start);
+const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+
+function fixture() {
+  const document = new EventTarget(), window = new EventTarget(), timers = new Map();
+  document.visibilityState = 'visible';
+  let nextId = 0, data = {tasks: []}, requestImpl = async () => structuredClone(data);
+  const calls = [], counters = {render: 0, history: 0, settle: 0, batches: 0}, note = {}, state = {tasks: [], batches: [], dh: {}, depth: {}};
+  const context = {
+    state, document, window, activeView:'history', relayConfigRevision: 1, syncingBatches: false, pendingQuotedSubmissions: new Map(), batchIsActive,
+    setTimeout: (fn, ms) => { const id = ++nextId; timers.set(id, {fn, ms}); return id; },
+    clearTimeout: id => timers.delete(id),
+    syncRelayBatches: async () => { counters.batches++; },
+    settleQuotedSubmissions: () => { counters.settle++; },
+    renderAllTasks: () => { counters.render++; },
+    $: selector => selector === '#taskPersistenceNote' ? note : {classList: {contains: () => true}},
+    request: async (url, options) => { calls.push({url, options}); return requestImpl(url, options); },
+    localStorage: {getItem: () => null, setItem() {}}, toast: () => {},
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end), context);
+  return {
+    context, document, window, timers, calls, counters, note, state,
+    data: value => { data = value; }, request: impl => { requestImpl = impl; },
+    fireTimer: () => { const [id, timer] = timers.entries().next().value; timers.delete(id); timer.fn(); },
+  };
+}
+
+test('task UI refresh uses 15 seconds at rest, 3 seconds in flight and stops while hidden', async () => {
+  const f = fixture();
+  let busy = false, reads = 0;
+  const loop = f.context.startTaskRefreshLoop({refresh: async () => { reads++; }, active: () => busy});
+  assert.equal([...f.timers.values()][0].ms, 15000);
+  busy = true;
+  f.fireTimer(); await flush();
+  assert.equal(reads, 1); assert.equal([...f.timers.values()][0].ms, 3000);
+  f.document.visibilityState = 'hidden';
+  f.document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(f.timers.size, 0);
+  f.window.dispatchEvent(new Event('online')); await loop.tick();
+  assert.equal(reads, 1);
+  busy = false;
+  f.document.visibilityState = 'visible'; f.document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.equal(reads, 2); assert.equal([...f.timers.values()][0].ms, 15000);
+  f.window.dispatchEvent(new Event('online')); await flush();
+  assert.equal(reads, 3);
+  loop.stop(); assert.equal(f.timers.size, 0);
+  f.window.dispatchEvent(new Event('online')); f.document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.equal(reads, 3);
+});
+
+test('simultaneous timer, visibility and online events share one pending read and recover after rejection', async () => {
+  const f = fixture(); let reads = 0, rejectRead;
+  const loop = f.context.startTaskRefreshLoop({refresh: () => { reads++; return new Promise((_resolve, reject) => { rejectRead = reject; }); }, active: () => true});
+  const pending = loop.tick(); await flush();
+  f.window.dispatchEvent(new Event('online')); f.document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(loop.tick(), pending); assert.equal(reads, 1); assert.equal(f.timers.size, 0);
+  rejectRead(new Error('synthetic local journal read failed')); await pending;
+  assert.equal([...f.timers.values()][0].ms, 3000);
+  f.window.dispatchEvent(new Event('pagehide'));
+  assert.equal(f.timers.size, 0); await loop.tick(); assert.equal(reads, 1);
+});
+
+test('a cached page pauses and resumes one read while a real page exit permanently removes its monitor', async () => {
+  const f = fixture(); let reads = 0, resolveRead;
+  const cachedEvent = type => { const event = new Event(type); Object.defineProperty(event, 'persisted', {value: true}); return event; };
+  const loop = f.context.startTaskRefreshLoop({refresh: () => { reads++; return new Promise(resolve => { resolveRead = resolve; }); }, active: () => true});
+  const first = loop.tick(); await flush();
+  f.window.dispatchEvent(cachedEvent('pagehide'));
+  f.document.dispatchEvent(new Event('visibilitychange')); f.window.dispatchEvent(new Event('online'));
+  assert.equal(f.timers.size, 0); assert.equal(reads, 1);
+  resolveRead(); await first; assert.equal(f.timers.size, 0);
+  f.window.dispatchEvent(cachedEvent('pageshow')); await flush();
+  assert.equal(reads, 2);
+  f.window.dispatchEvent(cachedEvent('pageshow')); f.document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.equal(reads, 2);
+  resolveRead(); await flush(); assert.equal([...f.timers.values()][0].ms, 3000);
+  f.window.dispatchEvent(new Event('pagehide'));
+  f.window.dispatchEvent(cachedEvent('pageshow')); f.document.dispatchEvent(new Event('visibilitychange')); f.window.dispatchEvent(new Event('online')); await flush();
+  assert.equal(f.timers.size, 0); assert.equal(reads, 2);
+});
+
+test('unknown submissions, active batches and successful results waiting to save keep the fast refresh', () => {
+  const f = fixture();
+  assert.equal(f.context.tasksNeedFrequentRefresh(), false);
+  for (const status of ['submitting', 'unknown', 'queued', 'processing']) {
+    f.state.tasks = [{status}]; assert.equal(f.context.tasksNeedFrequentRefresh(), true, status);
+  }
+  for (const result of [null, {saving: true}, {save_error: 'retry original result'}]) {
+    f.state.tasks = [{status: 'succeeded', result}]; assert.equal(f.context.tasksNeedFrequentRefresh(), true);
+  }
+  for (const result of [{local_url: '/api/tasks/local/file'}, {text: 'saved text'}]) {
+    f.state.tasks = [{status: 'succeeded', result}]; assert.equal(f.context.tasksNeedFrequentRefresh(), false);
+  }
+  f.state.tasks = [{status: 'failed'}];
+  f.state.batches = [{status: 'running', remaining: 1}]; assert.equal(f.context.tasksNeedFrequentRefresh(), true);
+  f.state.batches = [];
+  f.context.pendingQuotedSubmissions.set('generate', 'original-request'); assert.equal(f.context.tasksNeedFrequentRefresh(), true);
+  f.context.pendingQuotedSubmissions.clear();
+  f.state.dh.submitting = true; assert.equal(f.context.tasksNeedFrequentRefresh(), true);
+});
+
+test('task snapshots reach the active view reconciler, including save status and local task replacement', async () => {
+  const f = fixture();
+  f.data({tasks: [{key: 'original', id: 'upstream', status: 'succeeded', result: {saving: true}}]});
+  await f.context.syncTasks(); await f.context.syncTasks();
+  assert.equal(f.counters.render, 2); assert.equal(f.counters.settle, 2);
+  f.data({tasks: structuredClone(f.state.tasks), warnings: ['local journal warning']}); await f.context.syncTasks();
+  assert.equal(f.counters.render, 3); assert.equal(f.note.textContent, 'local journal warning'); assert.equal(f.note.hidden, false);
+  f.data({tasks: [{key: 'original', id: 'upstream', status: 'succeeded', result: {save_error: 'retry original result'}}]});
+  await f.context.syncTasks(); assert.equal(f.counters.render, 4);
+  f.data({tasks: [{key: 'original', id: 'upstream', status: 'succeeded', result: {local_url: '/api/tasks/original/file'}}]});
+  await f.context.syncTasks(); assert.equal(f.counters.render, 5); assert.equal(f.note.hidden, true);
+  // A locally accepted task may be removed by the next journal response even
+  // when that response equals the preceding server response.
+  f.state.tasks.unshift({key: 'locally-accepted', status: 'submitting'});
+  await f.context.syncTasks(); assert.equal(f.counters.render, 6); assert.equal(f.state.tasks.length, 1);
+  assert.ok(f.calls.every(call => call.url === '/tasks' && call.options === undefined));
+});
+
+test('inactive task pages pause ordinary reads while active work continues', async () => {
+  const f=fixture();
+  let visible=false, active=false, reads=0;
+  const loop=f.context.startTaskRefreshLoop({refresh:async()=>{reads++;},active:()=>active,enabled:()=>visible});
+  assert.equal(f.timers.size,0);
+  await loop.tick();assert.equal(reads,0);
+  active=true;loop.schedule();
+  assert.equal([...f.timers.values()][0].ms,3000);
+  await loop.tick();assert.equal(reads,1);
+  active=false;visible=true;loop.schedule();
+  assert.equal([...f.timers.values()][0].ms,15000);
+  await loop.tick();assert.equal(reads,2);
+  visible=false;loop.schedule();assert.equal(f.timers.size,0);
+});
+
+test('manual and timer sync stay single flight and stale account responses cannot replace the task view', async () => {
+  const f = fixture(); let resolveRead;
+  f.request(() => new Promise(resolve => { resolveRead = resolve; }));
+  const pending = f.context.syncTasks(); await f.context.syncTasks();
+  assert.equal(f.calls.length, 1); assert.equal(f.counters.batches, 1);
+  f.context.relayConfigRevision = 2;
+  resolveRead({tasks: [{key: 'old-account', status: 'unknown'}]}); await pending;
+  assert.equal(f.state.tasks.length, 0); assert.equal(f.counters.render, 0); assert.equal(f.counters.settle, 0);
+  f.data({tasks: []}); f.request(async () => ({tasks: []}));
+  await f.context.syncTasks(); assert.equal(f.counters.render, 1); assert.equal(f.calls.length, 2);
+});
+
+test('a separately completed batch read immediately adjusts the timer without keeping an idle view at 3 seconds', async () => {
+  const f = fixture();
+  const batchStart = source.indexOf('let syncingBatches='), batchEnd = source.indexOf('// The UI reads the local journal', batchStart);
+  vm.runInContext(source.slice(batchStart, batchEnd), f.context);
+  f.context.renderBatchControls = () => {};
+  f.context.refreshQuoteAvailability = () => {};
+  f.state.relayMode = true;
+  vm.runInContext('taskRefreshLoop = startTaskRefreshLoop({refresh: syncTasks, active: tasksNeedFrequentRefresh})', f.context);
+  let resolveBatch;
+  f.request(() => new Promise(resolve => { resolveBatch = resolve; }));
+  const first = f.context.syncRelayBatches();
+  assert.equal([...f.timers.values()][0].ms, 15000);
+  resolveBatch({batches: [{status: 'running', remaining: 1}]}); await first;
+  assert.equal([...f.timers.values()][0].ms, 3000);
+  const second = f.context.syncRelayBatches();
+  resolveBatch({batches: [{status: 'completed', remaining: 0}]}); await second;
+  assert.equal([...f.timers.values()][0].ms, 15000);
+  assert.ok(f.calls.every(call => call.url === '/relay/batches' && call.options === undefined));
+});
+
+test('restoring history installs one adaptive monitor without reimporting completed legacy migration', async () => {
+  const f = fixture();
+  await f.context.restoreTasks(); await f.context.restoreTasks();
+  assert.equal(f.timers.size, 1); assert.equal([...f.timers.values()][0].ms, 15000);
+  f.document.visibilityState = 'hidden'; f.document.dispatchEvent(new Event('visibilitychange'));
+  const before = f.calls.length; f.window.dispatchEvent(new Event('online')); await flush(); assert.equal(f.calls.length, before);
+  f.document.visibilityState = 'visible'; f.document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.equal(f.calls.length, before + 1);
+  assert.ok(f.calls.every(call => call.url === '/tasks' && call.options === undefined));
+});

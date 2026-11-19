@@ -1,0 +1,352 @@
+// New releases use 仓鼠AI registration/recharge and protected local Key storage.
+// The old account module is loaded only for the unchanged legacy release mode.
+import {reportAccountFailure} from './fault-events.mjs';
+const config=await fetch('/api/config',{cache:'no-store'}).then(response=>{
+  if(!response.ok){reportAccountFailure({code:'ACCOUNT_CONNECT_FAILED',httpStatus:response.status});throw Error('无法读取账户配置');}return response.json();
+}).catch(()=>{reportAccountFailure({code:'ACCOUNT_CONNECT_FAILED'});return null;});
+if(!config){
+  document.querySelector('.account-dashboard').textContent='无法读取账户配置，请重新加载应用。';
+}else if(!config.relayMode){
+  await import('./billing-account.mjs');
+}else{
+  const dashboard=document.querySelector('.account-dashboard');
+  for(const id of ['rechargeGate','rechargeDialog'])document.getElementById(id)?.remove();
+  dashboard.innerHTML=`<section class="account-card relay-account-center local-account-home">
+    <div class="local-account-header"><div><p class="relay-account-sections">个人中心</p><strong id="localAccountIdentity">正在读取账户…</strong></div><button id="refreshLocalAccount" class="plain-button subtle" type="button" aria-label="刷新账户">刷新</button></div>
+    <div id="localAccountGuest" class="local-account-guest" hidden><button id="registerLocalAccount" class="plain-button" type="button">充值 ↗</button><button id="loginLocalAccount" class="plain-button subtle" type="button">登录</button></div>
+    <div id="localAccountWallet" class="local-account-wallet" hidden><div><span>可用余额</span><strong id="localAccountBalance">—</strong></div><div class="local-wallet-actions"><button id="payLocalAccount" class="plain-button" type="button">去中转站充值 ↗</button><a id="usageLocalAccount" class="plain-button subtle" href="https://www.piknoai.com/account-lite/index.html?tab=usage&amp;kind=settlements" target="_blank" rel="noopener noreferrer">中转站消费记录 ↗</a></div></div>
+    <div id="localAccountFoot" class="local-account-foot" hidden><button id="logoutLocalAccount" class="local-text-button" type="button">退出登录</button></div>
+    <p id="localAccountMapping" class="account-feedback error" hidden></p>
+    <p id="localAccountNotice" class="account-feedback" role="status" aria-live="polite"></p><a id="localAccountWeb" class="local-text-button" href="https://www.piknoai.com/account-lite/index.html" target="_blank" rel="noopener noreferrer" hidden>打开网页版</a>
+  </section>
+  <section class="account-card relay-account relay-account-center local-account-features"><div class="local-features-heading"><strong>应用功能</strong><button id="recheckRelay" class="plain-button subtle" type="button">检测连接</button></div><div class="relay-connection-grid" aria-live="polite">
+    <div class="local-feature"><strong>图片生成</strong><p id="relayImageConnection" class="relay-connection" data-state="unconfigured">图片：未激活</p><div class="local-feature-actions"><button id="createImageKey" class="plain-button" type="button" hidden>开通并启用</button><button id="selectImageKey" class="local-text-button" type="button" hidden>使用已有 Key</button><button id="recoverImageKey" class="plain-button subtle" type="button" hidden>继续启用</button></div></div>
+    <div class="local-feature"><strong>视频生成</strong><p id="relayVideoConnection" class="relay-connection" data-state="unconfigured">视频：未激活</p><div class="local-feature-actions"><button id="createVideoKey" class="plain-button" type="button" hidden>开通并启用</button><button id="selectVideoKey" class="local-text-button" type="button" hidden>使用已有 Key</button><button id="recoverVideoKey" class="plain-button subtle" type="button" hidden>继续启用</button></div></div>
+    <div class="local-feature"><strong>数字人与工具</strong><p id="relayToolConnection" class="relay-connection" data-state="unconfigured">工具：未激活</p><div class="local-feature-actions"><button id="createToolKey" class="plain-button" type="button" hidden>开通并启用</button><button id="selectToolKey" class="local-text-button" type="button" hidden>使用已有 Key</button><button id="recoverToolKey" class="plain-button subtle" type="button" hidden>继续启用</button></div></div>
+    <div class="local-feature"><strong>AI 对话</strong><p id="relayChatConnection" class="relay-connection" data-state="unconfigured">对话：未激活</p><div class="local-feature-actions"><button id="createChatKey" class="plain-button" type="button" hidden>开通并启用</button><button id="selectChatKey" class="local-text-button" type="button" hidden>使用已有 Key</button><button id="recoverChatKey" class="plain-button subtle" type="button" hidden>继续启用</button></div></div>
+  </div><p id="relayToolStatus" class="hint" aria-live="polite">数字人：待检测；深度视频：待检测。</p><div class="relay-actions"><button id="startRelay" class="plain-button" type="button" disabled>开始使用</button></div><p id="relayAccountStatus" class="account-feedback" role="status" aria-live="polite"></p></section><details class="account-card relay-account relay-advanced"><summary>高级连接设置</summary><form id="relayKeyForm"><label>图片 Key<input id="relayImageKey" type="password" autocomplete="off" spellcheck="false" maxlength="131" placeholder="填写 仓鼠AI 图片 Key"></label><label class="relay-key-remove"><input id="removeRelayImageKey" type="checkbox">移除已保存的图片 Key（保存时生效）</label><label>视频 Key<input id="relayVideoKey" type="password" autocomplete="off" spellcheck="false" maxlength="131" placeholder="填写 仓鼠AI 视频 Key"></label><label class="relay-key-remove"><input id="removeRelayVideoKey" type="checkbox">移除已保存的视频 Key（保存时生效）</label><label>工具 Key（数字人 / 深度视频）<input id="relayToolKey" type="password" autocomplete="off" spellcheck="false" maxlength="131" placeholder="填写 仓鼠AI 工具 Key"></label><label class="relay-key-remove"><input id="removeRelayToolKey" type="checkbox">移除已保存的工具 Key（保存时生效）</label><label>对话 Key<input id="relayChatKey" type="password" autocomplete="off" spellcheck="false" maxlength="131" placeholder="填写 仓鼠AI 对话 Key"></label><label class="relay-key-remove"><input id="removeRelayChatKey" type="checkbox">移除已保存的对话 Key（保存时生效）</label><button class="plain-button" id="saveRelayKeys" type="submit">保存并自动检测</button></form><p id="relayKeySummary" class="hint" aria-live="polite"></p><p id="relayStorageWarning" class="relay-storage-warning" hidden>当前为开发模式：Key 仅保存在本次进程内，关闭应用后需要重新填写。</p><button id="disconnectRelay" class="plain-button subtle" type="button">移除本机 Key</button></details>`;
+  const badge=document.getElementById('billingConnection'),summary=document.getElementById('relayKeySummary'),status=document.getElementById('relayAccountStatus');
+  const save=document.getElementById('saveRelayKeys'),recheck=document.getElementById('recheckRelay'),disconnect=document.getElementById('disconnectRelay'),start=document.getElementById('startRelay');
+   const image=document.getElementById('relayImageKey'),video=document.getElementById('relayVideoKey'),tool=document.getElementById('relayToolKey'),chat=document.getElementById('relayChatKey');
+   const removals=[['image','configured',image,document.getElementById('removeRelayImageKey')],['video','videoConfigured',video,document.getElementById('removeRelayVideoKey')],['tool','toolConfigured',tool,document.getElementById('removeRelayToolKey')],['chat','chatConfigured',chat,document.getElementById('removeRelayChatKey')]];
+  for(const [, ,input,checkbox] of removals)checkbox.onchange=()=>{if(checkbox.checked)input.value='';input.disabled=busy||Boolean(checkbox.checked);};
+   const kinds=[['image','图片','configured','relayImageConnection'],['video','视频','videoConfigured','relayVideoConnection'],['tool','工具','toolConfigured','relayToolConnection'],['chat','对话','chatConfigured','relayChatConnection']];
+  const panel=dashboard.closest?.('[data-panel="account"]');
+  const startupReady=()=>document.body?.dataset?.startupState!=='loading';
+  const accountVisible=()=>startupReady()&&document.visibilityState!=='hidden'&&(!panel||panel.classList.contains('active'));
+  const workDirectory=window.hamsterWorkDirectory;
+  if(workDirectory){
+    const storage=document.createElement('section');
+    storage.className='account-card work-directory';
+    storage.hidden=true;
+    storage.innerHTML='<h2>作品目录</h2><p>新素材和生成结果保存到此位置。</p><p id="workDirectoryCurrent"></p><p id="workDirectoryNext" hidden></p><button class="plain-button subtle" id="chooseWorkDirectory" type="button">选择目录</button><p id="workDirectoryStatus" class="account-feedback" role="status" aria-live="polite"></p>';
+    dashboard.append(storage);
+    const currentDirectory=document.getElementById('workDirectoryCurrent'),nextDirectory=document.getElementById('workDirectoryNext');
+    const choose=document.getElementById('chooseWorkDirectory'),notice=document.getElementById('workDirectoryStatus');
+    function showDirectory(value){
+      if(!value?.ok){notice.textContent='无法使用此目录，请选择有写入权限的独立目录。';return;}
+      storage.hidden=false;
+      currentDirectory.textContent='当前位置 '+value.activeDirectory;
+      nextDirectory.hidden=!value.restartRequired;
+      nextDirectory.textContent=value.restartRequired?'下次启动使用 '+value.nextDirectory:'';
+      notice.textContent=value.unavailable?'所选目录暂不可用，当前使用默认位置。':value.restartRequired?'重启仓鼠AI后生效，现有作品保留在原位置。':'';
+    }
+    let initialized=false;
+    function readDirectory(){
+      if(!accountVisible()||initialized)return;
+      initialized=true;
+      workDirectory.status().then(showDirectory,()=>showDirectory(null));
+    }
+    choose.onclick=async()=>{
+      if(choose.disabled||!accountVisible())return;
+      choose.disabled=true;
+      try {showDirectory(await workDirectory.choose());}
+      catch {showDirectory(null);}
+      finally {choose.disabled=false;}
+    };
+    window.addEventListener('hamster-view-changed',readDirectory);
+    window.addEventListener('hamster-startup-ready',readDirectory);
+    document.addEventListener('visibilitychange',readDirectory);
+    readDirectory();
+  }
+  let current=config,busy=false,canStart=false,startView='generate',startKind='image',nativePending=false,nativeRefreshing=false,nativeRevision=0,retryAt=0,lastCheck=null,syncLocalAccount=()=>{};
+  const retryMessage=()=>`检测过于频繁，请等待 ${Math.max(1,Math.ceil((retryAt-Date.now())/1000))} 秒后重新检测。已保存的 Key 保留，不需要重新开通。`;
+  const retainRetry=value=>{const delay=Number(value);if(Number.isFinite(delay)&&delay>0)retryAt=Math.max(retryAt,Date.now()+Math.min(3600000,Math.max(1000,delay)));};
+   const hasConfiguration=()=>Boolean(current.configured||current.videoConfigured||current.toolConfigured||current.chatConfigured);
+  function updateSummary(){
+    lastCheck=null;badge.textContent=hasConfiguration()?'待检测':'未激活';badge.dataset.state='';status.textContent='';status.className='account-feedback';
+     summary.textContent=`图片：${current.configured?'已配置':'未配置'}；视频：${current.videoConfigured?'已配置':'未配置'}；工具：${current.toolConfigured?'已配置':'未配置'}；对话：${current.chatConfigured?'已配置':'未配置'}。`;
+    document.getElementById('relayStorageWarning').hidden=current.keyStorage!=='memory';
+    recheck.disabled=!hasConfiguration();disconnect.disabled=!hasConfiguration();canStart=false;start.disabled=true;
+    for(const [,field,input,checkbox] of removals){checkbox.checked=false;checkbox.disabled=!current[field];input.disabled=false;}
+    for(const [,name,field,id] of kinds){
+      const configured=Boolean(current[field]),element=document.getElementById(id);
+      element.dataset.state=configured?'pending':'unconfigured';element.textContent=`${name}：${configured?'待检测':'未激活'}`;
+    }
+    syncLocalAccount();
+  }
+  function setBusy(value){
+    busy=value;save.disabled=value;
+    for(const [,field,input,checkbox] of removals){checkbox.disabled=value||!current[field];input.disabled=value||Boolean(checkbox.checked);}
+    recheck.disabled=value||!hasConfiguration();disconnect.disabled=value||!hasConfiguration();start.disabled=value||!canStart;
+    document.getElementById('relayKeyForm').setAttribute('aria-busy',String(value));recheck.setAttribute('aria-busy',String(value));
+    syncLocalAccount();
+    if(!value&&nativePending&&!nativeRefreshing)void refreshNativeConfiguration();
+  }
+  function fixedError(code){
+     return {400:'请填写 仓鼠AI 创建的有效图片、视频、工具或对话 Key。',401:'Key 无效、已过期或账户不可用，请到 仓鼠AI 检查。',403:'Key 类型或权限不符，请分别填写图片 Key、视频 Key、工具 Key 和对话 Key。',409:'四个 Key 必须属于同一个 仓鼠AI 账户。请同时替换全部已配置 Key，或先移除旧 Key。'}[code]||'暂时无法完成连接，请稍后重新检测。现有配置未被替换。';
+  }
+  function renderConnection(result){
+     let ready=false,imageReady=false,videoReady=false,toolReady=false,chatReady=false,failed=false,limited=false,connected=0;
+    for(const [kind,name,field,id] of kinds){
+      const item=result?.[kind],element=document.getElementById(id);
+      const count=Number.isSafeInteger(item?.modelCount)&&item.modelCount>=0&&item.modelCount<=20000?item.modelCount:0;
+       const state=item?.configured===false||!item&&!current[field]?'unconfigured':item?.configured===true&&item.state==='ready'&&count>0?'ready':item?.configured===true&&item.state==='pending'?'pending':item?.configured===true&&item.state==='insufficient_balance'?'insufficient_balance':item?.configured===true&&item.state==='unavailable'?'unavailable':item?.state==='rate_limited'?'rate_limited':item?.state==='forbidden'?'forbidden':'error';
+      if(state==='rate_limited'){limited=true;retainRetry(item.retryAfterMs||60000);}
+      element.dataset.state=state;
+       element.textContent=`${name}：${state==='unconfigured'?'未激活':state==='pending'?'待检测':state==='ready'?'连接正常':state==='rate_limited'?'冷却':'不可用'}`;
+       if(state==='ready')connected++;
+       imageReady||=kind==='image'&&state==='ready';videoReady||=kind==='video'&&state==='ready';toolReady||=kind==='tool'&&state==='ready';chatReady||=kind==='chat'&&state==='ready';failed||=['error','forbidden','insufficient_balance'].includes(state);
+    }
+    document.getElementById('relayToolStatus').textContent=`数字人：${result?.tools?.digital===true?'已开放':'尚未开放'}；深度视频：${result?.tools?.depth===true?'已开放':'尚未开放'}。`;
+     const digitalReady=toolReady&&result?.tools?.digital===true,depthReady=toolReady&&result?.tools?.depth===true;
+     startView=imageReady||videoReady?'generate':digitalReady?'digital':depthReady?'depth':chatReady?'chat':'generate';
+     startKind=imageReady?'image':videoReady?'video':digitalReady||depthReady?'tool':chatReady?'chat':'image';
+     ready=imageReady||videoReady||digitalReady||depthReady||chatReady;
+     start.textContent=startView==='chat'?'开始对话':'开始使用';
+    badge.textContent=ready?`已连接 ${connected}/4`:limited?'检测冷却':failed?'连接未确认':hasConfiguration()?'暂无可用线路':'未激活';
+    badge.dataset.state=ready?'connected':failed?'error':'';canStart=ready;start.disabled=busy||!canStart;
+    status.className=failed?'account-feedback error':'account-feedback';
+    status.textContent=limited?retryMessage():failed?'部分功能不可用，请检查对应 Key、权限与余额后重试。':'';
+  }
+  async function checkConnection({refresh=false,isCurrent=()=>true}={}){
+    if(!accountVisible())return;
+    status.className='account-feedback';status.textContent='正在免费检测连接与可用线路…';start.disabled=true;
+    let httpStatus=0;
+    try{
+      const response=await fetch('/api/relay/connection',{cache:'no-store'});httpStatus=response.status;if(!response.ok)throw Error('connection');
+      const result=await response.json();if(!isCurrent())return;
+      renderConnection(result);
+      lastCheck={revision:nativeRevision,at:Date.now()};
+      if(refresh&&accountVisible())window.dispatchEvent(new Event('hamster-relay-catalog-refresh'));
+    }catch{
+      if(!isCurrent())return;
+      reportAccountFailure({code:'ACCOUNT_CONNECT_FAILED',httpStatus});
+       renderConnection({image:{configured:Boolean(current.configured),state:'error'},video:{configured:Boolean(current.videoConfigured),state:'error'},tool:{configured:Boolean(current.toolConfigured),state:'error'},chat:{configured:Boolean(current.chatConfigured),state:'error'},tools:{}});
+      status.textContent='暂时无法完成检测，请检查网络后重试。已保存的 Key 未被删除，不会自动提交生成任务。';
+    }
+  }
+  async function detect({refresh=true,automatic=false}={}){
+    if(!accountVisible()||busy||!hasConfiguration())return;
+    if(automatic&&lastCheck?.revision===nativeRevision&&Date.now()-lastCheck.at<15000)return;
+    if(retryAt>Date.now()){status.textContent=retryMessage();return;}
+    const revision=nativeRevision;
+    setBusy(true);try{await checkConnection({refresh,isCurrent:()=>revision===nativeRevision});}finally{setBusy(false);}
+  }
+  function requestVisibleDetection(){
+    if(!accountVisible()||busy)return;
+    void detect({refresh:false,automatic:true});
+  }
+  async function refreshNativeConfiguration(){
+    if(nativeRefreshing||busy||!nativePending)return;
+    nativeRefreshing=true;setBusy(true);
+    try{
+      while(nativePending){
+        nativePending=false;
+        const revision=nativeRevision;
+        let httpStatus=0;
+        try{
+          const response=await fetch('/api/config',{cache:'no-store'});httpStatus=response.status;
+          if(!response.ok)throw Error('configuration');
+          const result=await response.json();
+          if(revision!==nativeRevision)continue;
+          if(result?.relayMode!==true)throw Error('configuration');
+          current=result;updateSummary();setBusy(true);
+          localStorage.removeItem('hamster_wallet_model_cache_v1');
+          if(hasConfiguration()&&accountVisible())await checkConnection({refresh:true,isCurrent:()=>revision===nativeRevision});
+          else document.getElementById('relayToolStatus').textContent='数字人：待检测；深度视频：待检测。';
+        }catch{
+          reportAccountFailure({code:'ACCOUNT_CONNECT_FAILED',httpStatus});
+          if(revision===nativeRevision){canStart=false;badge.textContent='连接未确认';badge.dataset.state='error';status.className='account-feedback error';status.textContent='账户配置状态暂未确认，请重新检测。已保存的 Key 未被删除，不会自动提交生成任务。';}
+        }
+      }
+    }finally{nativeRefreshing=false;setBusy(false);}
+  }
+  window.addEventListener('hamster-relay-native-configured',()=>{nativeRevision++;nativePending=true;void refreshNativeConfiguration();});
+  window.addEventListener('hamster-view-changed',requestVisibleDetection);
+  window.addEventListener('hamster-startup-ready',requestVisibleDetection);
+  document.addEventListener?.('visibilitychange',requestVisibleDetection);
+  document.getElementById('relayKeyForm').onsubmit=async event=>{
+    event.preventDefault();if(busy)return;
+    if(retryAt>Date.now()){status.textContent=retryMessage();return;}
+    setBusy(true);status.className='account-feedback';status.textContent='正在验证 Key 与账户归属…';
+    let httpStatus=0;
+    try{
+       const response=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({piknoImageKey:image.value.trim(),piknoVideoKey:video.value.trim(),piknoToolKey:tool.value.trim(),piknoChatKey:chat.value.trim(),...Object.fromEntries(removals.filter(([, , ,checkbox])=>checkbox.checked).map(([kind])=>['remove_'+kind,true]))})});
+      httpStatus=response.status;
+      if(!response.ok){
+        status.className='account-feedback error';
+        if(response.status===429){let data;try{data=await response.json();}catch{}retainRetry(data?.retryAfterMs||60000);status.textContent=retryMessage()+' 本次保存未完成，原配置未替换。';}
+        else{reportAccountFailure({code:'ACCOUNT_KEY_IMPORT_FAILED',httpStatus});status.textContent=fixedError(response.status);}
+        return;
+      }
+      const result=await response.json();if(result.ok!==true||result.relayMode!==true)throw Error('configuration');
+       current=result;image.value='';video.value='';tool.value='';chat.value='';updateSummary();localStorage.removeItem('hamster_wallet_model_cache_v1');
+      window.dispatchEvent(new Event('hamster-relay-configured'));
+      await checkConnection();
+    }catch{
+      reportAccountFailure({code:'ACCOUNT_KEY_IMPORT_FAILED',httpStatus});
+      status.className='account-feedback error';status.textContent='配置结果暂未确认，请重新检测或稍后重试。不要重复提交生成任务。';
+    }finally{setBusy(false);}
+  };
+  recheck.onclick=detect;
+   start.onclick=()=>{if(!start.disabled&&!busy){window.dispatchEvent(new CustomEvent('hamster-onboarding-start',{detail:{kind:startKind,view:startView}}));if(startView==='chat')document.getElementById('workbenchButton')?.click();else document.querySelector(`.rail-item[data-view="${startView}"]`)?.click();}};
+  disconnect.onclick=async()=>{
+    if(busy||!confirm('移除本机 Key？仓鼠AI 余额及本地素材、聊天和任务文件不会删除。'))return;
+    setBusy(true);
+    try{
+      const response=await fetch('/api/relay/disconnect',{method:'POST'});if(!response.ok)throw Error('disconnect');
+      const result=await response.json();if(result.ok!==true||result.relayMode!==true)throw Error('disconnect');
+       current=result;retryAt=0;image.value='';video.value='';tool.value='';chat.value='';updateSummary();
+      document.getElementById('relayToolStatus').textContent='数字人：待检测；深度视频：待检测。';
+      window.dispatchEvent(new Event('hamster-session-invalidated'));window.dispatchEvent(new Event('hamster-relay-configured'));
+      localStorage.removeItem('hamster_wallet_model_cache_v1');
+      status.className='account-feedback';status.textContent='本机 Key 已移除。仓鼠AI 余额及本地素材、聊天和任务文件保持不变。';
+    }catch{
+      status.className='account-feedback error';status.textContent='移除结果暂未确认，请重新打开个人中心检查。';
+    }finally{setBusy(false);}
+  };
+  function mountLocalAccount(){
+    const element=id=>document.getElementById(id),bridge=window.hamsterDesktopAccount;
+    const identity=element('localAccountIdentity'),notice=element('localAccountNotice');
+    const features=[['image-standard','Image','configured','图片生成'],['video-standard','Video','videoConfigured','视频生成'],['tool-standard','Tool','toolConfigured','数字人与工具'],['chat-standard','Chat','chatConfigured','AI 对话']];
+    let account=null,accountEpoch=0,accountBusy=false,refreshing=null,refreshEpoch=-1,refreshWanted=false,lastRefresh=0,dialog=null,dialogEpoch=0,dialogCleanup=null;
+    const money=(value,digits=2)=>typeof value==='number'&&Number.isFinite(value)?`¥${value.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits})}`:'—';
+    function say(message,error=false){notice.textContent=message;notice.className=error?'account-feedback error':'account-feedback';}
+    function safeError(result){
+      if(result?.code==='RATE_LIMITED'){
+        return `此操作请求过于频繁，请等待 ${Math.max(1,Math.ceil(Math.min(3600000,Math.max(1,Number(result.retryAfterMs)||60000))/1000))} 秒后重试。`;
+      }
+      return {LOGIN_REQUIRED:'请先登录。',ACCOUNT_CHANGED:'账户已改变，请刷新。',WINDOW_OPEN:'请先完成并关闭安全支付窗口。',ACCOUNT_MISMATCH:'本机 Key 属于其他账户，请先移除本机 Key。',KEY_INVALID:'Key 已失效，请选择其他 Key。',KEY_FORBIDDEN:'Key 用途或权限不符。',KEY_STORAGE_UNAVAILABLE:'系统加密存储暂不可用。',STORAGE_UNAVAILABLE:'无法保存操作状态，请稍后重试。',DESKTOP_ACCOUNT_MISMATCH:'浏览器账号与仓鼠 AI 当前账号不一致，请切换到对应账号。',DESKTOP_FLOW_INVALID:'本次连接已过期，请重新点击充值。',DESKTOP_SETUP_FAILED:'账户连接暂未完成，请刷新后继续。',PENDING_OPERATION:'开通结果待确认，请继续核对原操作。',INVALID_REQUEST:'请检查选择、有效期和额度。'}[result?.code]||'暂时无法完成，请稍后重试。';
+    }
+    function closeDialog(){dialogEpoch++;const cleanup=dialogCleanup;dialogCleanup=null;cleanup?.();if(dialog){dialog.close();dialog.remove();dialog=null;}}
+    function clearAccount(){accountEpoch++;account=null;lastRefresh=0;closeDialog();render();}
+    function render(){
+      const signedIn=account?.signedIn===true;
+      identity.textContent=signedIn?(account.user?.email||account.user?.username||'已登录'):'登录后开通所需功能';
+      element('localAccountGuest').hidden=signedIn||!bridge;
+      element('localAccountWallet').hidden=!signedIn;element('localAccountFoot').hidden=!signedIn;
+      element('localAccountBalance').textContent=signedIn?money(account.balance):'—';
+      element('localAccountWeb').hidden=Boolean(bridge);
+      const mismatch=signedIn&&account.accountMatched===false;
+      element('localAccountMapping').hidden=!mismatch;element('localAccountMapping').textContent=mismatch?'当前登录账户与本机连接不一致。请登录原账户，或在高级连接设置中明确移除旧 Key 后重新连接。':'';
+      for(const [group,suffix,field] of features){
+        const pending=account?.pending?.find(row=>row.group===group),allowed=signedIn&&Array.isArray(account.groups)&&account.groups.includes(group);
+        const create=element(`create${suffix}Key`),select=element(`select${suffix}Key`),recover=element(`recover${suffix}Key`);
+        create.hidden=!allowed||Boolean(pending)||Boolean(current[field]);select.hidden=!signedIn||pending?.state==='pending';recover.hidden=!signedIn||!pending;
+        select.textContent=current[field]?'更换 Key':'使用已有 Key';
+        for(const button of [create,select,recover])button.disabled=accountBusy||busy||mismatch;
+      }
+      for(const id of ['registerLocalAccount','loginLocalAccount','refreshLocalAccount','payLocalAccount','logoutLocalAccount'])element(id).disabled=accountBusy||!bridge;
+      element('payLocalAccount').disabled||=mismatch;
+    }
+    async function invoke(action,payload={}){
+      try{return await bridge.command(action,payload);}catch{return {ok:false,code:'NETWORK'};}
+    }
+    async function refresh({force=false}={}){
+      if(!bridge||!accountVisible())return;
+      if(accountBusy){refreshWanted=true;return;}
+      if(refreshing){if(force||refreshEpoch!==accountEpoch)refreshWanted=true;return refreshing;}
+      if(!force&&lastRefresh&&Date.now()-lastRefresh<15000)return;
+      const ticket=accountEpoch;refreshEpoch=ticket;refreshWanted=false;
+      refreshing=(async()=>{
+        const result=await invoke('snapshot');
+        if(ticket!==accountEpoch)return;
+        if(result?.ok===true){account=result.browserPending&&account?.user?.id===result.user?.id?{...account,...result}:result;lastRefresh=Date.now();say(result.browserPending?'请在中转站完成账户连接与充值，完成后手动返回应用。':'');render();}
+        else{if(['LOGIN_REQUIRED','ACCOUNT_CHANGED'].includes(result?.code))clearAccount();say(safeError(result),true);}
+      })().finally(()=>{refreshing=null;if(refreshWanted&&!accountBusy)void refresh({force:true});});
+      return refreshing;
+    }
+    async function action(name,payload={},complete){
+      if(accountBusy||!accountVisible())return;
+      const keyAction=['create','enable','recover'].includes(name);if(keyAction&&busy)return;
+      if(keyAction&&account?.accountMatched===false)return;
+      accountBusy=true;if(keyAction)setBusy(true);render();say('正在处理…');const ticket=accountEpoch;
+      try{
+        const result=await invoke(name,payload);
+        if(ticket!==accountEpoch)return;
+        if(result?.ok!==true){if(['LOGIN_REQUIRED','ACCOUNT_CHANGED'].includes(result?.code))clearAccount();say(safeError(result),true);return result;}
+        say(result.code==='SAVED_CHECK_PENDING'?'已保存，连接待检测。':'');
+        if(complete)complete(result);
+        return result;
+      }finally{accountBusy=false;if(keyAction)setBusy(false);render();if(refreshWanted)void refresh({force:true});}
+    }
+    function node(tag,text,className=''){const value=document.createElement(tag);value.textContent=text;if(className)value.className=className;return value;}
+    function openDialog(title){
+      closeDialog();dialog=document.createElement('dialog');dialog.className='local-account-dialog';dialog.setAttribute('aria-label',title);
+      const header=node('div','','local-dialog-header'),heading=node('h2',title),close=node('button','关闭','local-text-button');close.type='button';close.onclick=closeDialog;header.append(heading,close);dialog.append(header);
+      dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});dashboard.append(dialog);dialog.showModal();return dialog;
+    }
+    async function openBrowserAccount(){
+      if(accountBusy||!accountVisible()||account?.accountMatched===false)return;
+      const result=await action('browser-open');
+      if(result?.ok){
+        say(result.connectionCode?`请在中转站完成注册或登录，核对连接码 ${result.connectionCode}。完成充值后手动返回应用。`:'已在浏览器打开中转站。完成充值后手动返回应用，余额会自动刷新。');
+      }
+    }
+    function createDialog(group,label){
+      if(accountBusy||!account?.signedIn||account.accountMatched===false)return;
+      const requestId=globalThis.crypto.randomUUID();
+      const container=openDialog(`开通${label}`),form=document.createElement('form'),expiry=node('label','有效期'),days=document.createElement('select'),limitLabel=node('label','额度上限（元）'),limit=document.createElement('input');
+      for(const [value,text] of [['30','30 天'],['7','7 天'],['-1','长期有效']]){const option=node('option',text);option.value=value;days.append(option);}
+      days.value='30';days.name='days';expiry.append(days);limit.name='limit';limit.type='number';limit.min='0.01';limit.step='0.01';limit.placeholder='不设上限';limit.autocomplete='off';limitLabel.append(limit);
+      const submit=node('button','开通并启用','plain-button');submit.type='submit';const feedback=node('p','','account-feedback');feedback.setAttribute('role','status');form.append(expiry,limitLabel,feedback,submit);container.append(form);
+      form.onsubmit=async event=>{
+        event.preventDefault();if(accountBusy)return;
+        const ticket=dialogEpoch;submit.disabled=true;days.disabled=true;limit.disabled=true;feedback.textContent='正在开通…';
+        const result=await action('create',{group,days:Number(days.value),limit:limit.value.trim(),requestId});
+        if(ticket!==dialogEpoch)return;
+        if(result?.ok===true){closeDialog();void refresh({force:true});}
+        else{feedback.textContent=notice.textContent;submit.disabled=false;days.disabled=false;limit.disabled=false;void refresh({force:true});}
+      };
+    }
+    function keyDialog(group,label){
+      if(accountBusy||!account?.signedIn||account.accountMatched===false)return;
+      const container=openDialog(`选择${label} Key`),list=node('div','','local-key-list'),pager=node('div','','local-dialog-pager'),previous=node('button','上一页','plain-button subtle'),next=node('button','下一页','plain-button subtle'),pageLabel=node('span',''),create=node('button','新建 Key','local-text-button');
+      previous.type=next.type=create.type='button';pager.append(previous,pageLabel,next);container.append(list,pager,create);create.onclick=()=>createDialog(group,label);let page=1,loading=false;
+      const ticket=dialogEpoch,userTicket=accountEpoch;
+      async function load(){
+        if(loading)return;loading=true;previous.disabled=next.disabled=true;list.replaceChildren(node('p','正在读取…'));
+        const result=await invoke('keys',{group,page});
+        if(ticket!==dialogEpoch||userTicket!==accountEpoch)return;
+        loading=false;list.replaceChildren();
+        if(result?.ok!==true){list.append(node('p',safeError(result),'account-feedback error'));return;}
+        const rows=Array.isArray(result.items)?result.items:[];
+        if(!rows.length)list.append(node('p','本页没有此用途的 Key。','account-feedback'));
+        for(const row of rows){
+          const line=node('div','','local-key-row'),labelBox=node('div',''),name=node('strong',String(row.name||'未命名 Key')),expires=node('span',row.expiresAt===-1?'长期有效':typeof row.expiresAt==='number'?new Date(row.expiresAt*1000).toLocaleDateString('zh-CN'):'');labelBox.append(name,expires);
+          const button=node('button','启用','plain-button');button.type='button';button.disabled=row.status!==1||row.expiresAt>0&&row.expiresAt<Date.now()/1000;
+          button.onclick=async()=>{if(accountBusy)return;button.disabled=true;const enabled=await action('enable',{id:row.id,group});if(ticket!==dialogEpoch)return;if(enabled?.ok===true){closeDialog();void refresh({force:true});}else button.disabled=false;};line.append(labelBox,button);list.append(line);
+        }
+        pageLabel.textContent=`第 ${page} 页`;previous.disabled=page<=1;next.disabled=page*20>=Number(result.total||0);
+      }
+      previous.onclick=()=>{if(!loading&&page>1){page--;void load();}};next.onclick=()=>{if(!loading){page++;void load();}};void load();
+    }
+    syncLocalAccount=render;
+    render();if(!bridge){identity.textContent='个人中心';say('请在仓鼠AI应用中登录。');return;}
+    for(const mode of ['login','register'])element(`${mode}LocalAccount`).onclick=openBrowserAccount;
+    element('refreshLocalAccount').onclick=()=>refresh({force:true});
+    element('payLocalAccount').onclick=openBrowserAccount;
+    element('logoutLocalAccount').onclick=async()=>{closeDialog();await action('logout',{},clearAccount);};
+    for(const [group,suffix,,label] of features){element(`create${suffix}Key`).onclick=()=>createDialog(group,label);element(`select${suffix}Key`).onclick=()=>keyDialog(group,label);element(`recover${suffix}Key`).onclick=async()=>{await action('recover',{group});void refresh({force:true});};}
+    window.addEventListener('hamster-account-updated',()=>{clearAccount();void refresh({force:true});});
+    window.addEventListener('hamster-relay-native-configured',render);
+    const visible=()=>{if(accountVisible())void refresh();else closeDialog();};
+    window.addEventListener('hamster-view-changed',visible);window.addEventListener('hamster-startup-ready',visible);document.addEventListener?.('visibilitychange',visible);
+    void refresh();
+  }
+  updateSummary();
+  // Only safe account metadata is exposed by the native account service.
+  mountLocalAccount();
+  await detect({refresh:false,automatic:true});
+}

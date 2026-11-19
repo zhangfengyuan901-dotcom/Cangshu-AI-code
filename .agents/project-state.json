@@ -1,0 +1,946 @@
+{
+  "format": 1,
+  "updated_at": "2026-11-19T12:12:35.535149+00:00",
+  "workspace": ".",
+  "client": {
+    "chat_recovery_and_tool_error_hotfix": {
+      "status": "verified_local_candidate",
+      "version": "1.7.96",
+      "base_version": "1.7.95",
+      "installer_sha256": "e394bb2ff8a1907350440a21549a241d8ee09ec2f458b761a9e78c0477db0c5c",
+      "installer_bytes": 157875200,
+      "scope": "Resume bounded-frequency original request checks after transient failures and distinguish upload errors from quote errors.",
+      "published_to_netdisk": false,
+      "installed_over_user_profile": false,
+      "real_generation_calls": 0,
+      "source": "仓鼠AI",
+      "resources": "仓鼠AI/smart-video-agent",
+      "local_installer_removed_for_source_only_workspace": true,
+      "rebuilt_from_sources_during_cleanup": true
+    },
+    "doubao_multimodal_candidate": {
+      "version": "1.7.95",
+      "base_version": "1.7.94",
+      "status": "verified_installer_pending_user_netdisk_share",
+      "model": "doubao-seed-2.1-pro",
+      "installer_bytes": 157875200,
+      "installer_sha256": "da642f82567cc2c937985ee9bda57f3de8f6a17cf1b1361bcc95b2689fec0163",
+      "media": {
+        "image_max_bytes": 10000000,
+        "video_max_bytes": 50000000,
+        "video_max_seconds": 180
+      },
+      "published_to_netdisk": false,
+      "installed_over_user_profile": false,
+      "live_paid_chat_checks": 0,
+      "remaining": "User-provided netdisk link for public website. Paid provider material fetch and settlement acceptance not performed."
+    },
+    "post_restart_verification": {
+      "version": "1.7.93",
+      "status": "connectivity_and_isolated_regression_passed_production_chat_issue_observed",
+      "scope": "Newest local packaged candidate. Production health, catalog, account page and route behavior are read-only. Packaged functional tests use simulated requests.",
+      "recorded_at": "2026-11-18T13:58:54.902316+00:00",
+      "production_boot": "2026-11-18T13:03:42+00:00",
+      "local_installed_version": "1.7.90",
+      "website_display_version": "1.7.77",
+      "public_checks": 17,
+      "node_tests_passed": 408,
+      "python_tests_passed": 111,
+      "packaged_smoke": [
+        "chat",
+        "canvas"
+      ],
+      "production_chat_statuses_since_boot": {
+        "502": 2,
+        "409": 2
+      },
+      "production_chat_ledger_since_boot": [
+        {
+          "route_class": "standard",
+          "state_class": "unknown",
+          "total": 2,
+          "rows_with_recorded_charge": 0
+        }
+      ],
+      "production_writes": 0,
+      "real_generation_calls": 0,
+      "real_payment_calls": 0,
+      "remaining": "Determine the cause of standard chat 502s. Provider return and charge behavior need separately authorized live acceptance. Cloud-share contents were not verified."
+    },
+    "released": "1.7.86",
+    "website_release": "1.7.94",
+    "development_package_version": "1.7.96",
+    "development_is_release_source": true,
+    "build_spec": "仓鼠AI/release/current.json",
+    "stage_command": "npm --prefix 仓鼠AI run release:stage",
+    "installer_sha256": "fe6570b88f0382b102043cd25ce45e7a425a9e89e364cd831ce3dc799fa2743d",
+    "asar_sha256": "9d8e78df7d503f152c90f5eebf7e84ab6a0f996e28d67573f08a3ee072f38254",
+    "signed": false,
+    "official_download": "https://pan.baidu.com/s/1XH4gWPgY4VjApNkWa4GN7g?pwd=njd6",
+    "removed_features": [
+      "ChatCut",
+      "standalone_image_editor"
+    ],
+    "source_manifest": "仓鼠AI/release/source-manifest.json",
+    "latest_release": {
+      "version": "1.7.86",
+      "status": "local_release_ready_for_user_netdisk_upload",
+      "published_to_netdisk": false,
+      "customer_acceptance": false,
+      "real_payment_calls": 0,
+      "real_generation_calls": 0
+    },
+    "current_development_tests": {
+      "version": "1.7.86",
+      "tests": 1284,
+      "pass": 1284,
+      "fail": 0,
+      "cancelled": 0,
+      "scope": "Full suite on promoted canonical source"
+    },
+    "reference_upload_candidate": {
+      "version": "1.7.87",
+      "status": "installed_on_current_host_customer_verified_multiple_reference_upload",
+      "base_version": "1.7.86",
+      "installer_sha256": "a84783e6fb46d3c23e3436ccbcb0e4eb9ebaecb40adb6b35cac365432785d287",
+      "focused_transport_tests_passed": 8,
+      "workbench_upload_tests_passed": 11,
+      "transport": "Electron system proxy for the signed video-reference PUT only",
+      "changed_release_source": false,
+      "published_to_netdisk": false,
+      "installed_over_user_profile": false,
+      "running_user_version_observed": "1.7.87",
+      "real_generation_calls": 0
+    },
+    "direct_tos_image_candidate": {
+      "version": "1.7.88",
+      "status": "running_on_user_host_customer_verified_image_and_video_upload",
+      "installer_sha256": "7fffbcebcd09a6def55193d224b996240ad618e2d3d7723d48c20c91e7cc93b1",
+      "scope": "video reference PNG JPEG WebP only; original bytes",
+      "published_to_netdisk": false,
+      "installed_by_agent": false,
+      "customer_retest_verified": true,
+      "customer_verified_upload_scope": [
+        "picture_direct_tos",
+        "video_relay_to_tos"
+      ]
+    },
+    "unified_tos_media_candidate": {
+      "version": "1.7.89",
+      "status": "packaged_live_synthetic_passed_waiting_for_user_acceptance",
+      "installer_sha256": "095fc10de72ea73c7de0a9f6712cb91941e97b00088b6458fc8f7c7a365add6c",
+      "customer_retest_verified": false,
+      "published_to_netdisk": false,
+      "canonical_source_promoted": false
+    },
+    "relay_chat_candidate": {
+      "version": "1.7.90",
+      "base_version": "1.7.89",
+      "status": "packaged_and_extracted_runtime_verified_waiting_for_release",
+      "installer_sha256": "b976d3a951c50cbc65a3021e9d15cf8078646c0aba79251e13904f3097fbf6b8",
+      "engine_sha256": "5282620b8bdb30ae26e203132b41ba58be2348a2249a8b31b63782582e7f0ce4",
+      "workflow_upgrade_fixture_tests_passed": 6,
+      "signed": false,
+      "codex_runtime_packaged": false,
+      "published_to_netdisk": false,
+      "installed_over_user_profile": false,
+      "canonical_source_promoted": false,
+      "customer_acceptance": false
+    },
+    "relay_chat_history_fix_candidate": {
+      "version": "1.7.91",
+      "base_version": "1.7.90",
+      "status": "packaged_and_extracted_legacy_media_replay_verified",
+      "installer_sha256": "c56502078e59494d4d27c8c36395734823fe0de276270be9f185e5bdcafa972b",
+      "engine_sha256": "7f0975e2e3dce72369f54665400f6cccb5e37dc478a2c05434de7d21b1ac43aa",
+      "signed": false,
+      "published_to_netdisk": false,
+      "customer_acceptance": false
+    },
+    "installed_material_chat_candidate": {
+      "version": "1.7.92",
+      "base_version": "1.7.91",
+      "status": "packaged_and_extracted_runtime_verified",
+      "installer_sha256": "d596a4b761a0cf0cc7cf4e6fc4ee4a69a9b748fb98b5ea89e4974d76d8249219",
+      "desktop_node_tests_passed": 142,
+      "desktop_python_tests_passed": 104,
+      "chat_mode": "pikno-chat-standard",
+      "chat_open": "single_on_demand_local_open_then_reuse_while_running",
+      "isolated_open_time_ms": {
+        "cold": 1074,
+        "reopen": 3
+      },
+      "signed": false,
+      "published_to_netdisk": false,
+      "production_changes": false,
+      "customer_acceptance": false
+    },
+    "desktop_optimization_candidate": {
+      "version": "1.7.93",
+      "base_version": "1.7.92",
+      "status": "packaged_and_isolated_runtime_verified",
+      "installer_sha256": "9c6a239d57bc48e0c017ed945873ef32105387a84cd2c74ee3261c1f06e94984",
+      "installer_bytes": 157874176,
+      "baseline_installer_bytes": 180151296,
+      "node_tests_passed": 154,
+      "python_tests_passed": 111,
+      "desktop_chat_data_path_unchanged": true,
+      "standalone_canvas_node_packaged": false,
+      "signed": false,
+      "published_to_netdisk": false,
+      "production_changes": false,
+      "customer_acceptance": false
+    },
+    "image_usage_and_doubao_candidate": {
+      "version": "1.7.94",
+      "base_version": "1.7.93",
+      "status": "published_netdisk_website_and_gateway_verified",
+      "installer_sha256": "39bfcfa2ddccf79ca3443895087985699399ae652a78e270da2535768005847b",
+      "node_tests_passed": 284,
+      "python_tests_passed": 113,
+      "default_chat_model": "doubao-seed-2.1-pro",
+      "chat_mode": "text_only",
+      "historical_chat_records": "History and attachments remain in local storage. Old pending operations can be looked up by original ID and price without resubmission.",
+      "generation_display": "Image pricing absent from workbench and canvas. Current relay balance remains visible. Image charges are accessible in the relay ledger.",
+      "published_to_netdisk": true,
+      "installed_over_user_profile": false,
+      "production_changes": false,
+      "real_upstream_calls": 0,
+      "customer_acceptance": false,
+      "remaining": "Authenticated paid acceptance and netdisk file byte comparison are unverified. Public share filename and local installer hash were verified."
+    },
+    "distribution": {
+      "mode": "netdisk_only",
+      "provider": "baidu",
+      "url": "https://pan.baidu.com/s/1DKXKc83TxY4YQf563spXdw?pwd=96f8",
+      "extraction_code": "96f8",
+      "filename": "仓鼠AI-1.7.94-安装包.exe",
+      "source": "user_provided",
+      "share_content_verified": false,
+      "status": "netdisk_only_deployed_verified",
+      "local_release": "1.7.94",
+      "version": "1.7.94",
+      "share_filename_verified": true
+    },
+    "validation_limits": {
+      "clean_host_registered_upgrade_and_uninstall": "not_tested",
+      "actual_machine_installation": "running_1.7.88_observed",
+      "actual_qr_payment_and_credit": "not_tested",
+      "reported_upload_incident_stage": "unverified"
+    },
+    "pending_ui_changes": [
+      {
+        "id": "liquid-glass-ui",
+        "status": "unpublished_working_tree",
+        "scope": "主应用外壳与对话页视觉重构（Liquid Glass 材质、动效、任务卡与聊天气泡分级样式）",
+        "files": [
+          "仓鼠AI/public/glass.css",
+          "仓鼠AI/public/index.html",
+          "仓鼠AI/smart-video-agent/chat-ui/glass-chat.css",
+          "仓鼠AI/smart-video-agent/chat-ui/index.html"
+        ],
+        "tests": "npm test 1284/1284 pass 2026-11-14",
+        "release_check": "npm run release:check 失败：Build input size changed 28799 !== 28750（public/index.html），正式源码与 release/source-manifest.json 已不一致，需先重新 stage 新版发行",
+        "remaining": "未 stage 发行、未构建安装包、无客户验收；画布页未改；账户与素材页仍有旧硬编码颜色"
+      }
+    ],
+    "workspace_source_version": "1.7.96"
+  },
+  "relay": {
+    "doubao_inline_images_hotfix": {
+      "status": "deployed_connectivity_verified_paid_acceptance_pending",
+      "verified_at": "2026-11-19T06:54:33.261846+00:00",
+      "observed_client": "1.7.96",
+      "failure": "Two uploaded images were each partially transferred to Ark and disconnected at about 9.6 seconds before the relay returned 502. The older request remains unknown with zero recorded quota amounts at check time.",
+      "fix": "PIKNO reads owned image receipts, verifies byte count and MIME, and sends the images inline for Responses requests within a bounded aggregate. Video and larger image batches keep the existing URL path.",
+      "version": "v1.0.0-rc.41-hamster.doubao-inline-images",
+      "image_id": "sha256:37ede043715b6513fa0836c0a8fa9207c8b0d24ad1d4b887eaa5ccab07c37647",
+      "binary_sha256": "44701f3c6cddabc237745bbae9995f2b8c365d33e85bb5a23b1437f0e5fe5753",
+      "isolated_go_packages_passed": [
+        "controller",
+        "model"
+      ],
+      "public_route_checks": 9,
+      "prior_operations_resent": 0,
+      "real_inference_calls": 0,
+      "remaining": "One explicitly authorized synthetic two-image production chat is needed to verify live provider response and settlement.",
+      "user_reported_material_upload_recovered": true
+    },
+    "chat_and_tool_incident": {
+      "status": "local_chat_admission_restored_tool_provider_credential_required",
+      "checked_at": "2026-11-19T06:23:45.667323+00:00",
+      "chat": {
+        "submit_http": 502,
+        "original_request_state": "unknown",
+        "authenticated_original_request_query_allows_new_messages": true,
+        "original_request_resubmitted": false,
+        "attachment_reads_http_200": 2,
+        "attachment_proxy_duration_ms_approx": 9600,
+        "provider_rejection_reason_verified": false,
+        "remaining": "Explicitly approve one synthetic paid attempt to isolate the Ark attachment failure. Preserve original unknown and only use the authenticated admission decision."
+      },
+      "tool": {
+        "quote_http": 200,
+        "asset_upload_http": 502,
+        "tool_control_upload_http": 503,
+        "control_healthy": true,
+        "credential_configured": false,
+        "existing_server_credential_check_http": 422,
+        "credential_rotation_written": false,
+        "remaining": "A root operator must store a valid RunningHub credential using the existing cloud credential dialog. No paid workflow executed."
+      }
+    },
+    "doubao_media_rollout": {
+      "status": "deployed_routing_and_connectivity_verified",
+      "verified_at": "2026-11-19T05:58:55.354229+00:00",
+      "model": "doubao-seed-2.1-pro",
+      "version": "v1.0.0-rc.41-hamster.doubao-media",
+      "ark_media_enabled": true,
+      "legacy_enabled": false,
+      "billing_mode": "actual_usage_v1",
+      "binary_sha256": "fc487c3b66f3653dc9642e9b3a40d4fb77037ac2b3376bffcf79ecd386542e7f",
+      "isolated_go_packages_passed": [
+        "controller",
+        "model"
+      ],
+      "live_paid_chat_checks": 0
+    },
+    "doubao_only_candidate": {
+      "status": "deployed_routing_and_connectivity_verified",
+      "recorded_at": "2026-11-19T04:10:56.436122+00:00",
+      "version": "v1.0.0-rc.41-hamster.doubao-only-candidate",
+      "binary_sha256": "9af3e9feeda3c8fbf20ace01aaa866a5f8b3989e67f8e8fd3f6882f73d61b84e",
+      "changes": "Corrected unsupported-interface message. Existing verification flag can block new legacy dispatch independently of the Ark route.",
+      "target_model": "doubao-seed-2.1-pro",
+      "target_billing": "PIKNO actual_usage_v1",
+      "target_legacy_switch": "PIKNO_LLM_MODEL_VERIFIED=false",
+      "isolated_go_packages_passed": [
+        "controller",
+        "model"
+      ],
+      "isolated_linux_http_smoke_passed": true,
+      "client_candidate": "1.7.94",
+      "website_distribution_at_check": "1.7.77",
+      "production_changes": true,
+      "real_inference_calls": 0,
+      "remaining": "No authenticated live inference or billed customer acceptance in this cutover.",
+      "deployed_at": "2026-11-19T04:22:31.041280+00:00",
+      "image_id": "sha256:46a5180279261e2f59a571ad7b5f13bbb0b77fb837d4af134a6aba398af049eb",
+      "model": "doubao-seed-2.1-pro",
+      "billing_mode": "actual_usage_v1",
+      "mode": "text_only",
+      "production_before": {
+        "legacy_model_verified": true,
+        "ark_model_verified": true,
+        "ark_media_verified": false,
+        "dedicated_routes_reached_authentication": true
+      },
+      "public_route_checks": 9,
+      "customer_acceptance": false
+    },
+    "image_usage_billing_candidate": {
+      "production_rollout": {
+        "status": "deployed_connectivity_verified",
+        "deployed_at": "2026-11-18T17:15:16.965745+00:00",
+        "version": "v1.0.0-rc.41-hamster.image-usage-rollout",
+        "image": "hamster-image-usage-20261119:local",
+        "image_id": "sha256:c1bbcfa033992b19880d61ad337dda701fae8553fd2fac03fcd03784d96cdc5c",
+        "binary_sha256": "096abc0c4cc5b47592aed227543422245b323475008aa5e5975510fb7939b120",
+        "switch": "PIKNO_IMAGE_USAGE_BILLING_ENABLED=true",
+        "scope": "Gateway and two bound account assets. Restore published image alias, upstream mapping and route capability in one transaction; preserve other models and existing ledgers.",
+        "database_change": "Add nullable image_usage_quota. Preserve existing account and settlement data.",
+        "dependent_containers_recreated": 0,
+        "real_inference_calls": 0,
+        "remaining": "Confirm the connected client account is the intended admin test account before starting paid acceptance following the one-request-per-entry limit."
+      },
+      "image_key_diagnosis": {
+        "checked_at": "2026-11-18T16:46:51.897627+00:00",
+        "client_version": "1.7.94",
+        "configured": true,
+        "key_auth_succeeded": true,
+        "callable_image_models": 0,
+        "public_alias": "pikno-image-flare",
+        "public_catalog_has_line": true,
+        "usage_billing_advertised": false,
+        "image_channel_active": true,
+        "image_group": "image-standard",
+        "public_alias_in_channel_models": false,
+        "public_alias_model_mapping": false,
+        "public_alias_ability_count": 0,
+        "diagnosis": "Published image line is not projected into the active channel and callable-model permissions.",
+        "production_configuration_changes": 0,
+        "real_inference_calls": 0
+      },
+      "staged_rollout": {
+        "status": "ready_for_controlled_rollout_pending_approval_and_admin_connection",
+        "version": "v1.0.0-rc.41-hamster.image-usage-rollout",
+        "binary_sha256": "096abc0c4cc5b47592aed227543422245b323475008aa5e5975510fb7939b120",
+        "switch": "PIKNO_IMAGE_USAGE_BILLING_ENABLED",
+        "default_enabled": false,
+        "off_behavior": "Existing fixed quote images continue; 1.7.94 waits for usage-v1. The gateway retains access to recorded usage settlements.",
+        "on_behavior": "1.7.94 image requests can use usage-v1. New fixed quote submissions to the target model are rejected.",
+        "account_asset_updates": [
+          "account-lite/index.html",
+          "account-lite/account.mjs"
+        ],
+        "schema_addition": "Nullable image_usage_quota. Tested isolated PostgreSQL 16 current binary -> new column -> current binary health without removing the added column.",
+        "production_changes": 0,
+        "actual_paid_tests": 0
+      },
+      "version": "v1.0.0-rc.41-hamster.image-usage-candidate",
+      "status": "verified_local_candidate",
+      "binary_sha256": "9d82d2a470218dcc6da3ac77b0a8fd36216d61c6d63191f70c48209646dd7398",
+      "public_model": "pikno-image-flare",
+      "sale_cny_per_million_tokens": {
+        "text_input": 50,
+        "cached_text_input": 12.5,
+        "image_input": 80,
+        "cached_image_input": 20,
+        "output": 300
+      },
+      "settlement": "Relay reserves funds before dispatch using the existing line amount. It records actual image usage with release or debit for the difference. Ambiguous usage or unaffordable differences go to review. Legacy fixed quotes remain queryable. New fixed submissions are rejected when usage billing is active.",
+      "verification": {
+        "account_tests": 75,
+        "portal_tests": 20
+      },
+      "production_changes": false,
+      "real_upstream_calls": 0,
+      "remaining": "Production directory still advertises the current fixed-image route until rollout. Real provider usage and customer balance/ledger acceptance require a new authorized live test."
+    },
+    "manual_recharge": {
+      "status": "deployed_verified",
+      "account_page": "PIKNO中转站/build/hamster-trim44-web/public/account-lite/index.html",
+      "public_ingress": "PIKNO中转站/deploy/direct-origin/nginx.conf",
+      "balance_source": "/api/user/self quota",
+      "quota_adjustment": "Existing administrator interface /api/user/manage add_quota",
+      "historical_orders": "Read-only customer history. Existing callback, reconciliation, and cancellation routes remain available.",
+      "verification": {
+        "h5_compatibility_build": "passed",
+        "h5_node_tests": 112,
+        "portal_tests": 13,
+        "desktop_account_tests": 82,
+        "chromium": "Loopback fixtures verified manual recharge, no payment requests, relay balance refresh, legacy history, and a 390 px viewport. Original WeChat PNG loaded same-origin at 1200 and 390 px, with no horizontal overflow.",
+        "ingress_checks": 18,
+        "production_changes": 1,
+        "real_payments": 0,
+        "contact_png_sha256": "b8e78874432c28f031c85f0962e721e1bc5acb5f91ca05324492bc59f2322204",
+        "production_preflight": "Trusted SSH, exact ingress baseline and successful relay and H5 health checks.",
+        "public_checks": 15,
+        "real_quota_adjustments": 0
+      },
+      "remaining": "Live transfer and administrator credit acceptance were not exercised.",
+      "administrator_contact_asset": "PIKNO中转站/build/hamster-trim44-web/public/account-lite/admin-wechat.png",
+      "deployed_at": "2026-11-18T13:40:10.186410+00:00",
+      "deployment": {
+        "scope": "Nginx graceful reload and four checked account assets on the existing read-only bind",
+        "active_nginx_sha256": "1cb39945c2d5b7c79b7e73aa24efec39c287ab9ab922d825f50ec363c0f4b136",
+        "containers_unchanged": true,
+        "rollback_config_preserved": true
+      }
+    },
+    "version": "v1.0.0-rc.41-hamster.doubao-inline-images",
+    "image": "hamster-doubao-inline-images-20261119:local",
+    "production_image_id": "sha256:37ede043715b6513fa0836c0a8fa9207c8b0d24ad1d4b887eaa5ccab07c37647",
+    "binary_sha256": "44701f3c6cddabc237745bbae9995f2b8c365d33e85bb5a23b1437f0e5fe5753",
+    "files_enabled": false,
+    "financial_restore": false,
+    "customer_acceptance": false,
+    "backup_path": "/opt/piknoai-relay/doubao-inline-images-20261119",
+    "rollback_image_id": "sha256:4a4ce67aa9e83d66f1c3b8b2c127bc231f2160f8856d51d78775e0a183dcc946",
+    "build_scope": "Read verified Doubao Responses images before dispatch and inline bounded Base64. Keep original usage settlement and idempotency.",
+    "deployment_action": "Only the gateway was recreated. Runtime, public health and existing image billing verified without upstream inference.",
+    "reverse_input_modes": [
+      "file",
+      "link"
+    ],
+    "source_build": "PIKNO中转站/deploy/new-api/Dockerfile",
+    "lanjing_payment": {
+      "status": "deployed_checkout_blocked_at_provider_order_lookup",
+      "official_api": "https://2347637.pay.lanjingzf.com/main/api.html",
+      "build_command": "python output/relay-current/checkout75/release75.py build",
+      "web_tests": 125,
+      "bridge_tests": 26,
+      "sqlite_tests": "Targeted controller, model, middleware and router tests passed with an isolated SQLite database.",
+      "one_click_checkout": "Selected amount opens the same-origin QR cashier in the same browser tab. Reopened payable orders retain the same trade. Previous unpaid orders do not block a new explicit recharge.",
+      "amount_policy": "CNY 50, 100, and 200 only. The upstream API supports a price field; matching concurrent amounts may cause a cent adjustment in reallyPrice.",
+      "cancellation": "Leaving the cashier retains the order. The cashier hides expired QR codes. The existing callback and reconciliation can credit a verified payment once.",
+      "real_payments": 0,
+      "remaining": "2026-11-15 WeChat and Alipay checkouts remain blocked: createOrder returned matching IDs, but the same merchant's getOrder and checkOrder do not recognize them. The running bridge matches the recorded source, the configured origin matches the merchant, the local secret matches the running secret, and signed getState was accepted. Provider persistence and lookup routing remain unverified. Payment and credit acceptance are incomplete.",
+      "active_version": "v1.0.0-rc.41-hamster.75",
+      "bridge_image": "hamster-lanjing75-codefix2:local",
+      "bridge_image_id": "sha256:6510cd93787d3d266618767495920e381bb1bde26465e89cd929f579b3be0284",
+      "bridge_sha256": "54cae1c4c2850d0ec4bb027d0517d1d2b74217e53b10d02b39fe7131383839c7"
+    },
+    "current_line_count": 14,
+    "rollback_policy": "repair_or_replace_with_retirement_fenced_image_only; no_old_refill_image_no_financial_restore",
+    "checkout_repair": {
+      "status": "deployed_and_public_assets_verified",
+      "version": "v1.0.0-rc.41-hamster.75",
+      "guarded_closing_orders": 1,
+      "checkout_ledger_identity_verified": true,
+      "customer_acceptance": false,
+      "real_payments": 0
+    },
+    "checkout_code_unavailable": {
+      "status": "provider_create_lookup_inconsistency_reproduced",
+      "observed_release": "v1.0.0-rc.41-hamster.75",
+      "production_evidence": {
+        "recent_bound_wechat_and_alipay_orders": true,
+        "provider_get_order_http_status": 200,
+        "provider_result": "order_not_found",
+        "provider_check_order_result": "order_not_found",
+        "recorded_bridge_image_and_source_verified": true,
+        "latest_signed_state_accepted": true,
+        "public_callback_routes_reachable": true,
+        "production_mutations": 0
+      },
+      "candidate_bridge_sha256": "54cae1c4c2850d0ec4bb027d0517d1d2b74217e53b10d02b39fe7131383839c7",
+      "scope": "Classify unavailable checkout responses, recover incomplete checkout details with a single bound order lookup, and accept the documented WeChat merchant QR URL form.",
+      "remaining": "LanJing needs to trace createOrder and the same-ID lookups for 2026-11-15 20:53:56–20:53:59 and 22:06:27–22:06:30 Asia/Shanghai, confirm persistence and route binding, and explain the nonconforming Alipay creation timestamp. A console-confirmed historical cloud order ID would give a read-only positive control. No matching console tab was accessible. Original local orders remain pending, and a real payment and credit test is still outstanding.",
+      "deployed_at": "2026-11-13T15:21:27.763002+00:00",
+      "release_guard_adjustment": {
+        "field": "Config.Labels.com.docker.compose.depends_on",
+        "verified_original": "new-api:service_healthy:false",
+        "bridge_only_no_deps_value": "",
+        "initial_attempt_reverted": true
+      },
+      "latest_customer_retest": {
+        "wechat_created_beijing": "2026-11-15 20:53:56",
+        "alipay_created_beijing": "2026-11-15 22:06:27",
+        "local_status": "pending",
+        "provider_order_bound": true,
+        "alipay_initial_display_reason": "provider_timing_invalid",
+        "alipay_initial_field_shapes": {
+          "date_type": "number",
+          "date_format": "other",
+          "timeout_type": "number",
+          "timeout_positive_integer": true,
+          "qr_type": "string",
+          "qr_format": "supported"
+        },
+        "failure_phase": "create",
+        "failure_reason": "provider_missing",
+        "current_readonly_get_order_get_and_post": "both_orders_missing",
+        "current_readonly_check_order": "both_orders_missing",
+        "actual_debit": "not_verified",
+        "alipay_merchant_console_presence": "not_shown_in_user_screenshot",
+        "bridge_mock_tests_passed": 26
+      },
+      "diagnostic_scope": "Read-only comparison of both current payment methods, with status lookup from the running bridge's merchant origin. The Alipay create response carried a supported QR format and a positive integer timeout, but its numeric date did not meet the documented 13-digit format. The raw timestamp, response bodies, and IDs were not exported.",
+      "official_contract_review": {
+        "checked_beijing_date": "2026-11-16",
+        "guide": "https://www.lanjingzf.com/guides/wechat-alipay-payment-integration.html#prepare",
+        "local_bridge_matches_verified_production": true,
+        "documented_create_and_lookup_contract_matches": true,
+        "provider_hosted_cashier_uses_same_cloud_order_lookup": true,
+        "merchant_console_settings_directly_checked": false,
+        "remaining": "The provider must confirm the two records' persistence and merchant routing. This review reused the incident's production evidence and made no payment or production changes."
+      },
+      "provided_key_check": {
+        "matches_running_secret": true,
+        "signature_accepted": true,
+        "provider_online": true
+      },
+      "previous_customer_confirmation": {
+        "created_beijing": "2026-11-13 23:04:58",
+        "actual_debit": false,
+        "merchant_console_presence": false
+      }
+    },
+    "verification": "PIKNO中转站/deploy/new-api/operations/verify-relay.py",
+    "postdeploy_verifier": "PIKNO中转站/deploy/new-api/operations/verify-relay.py"
+  },
+  "chat_worker": {
+    "name": "hamster-ai-inference",
+    "version": "81b67f46-0055-4e6b-945e-c18196b0eb46",
+    "percentage": 100,
+    "source": "仓鼠AI/cloudflare/llm-worker/src/worker.js",
+    "source_sha256": "c8fdeb457737083c95a569f6bd9d821a0324c48ec41f454be81f127126f72af2",
+    "purpose": "Bound response expiry by authenticated file lifetimes; deployed, customer validation pending",
+    "bindings_and_secrets_unchanged": true
+  },
+  "doubao_seed_2_1_pro_integration": {
+    "status": "production_text_user_test_and_billing_verified_history_attachment_fix_packaged",
+    "checked_at_beijing": "2026-11-15",
+    "upstream_reference": "user_supplied_ark_endpoint_id",
+    "public_alias": "doubao-seed-2.1-pro",
+    "channel_type": "VolcEngine",
+    "ark_key_configured_by": "user_in_new_api",
+    "channel_id": 7,
+    "channel_config_verified_read_only": true,
+    "production_unified_media_settlement_enabled": true,
+    "production_ark_binding_active": true,
+    "production_ark_media_active": true,
+    "existing_desktop_actual_usage_contract_active": true,
+    "native_ark_transport_offline_test": "PIKNO中转站/deploy/new-api/backend/relay/channel/volcengine/adaptor_test.go",
+    "price_version": "chat-doubao-seed-2-1-pro-cny-30-150-6-v1",
+    "sale_cny_per_million_tokens": {
+      "input": 30,
+      "output": 150,
+      "cached_input": 6
+    },
+    "gateway_candidate_sha256": "ce94f53c835c8d677b165114237b47ed2daf585e5080f66f0494277762b5b0e1",
+    "gateway_openai_model_discovery": "chat_standard_and_exact_model_permission_when_enabled",
+    "desktop_codex_local_removed": true,
+    "desktop_packaged_chat_transport": "pikno_relay_only",
+    "offline_tests": {
+      "desktop_node_passed": 106,
+      "desktop_python_passed": 104,
+      "gateway_go_packages_passed": 4
+    },
+    "desktop_publication_policy": "review_closed_paragraphs_then_review_complete_output",
+    "live_ark_chat_sse": {
+      "at_beijing": "2026-11-15T02:33:24+08:00",
+      "http_status": 200,
+      "first_text_ms": 1883,
+      "finish_reason": "stop",
+      "done": true,
+      "input_tokens": 51,
+      "output_tokens": 27,
+      "cached_tokens": 0
+    },
+    "production_paid_acceptance": "one_user_confirmed_desktop_responses_text_call_settled_at_exact_rate",
+    "production_existing_conversation_failure": "1.7.90 rejects prior attachments before dispatch while alternate model is text only",
+    "pending": [
+      "desktop_1_7_91_customer_validation",
+      "live_ark_tos_media_acceptance",
+      "desktop_netdisk_publication"
+    ],
+    "production_changes": true,
+    "real_inference_calls": 2
+  },
+  "report_worker": {
+    "name": "hamster-ai-reports",
+    "status": "deployed_verified",
+    "profile": "default",
+    "version": "af7264e5-9f15-478c-8d80-db72e0d11156",
+    "percentage": 100,
+    "source": "仓鼠AI/cloudflare/report-worker/src/worker.js",
+    "source_sha256": "2ffa1db90b642267ebb413ade9414d4e19dd65294bb20eeca047e9d7ad521009",
+    "verification": {
+      "health_http_status": 200,
+      "d1_binding_matches": true,
+      "r2_binding": false,
+      "queue_binding": false,
+      "legacy_queue_producers": 0,
+      "legacy_queue_consumers": 0,
+      "d1_retention_days": 30,
+      "targeted_node_tests_passed": 21,
+      "targeted_python_tests_passed": 3,
+      "production_test_reports": 0
+    }
+  },
+  "website": {
+    "url": "https://hamsterai.cc/",
+    "release": "1.7.94",
+    "worker_version": "c0fbbc4a-73f6-496c-a34d-1f827f462263",
+    "profile": "default",
+    "download": "https://pan.baidu.com/s/1DKXKc83TxY4YQf563spXdw?pwd=96f8",
+    "distribution_status": "netdisk_only_deployed_verified",
+    "publisher": "仓鼠AI/scripts/publish-website.py",
+    "download_provider": "baidu",
+    "extraction_code": "96f8",
+    "share_filename": "仓鼠AI-1.7.94-安装包.exe",
+    "r2_download_binding": false,
+    "installer_direct_download": false,
+    "share_content_verified": false,
+    "wechat_contact": {
+      "asset": "/assets/blogger-wechat-qr.png",
+      "placement": "download_card_right_desktop_below_button_mobile"
+    },
+    "share_filename_verified": true,
+    "verification": "仓鼠AI/tests/test_website_publisher.py"
+  },
+  "media_service": {
+    "owner": "ecs",
+    "image_id": "sha256:0833e27cdb0a589defd243cfc8faedc61260d52fa0bbb41d13086e6d63d6ac9d",
+    "business_source": "PIKNO中转站/deploy/tool-control/worker-candidate.mjs",
+    "business_sha256": "d9727a639745c53050c85ac9fdaa85298360d4613a652b4496c9d66b0c09b63f",
+    "runtime_source": "PIKNO中转站/deploy/tool-control/runtime.mjs",
+    "cloudflare_version": "0bf409ef-b957-4d54-8c2c-399aa2be18f7",
+    "frozen_media_source": "PIKNO中转站/cloudflare/relay-media/release/worker-release.js",
+    "frozen_media_sha256": "e2807529f31d7fcef236fb68b3287a7105179787e19e863b4a043d338999f943",
+    "single_executor": true,
+    "secrets_unchanged": true,
+    "input_media_storage": {
+      "video": "TOS",
+      "image": "local staging and native multipart",
+      "tool": "direct upstream binary upload"
+    },
+    "new_image_and_tool_outputs": "local result save from constrained upstream URL or Base64",
+    "durable_task_metadata": true,
+    "agent_real_generation_calls": 0,
+    "video_reference_upload_diagnostic": {
+      "checked_at": "2026-11-13T09:11:00Z",
+      "customer_specific_stage": "unverified",
+      "changed_production_r2_config": false
+    },
+    "tos_migration": {
+      "status": "deployed_r2_detached_old_buckets_retained",
+      "bucket": "cangshu-ai-guangzhou-2026",
+      "region": "cn-guangzhou",
+      "storage_class": "STANDARD",
+      "bucket_details_source": "user_confirmed",
+      "endpoint": "https://tos-cn-guangzhou.volces.com",
+      "credential_file_format_checked": true,
+      "credential_authorization_verified": "bucket_read_and_synthetic_object_write_passed",
+      "bucket_acl_verified": true,
+      "production_changes": "ecs_media_control_and_ingress_plus_three_cloudflare_worker_versions",
+      "remaining": "R2 reads and writes have been retired from active service. Old source buckets are currently kept as frozen recovery references. Production synthetic upload/duplicate/inspect/Range/delete passed; no customer generation was initiated. Separate exact source retirement verification remains before irreversible bucket deletion.",
+      "scope": "all_hamster_r2_storage_including_media_config_tasks_and_idempotency",
+      "scope_confirmed_by_user": true,
+      "bucket_private_acl": true,
+      "bucket_policy_present": false,
+      "target_bucket_empty_at_preflight": true,
+      "source_buckets": [
+        "pikno-relay-inputs",
+        "hamster-ai-media",
+        "hamster-billing-results"
+      ],
+      "cloudflare_account_read_access_verified": {
+        "pikno": "pikno",
+        "legacy": "default"
+      },
+      "candidate_test_count": 21,
+      "original_ecs_image_id": "sha256:d8542965a9e47d9db9eaf2bb612def9ff33e818c73ffc1aac6dde60886184b41",
+      "deployed_at": "2026-11-14T03:22:42.396801+00:00",
+      "worker_versions": {
+        "pikno-relay-media": "0bf409ef-b957-4d54-8c2c-399aa2be18f7",
+        "hamster-ai-media": "005f92d7-214c-4234-a80a-a6466f2069f8",
+        "hamster-billing": "b9b6984b-ea52-4afa-9ddf-fcc7b8cc2ac9"
+      },
+      "objects_copied": 146,
+      "source_bytes": 122211381,
+      "r2_production_bindings": 0,
+      "source_deletes": 0,
+      "old_bucket_deletion_performed": false,
+      "reference_image_transfer": {
+        "status": "asset_body_buffering_deployed_user_verified_second_image",
+        "local_confirmed_symptom": "two upload PUTs returned 502; aligned Cloudflare edge responses were 499 without bytes, no associated storage completion",
+        "root_network_close_initiator_known": false,
+        "prior_ecs_image_id": "sha256:109ee23438fb48ab4a03eac39e8507831f4aa7a66b76c5324baabc3a10f96a57",
+        "node22_cases": 25,
+        "packaged_workbench_synthetic_verified": true,
+        "customer_multiple_reference_symptom": "User reports first PNG 1.42 MB succeeded and second PNG above 2 MB failed. Running version verified as 1.7.87. Nearby anonymized logs show two incomplete uploads timing out after 180 s and a later upload receiving HTTP 503 while both write slots were held.",
+        "similar_size_synthetic_confirmed": 2,
+        "upload_performance_observation": {
+          "at": "2026-11-14T10:33:20Z",
+          "successful_nginx_put_samples": 4,
+          "total_seconds_range": [
+            2.999,
+            3.909
+          ],
+          "incoming_seconds_estimate_range": [
+            1.483,
+            1.754
+          ],
+          "upstream_seconds_range": [
+            1.245,
+            2.426
+          ],
+          "inspection_median_seconds": 0.025,
+          "nginx_bandwidth_limit_configured": false,
+          "direct_tos_put_throughput_verified": false
+        },
+        "provider_calls": 0,
+        "customer_retest_verified": true,
+        "customer_retest_scope": "User kept the first image in the running desktop app and confirmed the second original PNG appeared as a reference tile. Upload only. Nearby production logs at 10:31:08Z show PUT 201, inspection 200 and completion 200."
+      }
+    },
+    "image_upload_transport": "tos_v1_presigned",
+    "video_reference_unified_transport": {
+      "status": "server_deployed_packaged_png_mp4_wav_verified_user_acceptance_pending",
+      "legacy_buffered_upload_supported": true
+    },
+    "image_upload_presign": {
+      "status": "deployed_packaged_synthetic_verified_customer_retest_pending",
+      "synthetic_body_bytes": [
+        1420828,
+        2316743
+      ],
+      "direct_local_upload_seconds": [
+        0.751,
+        0.933
+      ],
+      "legacy_local_upload_seconds": [
+        3.782,
+        3.811
+      ],
+      "generation_provider_calls": 0
+    },
+    "storage_backend": "tos",
+    "asset_route": "ecs_direct"
+  },
+  "protected_paths": [
+    "仓鼠AI",
+    "PIKNO中转站",
+    ".agents/project-state.json"
+  ],
+  "unfinished_work": [
+    {
+      "id": "cansee-upstream-route-sync",
+      "status": "deployed_pending_real_generation_acceptance",
+      "remaining": "Current video routes have offline/catalog verification; no agent paid generation acceptance. Original unknown operations retained without replay."
+    },
+    {
+      "id": "chat-file-reference",
+      "status": "expiry_candidate_deployed_pending_user_confirmation",
+      "deployed_worker_version": "81b67f46-0055-4e6b-945e-c18196b0eb46",
+      "remaining": "User will manually validate a new image message against the deployed candidate; original unknown requests must not be replayed; deployment checks do not establish incident resolution",
+      "guard": "Preserve unknown; never replay original request"
+    },
+    {
+      "id": "chat-status-rate-limit",
+      "status": "implemented_local_verified_not_deployed",
+      "remaining": "No deployment or production/customer verification performed"
+    },
+    {
+      "id": "current-full-client-regressions",
+      "status": "local_release_ready_pending_user_distribution",
+      "current_version": "1.7.86",
+      "remaining": "User netdisk upload and clean-host registered upgrade validation remain pending.",
+      "tests": {
+        "passed": 1284,
+        "failed": 0,
+        "cancelled": 0
+      }
+    },
+    {
+      "id": "video-reference-upload-purpose",
+      "status": "included_in_current_local_release_pending_customer_acceptance",
+      "version": "1.7.86",
+      "remaining": "Individual reported failure stage and real generation acceptance remain unverified.",
+      "real_generation_calls": 0
+    },
+    {
+      "id": "client-window-close-disposed-webcontents",
+      "status": "local_release_ready_pending_user_distribution",
+      "current_version": "1.7.86",
+      "remaining": "User netdisk upload and clean-host registered upgrade validation remain pending.",
+      "root_cause": "The closed event runs account dispose after BrowserWindow destruction. Reading the window's webContents property then throws TypeError."
+    },
+    {
+      "id": "client-full-regression-repair",
+      "status": "local_release_ready_pending_user_distribution",
+      "current_version": "1.7.86",
+      "remaining": "User netdisk upload and clean-host registered upgrade validation remain pending.",
+      "tests": {
+        "passed": 1284,
+        "failed": 0,
+        "cancelled": 0
+      }
+    },
+    {
+      "id": "client-browser-shell-installer",
+      "status": "local_release_ready_pending_user_distribution",
+      "current_version": "1.7.86",
+      "remaining": "User netdisk upload and clean-host registered upgrade validation remain pending."
+    }
+  ],
+  "pending_development": {
+    "status": "unique_uncommitted_source_preserved_not_published",
+    "archive_sha256": "5f288fe94398c2df928b5edec2b14374f2ca244fd56006deb0fdee333523ea29",
+    "files": 34,
+    "cleanup_deltas": {
+      "scope": "Unmerged unique source deltas only"
+    },
+    "preserved_git_refs": {
+      "app": [
+        "refs/workspace/preserved-source",
+        "refs/workspace/preserved-maintenance",
+        "refs/heads/preserved-local-glass"
+      ],
+      "relay": [
+        "refs/workspace/preserved-source",
+        "refs/workspace/preserved-maintenance"
+      ]
+    }
+  },
+  "maintenance": {
+    "status": "current_release_cleanup_verified",
+    "latest_release_only": true,
+    "git_objects_preserved": true,
+    "customer_data_targeted": false,
+    "production_mutations": 0,
+    "deleted_targets": 49,
+    "deleted_bytes": 28128441892,
+    "current_build_historical_dependencies": 0,
+    "ecs_relay_cleanup": {
+      "status": "targeted_cleanup_completed",
+      "production_version": "v1.0.0-rc.41-hamster.75",
+      "release_file_candidates_without_runtime_references": 25,
+      "release_file_candidate_bytes": 9815599082,
+      "legacy_release_files_referenced_by_old_deploy_scripts": 23,
+      "old_relay_image_candidates": 17,
+      "image_candidates_fully_shared_with_active_images": 15,
+      "safe_route_removals_confirmed": 0,
+      "rechecks": [],
+      "batches": [],
+      "removed_release_files": 25,
+      "removed_retired_deploy_scripts": 23,
+      "removed_file_bytes": 9815844468,
+      "removed_image_tags": 20,
+      "removed_image_ids": 2,
+      "untagged_parent_image_ids_retained_by_docker": 12,
+      "disk_free_before_bytes": 3108864000,
+      "disk_free_after_bytes": 13150457856,
+      "payment_callback_route_head_probes": "Both notify and return were routed to the payment bridge and rejected HEAD as expected, without executing a callback.",
+      "containers_unchanged": true,
+      "compose_and_release_evidence_unchanged": true,
+      "real_payments": 0,
+      "protected": "Live v75 services and payloads, paired v74 recovery images and checkout74 review evidence, three build or media dependency images, current routes, database and volumes, and private paths.",
+      "production_mutations": 3
+    },
+    "source_only_cleanup": {
+      "status": "completed_verified",
+      "checked_at": "2026-11-19T12:31:59.527569+00:00",
+      "source_roots": [
+        "仓鼠AI",
+        "PIKNO中转站"
+      ],
+      "client_build_verified": "1.7.96",
+      "relay_clean_docker_build_verified": true,
+      "relay_web_build_verified": true,
+      "local_private_data_outside_workspace": true,
+      "production_changes": false,
+      "production_docker_removed_images": 0,
+      "retained_web_compatibility_image_local": "pikno-web-retained-static:20261119",
+      "historical_source_preserved_in_git": true,
+      "verified_manifest_paths_removed": 89,
+      "verified_manifest_logical_bytes": 21379519686,
+      "generated_paths_remaining_outside_git": 0,
+      "app_release_tests": {
+        "passed": 316,
+        "failed": 0
+      },
+      "website_publication_tests": {
+        "passed": 15,
+        "failed": 0
+      },
+      "relay_frontend_tests": {
+        "passed": 113,
+        "failed": 0
+      },
+      "relay_isolated_runtime_smoke": true,
+      "relocation": {
+        "runtime_private_root": "%LOCALAPPDATA%/HamsterAI-WorkspaceData",
+        "legacy_ssh_parent": "D:/HamsterAI-WorkspacePrivate",
+        "legacy_ssh_acl_preserved": true
+      },
+      "production_docker_readonly": {
+        "reclaimable_image": {
+          "tag": "postgres:16-alpine",
+          "short_id": "721873c34ceb",
+          "approx_mib": 400
+        },
+        "retired_shared_layer_tags": [
+          "hamster-doubao-chat-v4:local",
+          "hamster-image-usage-20261119:local",
+          "hamster-doubao-only-20261119:local"
+        ],
+        "active_postgres_short_id": "4e6e670bb069",
+        "images_removed": 0
+      }
+    }
+  }
+}

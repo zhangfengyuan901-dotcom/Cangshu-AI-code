@@ -1,0 +1,40 @@
+{
+  "name": "hamster-ai-media",
+  "main": "tos-migration/worker.mjs",
+  "compatibility_date": "2026-09-16",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "media.hamsterai.cc",
+      "custom_domain": true
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "UPLOAD_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
+  "secrets": {
+    "required": [
+      "UPLOAD_TOKEN",
+      "URL_SIGNING_KEY",
+      "TOS_STORAGE_PROXY_SECRET"
+    ]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "TOS_STORAGE_PROXY_ORIGIN": "https://origin.piknoai.com",
+    "TOS_STORAGE_READ_ONLY": "false"
+  },
+  "$schema": "../../node_modules/wrangler/config-schema.json"
+}

@@ -1,0 +1,51 @@
+import { describe, expect, it } from "vitest";
+import { liteEntryDestination } from "../lite-entry";
+
+const entry = (value: string) => liteEntryDestination("https://www.piknoai.com" + value);
+describe("lightweight entry boundary", () => {
+  it("sends customer entry and retired pages to the standalone account", () => {
+    expect(entry("/")).toBeUndefined();
+    expect(entry("/hub/models")).toBeUndefined();
+    expect(entry("/hub/dashboard")).toBeUndefined();
+    expect(entry("/pricing")).toBeUndefined();
+    expect(entry("/keys")).toBe("/account-lite/index.html#keys");
+    expect(entry("/wallet")).toBe("/account-lite/index.html#recharge");
+    expect(entry("/chat/7")).toBe("/account-lite/index.html");
+    expect(entry("/pricing/old-model")).toBe("/account-lite/index.html");
+    expect(entry("/console/topup?old=1")).toBe("/account-lite/index.html#recharge");
+    expect(entry("/keys/")).toBe("/account-lite/index.html#keys");
+  });
+  it("keeps administration, callbacks and explicit compatible sign-in available", () => {
+    for (const path of [
+      "/usage-logs",
+      "/channels",
+      "/oauth/github",
+      "/otp",
+      "/setup",
+      "/sign-in?compat=1",
+    ])
+      expect(entry(path)).toBeUndefined();
+  });
+  it("only forwards explicit same-origin destinations without query or fragment", () => {
+    expect(entry("/sign-in?redirect=%2Fchannels")).toBe(
+      "/auth-lite/index.html?mode=login&redirect=%2Fchannels",
+    );
+    for (const redirect of [
+      "//evil.test",
+      "/\\evil.test",
+      "https://evil.test",
+      "/channels?token=private",
+      "/sign-in",
+      "/unrecognized",
+    ])
+      expect(entry("/sign-in?redirect=" + encodeURIComponent(redirect))).toBe(
+        "/auth-lite/index.html?mode=login",
+      );
+  });
+  it("carries only the existing email reset contract to the standalone reset page", () => {
+    expect(entry("/user/reset?email=test%40example.test&token=synthetic&key=ignored")).toBe(
+      "/auth-lite/index.html?mode=reset&email=test%40example.test&token=synthetic",
+    );
+    expect(entry("/sign-up?aff=ignored")).toBe("/auth-lite/index.html?mode=register");
+  });
+});

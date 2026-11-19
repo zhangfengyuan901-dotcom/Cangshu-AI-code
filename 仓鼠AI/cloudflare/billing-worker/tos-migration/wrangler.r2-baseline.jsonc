@@ -1,0 +1,18 @@
+{
+ "$schema":"./node_modules/wrangler/config-schema.json",
+ "name":"hamster-billing",
+ "account_id":"7ad8e2addb69374532fecc2f16a00549",
+ "main":"src/worker.mjs",
+ "compatibility_date":"2026-09-29",
+ "compatibility_flags":["nodejs_compat"],
+ "workers_dev":false,"preview_urls":false,
+ "routes":[{"pattern":"account.hamsterai.cc","custom_domain":true}],
+ "assets":{"directory":"./public","binding":"ASSETS","run_worker_first":["/v1/*","/admin/api/*","/health"]},
+ "d1_databases":[{"binding":"DB","database_name":"hamster-billing","database_id":"60c8fb40-2b17-407f-b17d-23042fcc4c13","migrations_dir":"migrations"}],
+ "r2_buckets":[{"binding":"RESULTS","bucket_name":"hamster-billing-results"}],
+ "workflows":[{"binding":"GENERATION","name":"hamster-generation","class_name":"GenerationWorkflow"}],
+ "triggers":{"crons":["*/5 * * * *"]},
+ "vars":{"PAYEE":"鹿鸣一方传媒","MAIL_FROM":"仓鼠AI <noreply@mail.hamsterai.cc>","MAIL_REPLY_TO":"1060761161@qq.com","ADMIN_EMAIL":"1060761161@qq.com"},
+ "secrets":{"required":["ADMIN_TOKEN","KEY_ENCRYPTION_SECRET","RESULT_SIGNING_SECRET","RESEND_API_KEY"]},
+ "observability":{"enabled":true,"logs":{"enabled":true,"invocation_logs":false}}
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#f5f3ee" />
+  <meta name="description" content="仓鼠AI 1.7.49 使用教程：配置同一 PIKNO 账户的图片、视频和工具 Key，确认报价，管理批次，手动执行画布节点。" />
+  <link rel="canonical" href="https://hamsterai.cc/tutorials/1.7.49/" />
+  <link rel="icon" href="/assets/favicon.png" />
+  <title>三 Key 与报价教程｜仓鼠AI 1.7.49</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="/" aria-label="仓鼠AI首页"><span class="brand-logo"><img src="/assets/hamster-logo.png" alt="" /></span><span>仓鼠AI</span></a>
+  <nav aria-label="主导航"><a href="/#cases">案例</a><a href="/#download">下载</a><a href="/tutorials/" aria-current="page">教程</a></nav>
+  <a class="nav-download" href="/#download">下载便携版 <span aria-hidden="true">↗</span></a>
+</header>
+<main class="tutorials-page section tutorial-current">
+  <aside class="tutorial-sidebar" aria-label="教程目录">
+    <p class="tutorial-sidebar-title">教程目录</p>
+    <nav aria-label="教程目录导航">
+      <div class="tutorial-sidebar-group"><span>开始使用</span><a href="#account">配置三个 Key</a><a href="#quote">选择线路与确认报价</a></div>
+      <div class="tutorial-sidebar-group"><span>执行与结果</span><a href="#batch">停止剩余与查询历史</a><a href="#canvas">画布与对话</a></div>
+      <div class="tutorial-sidebar-group"><span>版本与案例</span><a href="/tutorials/1.7.46/">1.7.46 归档教程</a><a href="/#cases">查看创作案例 ↗</a></div>
+    </nav>
+  </aside>
+  <div class="tutorial-content">
+  <div class="tutorial-intro reveal"><p class="eyebrow">HAMSTER AI / V1.7.49 GUIDE</p><h1>先确认费用，<br /><em>再开始创作。</em></h1>
+    <p>适用于仓鼠AI 1.7.49：先在 PIKNO 注册、充值，用同一账户按需创建图片 Key、视频 Key 和工具 Key。保存并检测后，选择线路、确认本次预计费用，再提交任务。旧版操作见 <a href="/tutorials/1.7.46/">1.7.46 归档教程</a>。</p>
+    <p class="tutorial-disclosure">本页截图来自离线模拟，线路名称、金额与连接状态仅作界面演示，不代表实时 PIKNO 价格或实际扣费。账户截图为开发模式，正式桌面版使用系统保护保存 Key。</p></div>
+  <section class="tutorial-chapter reveal" id="account"><div class="tutorial-chapter-head"><h2>1. 配置同账户的三个 Key</h2></div>
+    <ol class="tutorial-steps"><li><b>在 PIKNO 注册、充值并创建 Key</b><p>打开 <a href="https://www.piknoai.com" target="_blank" rel="noopener noreferrer">PIKNO</a>。图片 Key、视频 Key、工具 Key 必须来自同一账户，共用账户余额。</p></li>
+      <li><b>返回仓鼠AI「账户」</b><p>图片 Key 用于图片生成和编辑；视频 Key 用于视频生成；工具 Key 供数字人和黑白深度共用。按需填写后保存，检测不创建生成任务，不扣费。</p></li>
+      <li><b>更新或移除一项</b><p>留空表示保留原 Key。更换时填写新 Key；移除时勾选该项并保存。失效项可单独移除，不必清空其他项。移除不会删除 PIKNO 余额、本地历史、聊天、素材或结果。</p></li></ol>
+    <p>Key 由桌面版系统保护，不会回显到页面。连接检测通过只表示认证及当前可用线路已确认，不代表真实生成效果已验证。数字人与黑白深度的新任务必须使用工具 Key。切换账户时，请同时替换全部已配置项，或先移除旧账户的 Key。</p><figure class="tutorial-media-card"><div class="tutorial-media-stage"><img src="/assets/tutorial-1749-account.png" alt="账户界面演示：三个填写项与单项移除选项，未展示真实 Key" loading="lazy" decoding="async" /></div><figcaption><strong>三个 Key，按需配置</strong><span>离线模拟截图；开发模式提示与连接状态仅作演示，未展示真实 Key。</span></figcaption></figure></section>
+  <section class="tutorial-chapter reveal" id="quote"><div class="tutorial-chapter-head"><h2>2. 选择线路并确认报价</h2></div>
+    <ol class="tutorial-steps"><li><b>选择已开放的 PIKNO 线路</b><p>生成页和画布显示已发布名称、客户单价与计费单位。按线路提供的尺寸、画质、时长和比例选择，不会静默切换线路。</p></li>
+      <li><b>检查参考素材上限</b><p>页面显示各类素材的有效限制和合计上限。当前总数最多 20 个；单类声明较大也受合计上限约束。超限请先减少素材，再上传或报价。</p></li>
+      <li><b>确认本次预计费用</b><p>只读报价不上传素材、不冻结、不扣费。确认窗口显示计量、单份费用、份数和预计总费用；确认后才提交。报价过期、参数改变或改价时需重新获取并确认。</p></li></ol>
+    <p>当前单图图片线路支持原图加文字修改，原图保留，修改结果另存为新任务。需要额外标注图的圈选暂不可用，不能通过忽略笔画继续提交。工具不可用时先处理授权或开放状态，不需要先上传素材。</p><figure class="tutorial-media-card"><div class="tutorial-media-stage"><img src="/assets/tutorial-1749-editor.png" alt="图片文字编辑演示：单图线路圈选不可用，右侧显示示意单价与预计费用" loading="lazy" decoding="async" /></div><figcaption><strong>先看限制，再确认费用</strong><span>离线模拟截图；示意名称和金额不代表实时售价或实际扣费，以本次报价确认及 PIKNO 任务记录为准。</span></figcaption></figure></section>
+  <section class="tutorial-chapter reveal" id="batch"><div class="tutorial-chapter-head"><h2>3. 停止剩余份数与查询历史</h2></div>
+    <p>选择 2 份或 4 份后，每份单独提交。点击「停止剩余」只阻止尚未发送的份数；已发送任务继续按原记录查询，不表示任务取消或已退款。刷新和重启不会自动继续剩余份数。</p>
+    <p>出现「提交待确认」时，请在 PIKNO 核对原任务，勿重复生成。清除已结束记录仍保留未知任务。没有任务编号时暂不保证自动找回；保存失败与生成失败分开，不能为下载结果重新生成。余额不足请前往 PIKNO 充值。</p>
+    <p>同账户且有读取权限的有效 Key 可查询历史工具任务。历史线路名称和报价快照保留；报价是预计费用，实际扣费以 PIKNO 记录为准。结果完成后保存本地，临时链接过期不保证可以恢复。</p></section>
+  <section class="tutorial-chapter reveal" id="canvas"><div class="tutorial-chapter-head"><h2>4. 画布与对话</h2></div>
+    <p>画布支持现有文本、素材、上传、图片、视频、数字人、深度和 Output 节点。连接输入，获取当前节点报价，确认后手动执行；下游不会自动执行。旧节点、连线和已绑定结果保留。</p>
+    <p>对话服务暂未开放。对话沿用图片／视频 Key 的授权，工具 Key 不扩大权限。点击左上角仓鼠标志检测连接；灰色表示尚未成功连接，彩色仅表示本次检测成功。提示「尚未开放」时等待服务开放，无需反复更换 Key。</p>
+    <p>换账户后会断开旧云端素材与回答链的关系，本地聊天、附件和历史文字保留。独立反推／改写工作台已退役，旧数据与导出结果保留。</p><figure class="tutorial-media-card"><div class="tutorial-media-stage"><img src="/assets/tutorial-1749-canvas.png" alt="画布界面演示：选择线路与规格，为当前节点获取报价并确认后手动执行" loading="lazy" decoding="async" /></div><figcaption><strong>报价确认只针对当前节点</strong><span>离线模拟截图；示意线路和金额不代表实时售价，所有生成节点均需手动执行。</span></figcaption></figure></section>
+  <div class="tutorial-return"><div><p>准备好开始创作了吗？</p><span>先配置所需 Key，再核对线路与本次预计费用。</span></div><a class="button primary" href="/#download">下载仓鼠AI 1.7.49</a></div>
+  </div>
+</main>
+<footer><a class="brand" href="/"><span class="brand-logo"><img src="/assets/hamster-logo.png" alt="" /></span><span>仓鼠AI</span></a><p>每一个好创意，都让人惊喜。</p><span>© 2026 Hamster AI</span></footer>
+<script src="/app.js" defer></script>
+</body></html>

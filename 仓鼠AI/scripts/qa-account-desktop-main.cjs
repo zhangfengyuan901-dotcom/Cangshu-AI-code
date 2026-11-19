@@ -1,0 +1,44 @@
+// Isolated Electron smoke harness. Never loads a customer profile or live relay.
+const {app,BrowserWindow,safeStorage,session}=require('electron'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const directory=path.resolve(process.env.HAMSTER_ACCOUNT_QA_ROOT||''),temporary=path.resolve(os.tmpdir())+path.sep;
+const home=new URL(process.env.HAMSTER_ACCOUNT_QA_URL||'http://127.0.0.1:11149/account-lite/index.html');
+if(!directory.startsWith(temporary)||home.protocol!=='http:'||home.hostname!=='127.0.0.1'||home.pathname!=='/account-lite/index.html')throw Error('Isolated QA paths required');
+const packagedNative=process.env.HAMSTER_ACCOUNT_QA_PACKAGED==='1';
+const qaAppRoot=packagedNative?path.resolve(__dirname,'../..',require('../release/current.json').releaseDirectory,'win-unpacked/resources/app.asar'):path.resolve(__dirname,'..');
+if(packagedNative&&!fs.existsSync(qaAppRoot))throw Error('Current release ASAR required');
+fs.mkdirSync(path.join(directory,'session'),{recursive:true});app.setPath('userData',directory);app.setPath('sessionData',path.join(directory,'session'));app.disableHardwareAcceleration();
+const originalFetch=global.fetch;global.fetch=(target,...args)=>{const url=new URL(typeof target==='string'||target instanceof URL?target:target.url);if(url.protocol!=='http:'||url.hostname!=='127.0.0.1')throw Error('QA blocks remote fetch');return originalFetch(target,...args);};
+let server,controller;
+const observed={context:[],catalog:0,activateChat:0,inferenceStatus:0,configuredEvents:0,paid:0,uploads:0,blockedNetwork:0,reports:[],localRequests:[],accountViews:[],startupPending:0,packagedNative};
+const blockRemote=target=>target.webRequest.onBeforeRequest((details,callback)=>{const url=new URL(details.url);const allowed=url.protocol==='http:'&&url.hostname==='127.0.0.1'||['data:','blob:','devtools:'].includes(url.protocol);if(!allowed)observed.blockedNetwork++;callback({cancel:!allowed});});
+app.on('session-created',blockRemote);
+app.whenReady().then(async()=>{
+  const {createApp}=require(path.join(qaAppRoot,'server.js')),{createPiknoKeyStore}=require(path.join(qaAppRoot,'pikno-key-store.cjs'));
+  blockRemote(session.defaultSession);
+  const marks={i:'image',v:'video',t:'tool',c:'chat'},fields={image:'piknoImageKey',video:'piknoVideoKey',tool:'piknoToolKey',chat:'piknoChatKey'};
+  const models=[{id:'qa-image',name:'合成图片线路',type:'image',provider:'generate',resolutions:['1024x1024'],qualities:['auto'],ratios:['16:9'],durations:[],concurrency_options:[1],billing_mode:'relay'},{id:'qa-video',name:'合成视频线路',type:'video',provider:'generate',resolutions:['720p'],qualities:['auto'],ratios:['16:9'],durations:[5],concurrency_options:[1],billing_mode:'relay'},...['digital','depth'].map(kind=>({id:'tool-'+kind,name:'合成工具线路',type:'video',provider:'tool',resolutions:['720p'],qualities:['auto'],ratios:['16:9'],durations:[5],concurrency_options:[1],billing_mode:'relay'}))];
+  const activation={authorized:true,enabled:true,available:true,balance_sufficient:true,model:'pikno-chat-standard',billing_mode:'actual_usage_v1',billing:{allow_debt:true,one_inflight_per_user:true},price_version:'chat-cny-9-45-actual-v2',pricing:{currency:'CNY',input_cny_per_million:9,output_cny_per_million:45},capabilities:{text:true,image:false,pdf:false,video:false,files:false,tools:false,sse:true,verified:true},limits:{max_output_tokens:8000}};
+  const relayClient={
+    invalidate(){},subscribeCatalog:()=>()=>{},
+    context:async(cfg,kind)=>{const parsed=/^sk-([ivtc])(\d{9})(\d{9})q{29}$/.exec(cfg[fields[kind]]||'');if(!parsed||marks[parsed[1]]!==kind)throw Object.assign(Error('Synthetic Key group mismatch'),{statusCode:403});const user_id=Number(parsed[2]);observed.context.push({kind,userId:user_id});return {user_id,group:kind+'-standard'};},
+    catalog:async cfg=>{observed.catalog++;const data=models.filter(model=>cfg[fields[model.provider==='tool'?'tool':model.type]]);return {data,toolStates:{digital:cfg.piknoToolKey?'ready':'unconfigured',depth:cfg.piknoToolKey?'ready':'unconfigured'},resolve:id=>{const model=data.find(item=>item.id===id);return model?{...model,kind:model.provider==='tool'?'tool':model.type,max_images:3,max_videos:3,max_audio:3}:null;}};},
+    activateChat:async()=>{observed.activateChat++;return activation;},
+    quote:async(_cfg,line,input)=>require('../tests/support/relay-quote.cjs').syntheticQuote(require('../pikno-client.cjs').quoteParameters(line,input),line.name),
+    submit:async()=>{observed.paid++;throw Error('QA forbids paid submissions');},
+    upload:async()=>{observed.uploads++;throw Error('QA forbids material uploads');},
+  };
+  const keyFile=path.join(directory,'keys.bin'),keyStore=createPiknoKeyStore({file:keyFile,cipher:safeStorage});
+  const view=Object.fromEntries(['state','open','bounds','close','reload'].map(action=>[action,action==='state'?()=>{observed.accountViews.push({action});return controller?controller.state():{available:false,visible:false,state:'closed'};}:async value=>{observed.accountViews.push({action,startupState:await win.webContents.executeJavaScript('document.body?.dataset?.startupState||"unknown"')});return controller?controller[action](value):{available:false,visible:false,state:'closed'};}]));
+  server=createApp({relayMode:true,relayClient,relayKeyStore:keyStore,inferenceGateway:{handle:async(req,res,url,_key,{assertCurrent}={})=>{assertCurrent?.();if(url.pathname!=='/api/inference/status'||req.method!=='GET')throw Error('QA forbids real inference');observed.inferenceStatus++;res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({configured:true,mode:'cloud-auto',...activation}));}},configPath:path.join(directory,'config.json'),resultDir:path.join(directory,'results'),taskDir:path.join(directory,'tasks'),assetDir:path.join(directory,'assets'),diagnosticsDir:path.join(directory,'diagnostics'),diagnosticExportDir:path.join(directory,'exports'),smartVideoLauncher:{stop(){}},hypitOptions:{enabled:false},chatcutOptions:{enabled:false},accountView:view});
+  const requestHandlers=server.listeners('request'),heldStartup=[];let startupReleased=process.env.HAMSTER_ACCOUNT_QA_STARTUP_GATE!=='1';
+  server.removeAllListeners('request');server.on('request',(req,res)=>{const target=new URL(req.url,'http://127.0.0.1');observed.localRequests.push({path:target.pathname,method:req.method});const run=()=>{for(const handler of requestHandlers)handler.call(server,req,res);};if(target.pathname==='/api/startup'&&!startupReleased){heldStartup.push(run);observed.startupPending=heldStartup.length;}else run();});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const base='http://127.0.0.1:'+server.address().port;
+  const win=new BrowserWindow({width:1200,height:900,show:true,autoHideMenuBar:true,title:'仓鼠AI · 隔离账户验收',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,preload:path.join(__dirname,'../electron/app-events.cjs')}});
+  require('../electron/navigation.cjs').installNavigationPolicy(win.webContents,{appUrl:base+'/',openExternal:()=>{}});
+  controller=require(path.join(qaAppRoot,'electron/account-view.cjs')).createAccountView({window:win,electron:require('electron'),homeUrl:home.href,allowLoopbackForTests:true,connectCreatedKey:(payload,options)=>server.connectCreatedRelayKey(payload,options),onConfigured:()=>{observed.configuredEvents++;win.webContents.send('hamster-relay-configured');},reportFailure:value=>observed.reports.push(value)});
+  global.__accountQA={base,directory,observed,releaseStartup:()=>{startupReleased=true;const count=heldStartup.length;for(const run of heldStartup.splice(0))run();observed.startupPending=0;return count;},facts:()=>{const stored=keyStore.read();return {protected:keyStore.persistent&&safeStorage.isEncryptionAvailable(),systemBackend:safeStorage.getSelectedStorageBackend?.()||'windows-dpapi',userId:stored.piknoUserId||0,kinds:Object.fromEntries(Object.entries(fields).map(([kind,field])=>[kind,Boolean(stored[field])])),syntheticTokenIds:Object.fromEntries(Object.entries(fields).map(([kind,field])=>[kind,Number(/^sk-[ivtc]\d{9}(\d{9})q{29}$/.exec(stored[field]||'')?.[1]||0)])),encryptedFilePresent:fs.existsSync(keyFile),plaintextKeyInFile:fs.existsSync(keyFile)&&fs.readFileSync(keyFile).includes(Buffer.from('sk-'))};}};
+  await win.loadURL(base+'/');
+  win.on('closed',()=>app.quit());
+}).catch(()=>{process.exitCode=1;app.quit();});
+app.on('before-quit',()=>{controller?.dispose();server?.closeAllConnections();server?.close();});

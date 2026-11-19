@@ -1,0 +1,292 @@
+package piknocatalog
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/require"
+)
+
+func TestCatalogPricing(t *testing.T) {
+	sanbao := []byte(`{"data":[{"id":"video","name":"Video","type":"video","enabled":true,"resolutions":["480p","720p"],"durations":[4,8],"billing":"per_second","price_per_second_credits":99,"price_per_second_by_resolution_credits":{"480p":7.2,"720p":14.4}},{"id":"image","type":"image"}]}`)
+	rows, err := ParseSanbao(sanbao)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.False(t, rows[0].PriceIssue)
+	require.Equal(t, 1.44, rows[0].Prices[0].RetailCNY)
+	require.Equal(t, 2.88, rows[0].Prices[1].RetailCNY)
+	require.Equal(t, "second", rows[0].Prices[0].Unit)
+	fixed, err := ParseSanbao([]byte(`{"data":[{"id":"v","type":"video","enabled":true,"resolutions":["480p"],"billing":"per_generation","price_credits":30,"web_price_by_resolution_credits":{"480p":99}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, 6.0, fixed[0].Prices[0].RetailCNY)
+	require.Equal(t, "request", fixed[0].Prices[0].Unit)
+	cansee, err := ParseCansee([]byte(`{"defaults":{"pointPricing":{"pointsPerYuan":100},"videoProviders":[{"id":"fixed","pricingMode":"fixed","pointsCost":388,"allowedResolutions":["480p"],"videoReferenceSurchargeEnabled":true,"videoReferenceSurchargePoints":50},{"id":"seconds","pricingMode":"per_second","allowedResolutions":["480p","720p"],"resolutionPointsPerSecond":{"480p":19,"720p":36}},{"id":"ambiguous","pricingMode":"per_second","allowedResolutions":["720p"],"pointsPerSecond":54,"resolutionPoints":{"720p":104}}]}}`))
+	require.NoError(t, err)
+	require.Len(t, cansee, 3)
+	require.Equal(t, 7.76, cansee[0].Prices[0].RetailCNY)
+	require.Equal(t, 1.0, cansee[0].ReferenceSurchargeCNY)
+	require.Equal(t, 0.38, cansee[1].Prices[0].RetailCNY)
+	require.Equal(t, 0.72, cansee[1].Prices[1].RetailCNY)
+	require.False(t, cansee[2].PriceIssue)
+	require.Empty(t, cansee[2].CostIssueCode)
+	require.Equal(t, "second", cansee[2].BillingUnit)
+	require.Len(t, cansee[2].Prices, 1)
+	require.Equal(t, 1.04, *cansee[2].Prices[0].CostCNY)
+	require.Equal(t, 2.08, cansee[2].Prices[0].RetailCNY)
+}
+
+func TestSanbaoVerifiedDurationException(t *testing.T) {
+	rows, err := ParseSanbao([]byte(`{"data":[{"id":"sd2_5_limited_720p","type":"video","enabled":true,"resolutions":["720p"],"durations":[4,5,30,31],"billing":"per_second","price_per_second_credits":5.5},{"id":"other","type":"video","enabled":true,"resolutions":["720p"],"durations":[4,8],"billing":"per_second","price_per_second_credits":1}]}`))
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, []float64{5, 30}, rows[0].Durations)
+	require.Equal(t, []float64{4, 8}, rows[1].Durations)
+}
+
+func TestCatalogRejectsAmbiguity(t *testing.T) {
+	for _, body := range []string{`{}`, `{"data":null}`, `{"data":[{"type":"video","id":"v"}]}`, `{"data":[{"type":"video","id":"../v","enabled":true}]}`, `{"data":[{"type":"video","id":"v","enabled":true},{"type":"video","id":"v","enabled":true}]}`} {
+		_, err := ParseSanbao([]byte(body))
+		require.Error(t, err)
+	}
+	for _, test := range []struct {
+		name    string
+		raw     any
+		divisor float64
+		issue   bool
+	}{
+		{"missing", nil, 10, true}, {"negative", float64(-1), 10, true}, {"zero is explicit", float64(0), 10, false}, {"currency missing", float64(10), 0, true}, {"oversized", float64(1000001), 10, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prices, issue := priceRows(nil, nil, test.raw, test.divisor, "request")
+			require.Equal(t, test.issue, issue)
+			if !issue {
+				require.Len(t, prices, 1)
+				require.Zero(t, prices[0].RetailCNY)
+			}
+		})
+	}
+	prices, issue := priceRows([]string{"480p", "720p"}, map[string]any{"480p": float64(1)}, float64(10), 10, "second")
+	require.True(t, issue)
+	require.Len(t, prices, 2)
+	require.Nil(t, prices[1].CostCNY)
+	require.Zero(t, prices[1].RetailCNY)
+	rows, err := ParseSanbao([]byte(`{"data":[{"id":"multi","type":"video","enabled":true,"billing":"per_generation","resolutions":["480p","720p"],"price_credits":30}]}`))
+	require.NoError(t, err)
+	require.False(t, rows[0].PriceIssue)
+	require.Equal(t, "conflicting_cost", rows[0].CostIssueCode)
+	require.Len(t, rows[0].Prices, 2)
+	rows, err = ParseCansee([]byte(`{"defaults":{"videoProviders":[{"id":"missing","pricingMode":"fixed","pointsCost":100,"allowedResolutions":["720p"]}]}}`))
+	require.NoError(t, err)
+	require.False(t, rows[0].PriceIssue)
+	require.Equal(t, "invalid_exchange_rate", rows[0].CostIssueCode)
+	require.Len(t, rows[0].Prices, 1)
+	require.Nil(t, rows[0].Prices[0].CostCNY)
+}
+
+func sampleEntries() []Entry {
+	cost := float64(3)
+	return []Entry{{ID: "canseedream/video/test", Provider: "canseedream", Name: "Test", Kind: "video", Available: true, Prices: []Price{{Resolution: "480p", Unit: "request", CostCNY: &cost, RetailCNY: 6}}}}
+}
+func fakeStore(path string) *Store {
+	s := NewStore(path)
+	s.Fetch = func(context.Context) ([]Entry, error) { return sampleEntries(), nil }
+	return s
+}
+
+func TestCatalogPublicationLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	s := fakeStore(path)
+	ctx := context.Background()
+	state, err := s.Read()
+	require.NoError(t, err)
+	require.Equal(t, "empty", state.Revision)
+	require.Empty(t, Public(state)["models"])
+	draft, err := s.Sync(ctx, 1)
+	require.NoError(t, err)
+	require.NotNil(t, draft.Draft)
+	require.Nil(t, draft.Published)
+	require.Len(t, Diff(draft), 1)
+	require.Empty(t, Public(draft)["models"])
+	_, err = s.Sync(ctx, 1)
+	require.ErrorIs(t, err, ErrBusy)
+	_, err = s.Publish("stale", 1)
+	require.ErrorIs(t, err, ErrConflict)
+	published, err := s.Publish(draft.Revision, 1)
+	require.NoError(t, err)
+	require.Nil(t, published.Draft)
+	require.Len(t, published.Events, 2)
+	publicJSON, err := common.Marshal(Public(published))
+	require.NoError(t, err)
+	require.NotContains(t, string(publicJSON), "cost_cny")
+	require.NotContains(t, string(publicJSON), "actor")
+	require.NotContains(t, string(publicJSON), "events")
+	require.Contains(t, string(publicJSON), "retail_cny")
+	// Restart exercises persistence and resets the manual sync cooldown.
+	second := fakeStore(path)
+	restored, err := second.Read()
+	require.NoError(t, err)
+	require.Equal(t, published, restored)
+	second.Fetch = func(context.Context) ([]Entry, error) {
+		return []Entry{{ID: "canseedream/video/new", Name: "New", Available: true}}, nil
+	}
+	changed, err := second.Sync(ctx, 2)
+	require.NoError(t, err)
+	require.Len(t, changed.Draft.Models, 2)
+	changes := Diff(changed)
+	require.Len(t, changes, 2)
+	require.Equal(t, "added", changes[0].Kind)
+	require.Equal(t, "removed", changes[1].Kind)
+	require.True(t, changed.Published.Models[0].Available)
+	updated, err := second.Publish(changed.Revision, 2)
+	require.NoError(t, err)
+	require.Len(t, updated.Published.Models, 2)
+	require.NotNil(t, updated.Previous)
+	_, err = second.Rollback(changed.Revision, 2)
+	require.ErrorIs(t, err, ErrConflict)
+	rolled, err := second.Rollback(updated.Revision, 2)
+	require.NoError(t, err)
+	require.Equal(t, published.Published, rolled.Published)
+	// A returned snapshot cannot mutate the in-memory published state.
+	rolled.Published.Models[0].Name = "tampered"
+	fresh, err := second.Read()
+	require.NoError(t, err)
+	require.Equal(t, "Test", fresh.Published.Models[0].Name)
+	failing := fakeStore(path)
+	failing.Fetch = func(context.Context) ([]Entry, error) { return nil, errors.New("upstream failed") }
+	_, err = failing.Sync(ctx, 1)
+	require.Error(t, err)
+	after, err := failing.Read()
+	require.NoError(t, err)
+	require.Equal(t, fresh, after)
+}
+
+func TestCatalogSyncDoesNotBlockReaders(t *testing.T) {
+	s := fakeStore(filepath.Join(t.TempDir(), "state.json"))
+	start := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	s.Fetch = func(context.Context) ([]Entry, error) { close(start); <-release; return sampleEntries(), nil }
+	go func() { _, err := s.Sync(context.Background(), 1); done <- err }()
+	<-start
+	_, err := s.Sync(context.Background(), 1)
+	require.ErrorIs(t, err, ErrBusy)
+	state, err := s.Read()
+	require.NoError(t, err)
+	require.Equal(t, "empty", state.Revision)
+	close(release)
+	require.NoError(t, <-done)
+}
+
+func TestCatalogCorruptStorageIsNotReplaced(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	require.NoError(t, os.WriteFile(path, []byte("invalid"), 0600))
+	s := fakeStore(path)
+	_, err := s.Read()
+	require.Error(t, err)
+	_, err = s.Sync(context.Background(), 1)
+	require.Error(t, err)
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "invalid", string(body))
+}
+
+func TestCatalogRetiredProviderCannotReturnThroughStoredSnapshots(t *testing.T) {
+	active := append(sampleEntries(), PackyImageEntry(), Entry{ID: "rh/depth", Provider: "rh", Name: "Depth", Available: true})
+	retired := []Entry{
+		{ID: "sanbao/old", Provider: "sanbao", Available: true},
+		{ID: "legacy-video", Provider: " SANBAO ", Available: true},
+		{ID: "sanbao/source-only", Provider: "canseedream", Available: true},
+	}
+	models := append(slices.Clone(active), retired...)
+	snapshot := &Snapshot{Revision: "legacy-snapshot", FetchedAt: "2026-10-10T00:00:00Z", Models: models}
+	legacy := State{Revision: "legacy-state", Published: snapshot, Draft: snapshot, Previous: snapshot}
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	body, err := common.Marshal(legacy)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, body, 0600))
+	s := NewStore(path)
+	clean, err := s.Read()
+	require.NoError(t, err)
+	require.NotEqual(t, legacy.Revision, clean.Revision)
+	for _, value := range []*Snapshot{clean.Published, clean.Draft, clean.Previous} {
+		require.NotNil(t, value)
+		require.ElementsMatch(t, active, value.Models)
+		require.NotEqual(t, snapshot.Revision, value.Revision)
+	}
+	_, err = s.Publish(legacy.Revision, 1)
+	require.ErrorIs(t, err, ErrConflict)
+	public, err := common.Marshal(Public(legacy))
+	require.NoError(t, err)
+	require.NotContains(t, strings.ToLower(string(public)), "sanbao")
+	require.Empty(t, Diff(legacy))
+
+	// A state already in memory has the same retirement boundary as a disk load.
+	s.state = &legacy
+	s.Fetch = func(context.Context) ([]Entry, error) { return models, nil }
+	synced, err := s.Sync(context.Background(), 1)
+	require.NoError(t, err)
+	require.ElementsMatch(t, active, synced.Draft.Models)
+	published, err := s.Publish(synced.Revision, 1)
+	require.NoError(t, err)
+	rolled, err := s.Rollback(published.Revision, 1)
+	require.NoError(t, err)
+	for _, value := range []*Snapshot{rolled.Published, rolled.Previous} {
+		require.ElementsMatch(t, active, value.Models)
+	}
+	body, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, strings.ToLower(string(body)), "sanbao")
+	restored, err := NewStore(path).Read()
+	require.NoError(t, err)
+	require.Equal(t, rolled, restored)
+}
+
+func TestCatalogRetiredOnlySnapshotsCannotReplaceActivePublication(t *testing.T) {
+	retired := &Snapshot{Revision: "retired", Models: []Entry{{ID: "sanbao/old", Provider: "sanbao"}}}
+	for _, action := range []string{"sync", "publish", "rollback"} {
+		t.Run(action, func(t *testing.T) {
+			s := NewStore(filepath.Join(t.TempDir(), "catalog.json"))
+			s.state = &State{Revision: "legacy", Published: &Snapshot{Revision: "active", Models: sampleEntries()}, Draft: retired, Previous: retired}
+			s.Fetch = func(context.Context) ([]Entry, error) { return retired.Models, nil }
+			before, err := s.Read()
+			require.NoError(t, err)
+			switch action {
+			case "sync":
+				_, err = s.Sync(context.Background(), 1)
+			case "publish":
+				_, err = s.Publish(before.Revision, 1)
+			case "rollback":
+				_, err = s.Rollback(before.Revision, 1)
+			}
+			require.Error(t, err)
+			after, err := s.Read()
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
+
+func TestCatalogFetchUsesOnlyActiveUpstreams(t *testing.T) {
+	previous := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	calls := 0
+	http.DefaultTransport = syncTransport(func(request *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "https://see.ximeiedu.org/health", request.URL.String())
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"defaults":{"pointPricing":{"pointsPerYuan":100},"videoProviders":[{"id":"active","pricingMode":"fixed","pointsCost":50,"allowedResolutions":["720p"]}]}}`)), Header: http.Header{}}, nil
+	})
+	entries, err := Fetch(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	require.Len(t, entries, 2)
+	require.Equal(t, "canseedream", entries[0].Provider)
+	require.Equal(t, PackyImageEntry(), entries[1])
+}

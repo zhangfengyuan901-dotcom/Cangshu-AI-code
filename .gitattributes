@@ -1,0 +1,6 @@
+# Preserve the pinned release inputs byte for byte on checkout.
+* -text
+*.png binary
+*.ico binary
+*.exe binary
+*.woff2 binary

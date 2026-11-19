@@ -1,0 +1,10 @@
+{
+  "name": "hamster-hypit-internal-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "dependencies": {
+    "@hypit/hypit": "0.3.1",
+    "@openai/codex": "0.163.0",
+    "@ffprobe-installer/win32-x64": "5.1.0"
+  }
+}

@@ -1,0 +1,129 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider, createRouter } from '@tanstack/react-router'
+import { StrictMode } from 'react'
+import ReactDOM from 'react-dom/client'
+
+import { installBuildMetadata } from '@/lib/build-metadata'
+import { DEFAULT_FAVICON, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
+import { applyFaviconToDom } from '@/lib/dom-utils'
+import '@/lib/dayjs'
+import { createAppQueryClient } from '@/lib/query-client'
+import { routerNavigationOptions } from '@/lib/router-navigation'
+import { statusQueryOptions } from '@/lib/status-query'
+
+import { DirectionProvider } from './context/direction-provider'
+import { FontProvider } from './context/font-provider'
+import { ThemeProvider } from './context/theme-provider'
+import { i18nReady } from './i18n/config'
+// Generated Routes
+import { routeTree } from './routeTree.gen'
+
+// Styles
+import './styles/index.css'
+import './styles/pikno-brand.css'
+import './styles/admin.css'
+
+// Ensure VChart theme is initialized before any chart mounts (prevents white default theme flash)
+// VChart theme is driven by our ThemeProvider (html.light/html.dark) via per-chart `theme` prop.
+installBuildMetadata()
+
+const queryClient = createAppQueryClient(() => {
+  void router.navigate({ to: '/500' })
+})
+
+// Create a new router instance
+const router = createRouter({
+  routeTree,
+  context: { queryClient },
+  ...routerNavigationOptions,
+})
+
+// Register the router instance for type safety
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: typeof router
+  }
+}
+
+// Render the app
+const rootElement = document.querySelector<HTMLElement>('#root')
+if (!rootElement) {
+  throw new Error('Root element not found')
+}
+// Keep UI branding independent of the existing relay service identity.
+;(function initSystemBranding() {
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    const apply = (name: string) => {
+      document.title = name
+      const metaTitle = document.querySelector(
+        'meta[name="title"]'
+      ) as HTMLMetaElement | null
+      if (metaTitle) metaTitle.setAttribute('content', name)
+    }
+    apply(DEFAULT_SYSTEM_NAME)
+    applyFaviconToDom(DEFAULT_FAVICON)
+
+    // Background refresh through the shared cache. This primes ['status']
+    // before React mounts, so the root guard and every status consumer reuse
+    // this one request instead of firing their own. `fetchStatus` owns the
+    // localStorage write and the system-config store sync.
+    queryClient
+      .ensureQueryData(statusQueryOptions)
+      .then(() => {
+        apply(DEFAULT_SYSTEM_NAME)
+        applyFaviconToDom(DEFAULT_FAVICON)
+      })
+      .catch(() => {
+        /* empty */
+      })
+  } catch {
+    /* empty */
+  }
+})()
+if (rootElement.dataset.appMounted !== 'true') {
+  rootElement.dataset.appMounted = 'true'
+  if (!rootElement.textContent?.trim()) {
+    rootElement.textContent = '正在加载… / Loading…'
+  }
+  void i18nReady.then(() => {
+    const root = ReactDOM.createRoot(rootElement)
+    root.render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <FontProvider>
+              <DirectionProvider>
+                <RouterProvider router={router} />
+              </DirectionProvider>
+            </FontProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </StrictMode>
+    )
+  }).catch(() => {
+    rootElement.textContent = '页面初始化失败，请刷新重试。 / Reload to try again.'
+    const retry = document.createElement('button')
+    retry.textContent = '重试 / Retry'
+    retry.addEventListener('click', () => window.location.reload())
+    rootElement.appendChild(retry)
+  })
+}

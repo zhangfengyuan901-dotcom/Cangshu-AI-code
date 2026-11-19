@@ -1,0 +1,9 @@
+{
+  "domain": "mail.piknoai.com",
+  "smtpHost": "smtp.resend.com",
+  "smtpPort": 465,
+  "smtpAccount": "resend",
+  "smtpFrom": "notify@mail.piknoai.com",
+  "apiKey": "REPLACE_IN_PRIVATE_FILE",
+  "testRecipient": ""
+}

@@ -1,0 +1,129 @@
+package service
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/gin-gonic/gin"
+)
+
+const PiknoImageUsageVersion = "usage-v1"
+const PiknoImageUpgradeCode = "image_client_upgrade_required"
+const PiknoImageUpgradeMessage = "此图片线路已改为按实际 Token 计费，请更新仓鼠AI后再生成图片。"
+
+func PiknoImageUsageAvailable(line *model.PiknoLineConfig) bool {
+	return PiknoSettlementEnabled() && os.Getenv("PIKNO_IMAGE_USAGE_BILLING_ENABLED") == "true" &&
+		line != nil && line.Kind == "image" &&
+		line.PublicModel == "pikno-image-flare" && line.Provider == "packy" &&
+		(line.UpstreamModel == "gpt-image-2" || line.UpstreamModel == "gpt-image-2.5-flare")
+}
+
+// PrepareImageBillingForRequest reserves the effective outbound image quantity
+// before each attempt, including channel retries and parameter overrides. The
+// client request body stays frozen; only the independent quantity is refreshed.
+func PrepareImageBillingForRequest(c *gin.Context, info *relaycommon.RelayInfo, count int) *types.NewAPIError {
+	if count < 1 || count > dto.MaxImageN {
+		return types.NewErrorWithStatusCode(fmt.Errorf("image_count must be an integer between 1 and %d", dto.MaxImageN), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	info.ImageRequestCount = count
+	if PiknoSettlementEnabled() {
+		if info.Billing != nil {
+			return nil
+		}
+		if info.PiknoImageOperation == "" && info.OriginModelName == "pikno-image-flare" {
+			line, err := model.GetPublishedPiknoLine(info.OriginModelName)
+			if err == nil && PiknoImageUsageAvailable(line) {
+				return types.NewErrorWithStatusCode(errors.New(PiknoImageUpgradeMessage), PiknoImageUpgradeCode, http.StatusConflict, types.ErrOptionWithSkipRetry())
+			}
+		}
+		resolution := ""
+		if request, ok := info.Request.(*dto.ImageRequest); ok {
+			resolution = request.Size
+		}
+		quote, err := model.QuotePublishedPiknoLine(info.OriginModelName, info.ChannelId, model.PiknoLineUsage{Resolution: resolution, Images: count})
+		if err != nil || quote.Kind != "image" {
+			if err == nil {
+				err = errors.New("published line is not an image route")
+			}
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		info.PiknoLineRevision = quote.Revision
+		info.PiknoLineQuoteQuota = quote.Quota
+		info.PiknoLinePriceUnit = quote.Unit
+		return PreConsumeBilling(c, quote.Quota, info)
+	}
+	var quota int
+	var err error
+	if snap := info.TieredBillingSnapshot; snap != nil && snap.BillingMode == "tiered_expr" {
+		// Token-only image expressions must not acquire a quantity multiplier.
+		if snap.EstimatedImageCount == nil {
+			return nil
+		}
+		request := billingexpr.RequestInput{}
+		if info.BillingRequestInput != nil {
+			request = *info.BillingRequestInput
+		}
+		request.ImageCount = &count
+		cost, trace, runErr := billingexpr.RunExprByHashWithRequest(snap.ExprString, snap.ExprHash, billingexpr.TokenParams{
+			P: float64(snap.EstimatedPromptTokens), C: float64(snap.EstimatedCompletionTokens), Len: float64(snap.EstimatedPromptTokens),
+		}, request)
+		if runErr != nil {
+			return types.NewErrorWithStatusCode(runErr, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		beforeGroup := cost / 1_000_000 * snap.QuotaPerUnit
+		if trace.BillingUnit != billingexpr.BillingUnitRequest && snap.PreConsumeMultiplier != 0 {
+			beforeGroup *= snap.PreConsumeMultiplier
+		}
+		quota, err = billingexpr.QuotaRoundStrict(beforeGroup * info.PriceData.GroupRatioInfo.GroupRatio)
+		if err == nil {
+			snap.EstimatedImageCount = trace.ImageCount
+			snap.EstimatedQuotaBeforeGroup = beforeGroup
+			snap.EstimatedQuotaAfterGroup = quota
+			snap.EstimatedTier = trace.MatchedTier
+			snap.EstimatedBillingUnit = trace.BillingUnit
+			snap.EstimatedFixedPrice = trace.FixedPrice
+			snap.GroupRatio = info.PriceData.GroupRatioInfo.GroupRatio
+		}
+	} else {
+		quantity := 1
+		if info.PriceData.UsePrice {
+			quantity = count
+		}
+		// Overwrite the per-attempt ratio so a failed attempt cannot leak its
+		// quantity into another channel.
+		info.PriceData.AddOtherRatio("n", float64(quantity))
+		base := info.ImageQuotaBeforeGroup
+		if info.PriceData.UsePrice {
+			base = info.PriceData.ModelPrice * common.QuotaPerUnit
+		}
+		quota, err = common.QuotaFromFloatStrict(info.PriceData.ApplyOtherRatiosToFloat(base * info.PriceData.GroupRatioInfo.GroupRatio))
+	}
+	if err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	info.PriceData.QuotaToPreConsume = quota
+	if quota == 0 && info.Billing == nil {
+		return nil
+	}
+	info.PriceData.FreeModel = false
+	if info.Billing == nil {
+		return PreConsumeBilling(c, quota, info)
+	}
+	if err := info.Billing.Reserve(quota); err != nil {
+		var apiErr *types.NewAPIError
+		if errors.As(err, &apiErr) {
+			return apiErr
+		}
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
+	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
+	return nil
+}

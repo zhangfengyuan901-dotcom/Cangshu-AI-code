@@ -1,0 +1,12 @@
+{
+  "format": "hypit.runtime-local@1",
+  "dataRoot": ".hypit/execution",
+  "credentials": {},
+  "endpoints": {
+    "hamster.video": {
+      "use": "@hamster/hypit-video",
+      "config": { "projectId": "replace-with-project-id" }
+    }
+  },
+  "bindings": { "@hamster/hypit-video@1#pikno-video": "hamster.video" }
+}

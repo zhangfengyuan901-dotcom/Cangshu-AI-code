@@ -1,0 +1,15 @@
+**
+!deploy/
+deploy/**
+!deploy/new-api/
+deploy/new-api/**
+!deploy/new-api/backend/
+!deploy/new-api/backend/**
+deploy/new-api/backend/web/dist/
+deploy/new-api/backend/bin/
+!build/
+build/**
+!build/hamster-trim44-web/
+!build/hamster-trim44-web/**
+build/hamster-trim44-web/node_modules/
+build/hamster-trim44-web/dist/

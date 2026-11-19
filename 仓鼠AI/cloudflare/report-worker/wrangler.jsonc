@@ -1,0 +1,17 @@
+{
+  "name": "hamster-ai-reports",
+  "account_id": "7ad8e2addb69374532fecc2f16a00549",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{"pattern":"reports.hamsterai.cc","custom_domain":true}],
+  "d1_databases": [{"binding":"DB","database_name":"hamster-ai-reports","database_id":"5dcd367a-aeff-46e6-9c67-faf9fc5d558b"}],
+  "ratelimits": [
+    {"name":"RATE","namespace_id":"1003","simple":{"limit":5,"period":60}},
+    {"name":"GLOBAL_RATE","namespace_id":"1004","simple":{"limit":120,"period":60}}
+  ],
+  "triggers": {"crons":["*/5 * * * *"]},
+  "observability": {"enabled":true,"redact_query_string":true,"logs":{"enabled":true,"invocation_logs":false},"traces":{"enabled":false}}
+}

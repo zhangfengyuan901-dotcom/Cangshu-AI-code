@@ -1,0 +1,22 @@
+{
+  "candidateOnly": true,
+  "releaseSHA256": "16de11e63bcaf52bdace595c90e1cfcb0ee44ffac3f1d75e561ac3bfdaadb551",
+  "requiredEnvironment": ["CONTROL_OWNER", "TOOL_STORE_ORIGIN", "TOOL_STORE_SECRET_FILE", "TICKET_KEY_FILE", "TOOLS_BRIDGE_SECRET_FILE", "TOOLS_ADMIN_SECRET_FILE", "RH_CONFIG_ENCRYPTION_KEY_FILE"],
+  "optionalPreservedEnvironment": ["TOOLS_ENABLED", "RUNNINGHUB_API_KEY_FILE", "RH_CONFIG_ENCRYPTION_PREVIOUS_KEYS_FILE"],
+  "preserveExactExistingSecrets": ["TICKET_KEY", "TOOLS_BRIDGE_SECRET", "TOOLS_ADMIN_SECRET", "RUNNINGHUB_API_KEY", "RH_CONFIG_ENCRYPTION_KEY", "RH_CONFIG_ENCRYPTION_PREVIOUS_KEYS"],
+  "newDistinctSecrets": ["TOOL_STORE_SECRET"],
+  "controlPaths": ["/media/v1/tools", "/media/v1/tools/*", "/media/v1/packy"],
+  "retainedStoragePaths": ["/media/v1/assets/*", "/__control-store/v1/*"],
+  "cloudflareEnvironment": ["CONTROL_OWNER", "CONTROL_STORAGE_ENABLED", "CONTROL_ORIGIN", "CONTROL_ORIGIN_HOST", "TOOL_STORE_SECRET"],
+  "cloudflareBindingsPreserved": ["MEDIA", "UPLOAD_LIMITER"],
+  "publicAndOriginDNSVerified": false,
+  "cutoverRequiresBlockedIngressAndDrainedOldRequests": true,
+  "rollbackRequiresBlockedIngressAndDrainedNodeRequests": true,
+  "storageMustRemainEnabledDuringNodeDrain": true,
+  "neverDeletePollLeasesOrResubmitUnknown": true,
+  "requiresSingleActiveNodeProcess": true,
+  "originalExpiredPollEtagIsNotAnOwnershipFence": true,
+  "cloudflareAndNodeMustNeverRunControlSimultaneously": true,
+  "stateStorage": "private-tos-by-source-namespace",
+  "scheduler": "existing-ecs-backend-poller"
+}
