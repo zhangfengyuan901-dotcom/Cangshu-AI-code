@@ -1,0 +1,342 @@
+"""One-off PostgreSQL erasure engine. Import only; no host/network/CLI entry point.
+
+query(sql) returns one decoded JSON object and MUST execute read-only.
+run_psql(script) executes the complete script in ONE connection, with
+ON_ERROR_STOP=1; errors/SQL/primary keys must stay private. The caller owns
+approval, stopping every writer, private (0700/0600) plan storage and restart.
+Plans contain keys/fingerprints only: never source rows or opening balances.
+"""
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import tempfile
+
+
+class CleanupError(RuntimeError):
+    pass
+
+
+KEYS = {
+    'pikno_settlements': ('id',), 'tasks': ('id',),
+    'pikno_settlement_events': ('id',), 'pikno_settlement_outboxes': ('id',),
+    'pikno_price_quote_slots': ('id',), 'logs': ('id',), 'audit_logs': ('id',),
+    'quota_data': ('id',), 'abilities': ('group', 'model', 'channel_id'),
+    'task_plugins': ('id',), 'pikno_lines': ('public_model',),
+    'pikno_line_sync_states': ('public_model',),
+    'pikno_sync_snapshots': ('hash',), 'pikno_sync_providers': ('provider',),
+}
+ORDER = ('pikno_settlement_outboxes', 'pikno_settlement_events', 'pikno_price_quote_slots',
+         'audit_logs', 'logs', 'quota_data', 'tasks', 'pikno_settlements', 'abilities',
+         'pikno_lines', 'pikno_line_sync_states', 'pikno_sync_snapshots',
+         'pikno_sync_providers', 'task_plugins')
+REQUIRED = set(KEYS) | {'users', 'tokens', 'options', 'top_ups', 'channels',
+                         'pikno_llm_requests', 'pikno_reverse_operations', 'redemptions'}
+CONFIGS = ('draft_config', 'published_config', 'previous_config')
+
+
+def _identifier(name):
+    if not isinstance(name, str) or not re.fullmatch(r'[a-z_][a-z0-9_]*', name):
+        raise CleanupError('CLEANUP_IDENTIFIER_INVALID')
+    return '"' + name + '"'
+
+
+def _literal(value):
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _json(value):
+    return _literal(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True)) + '::jsonb'
+
+
+def _do(body):
+    # A database identifier must never close the enclosing PL/pgSQL body.
+    number = 0
+    while True:
+        tag = '$cleanup68_' + str(number) + '$'
+        if tag not in body:
+            return 'DO ' + tag + ' BEGIN ' + body + ' END ' + tag + ';'
+        number += 1
+
+
+def _cfg(alias, field):
+    return "coalesce(nullif(btrim(" + alias + '.' + field + "),''),'{}')::jsonb"
+
+
+def _doc(alias, field):
+    return "coalesce(nullif(btrim(" + alias + '.' + field + "::text),''),'{}')::jsonb"
+
+
+def _pk(table, alias):
+    return 'jsonb_build_array(' + ','.join(alias + '.' + _identifier(k) for k in KEYS[table]) + ')'
+
+
+def _fingerprint(query):
+    return "(SELECT jsonb_build_object('count',count(*),'digest',md5(coalesce(jsonb_agg(row ORDER BY row::text),'[]'::jsonb)::text)) FROM (" + query + ') fp)'
+
+
+def _sanitized_line(alias):
+    fields = []
+    for field in CONFIGS:
+        fields += [_literal(field), "CASE WHEN " + _cfg(alias, field) + "->>'provider'='sanbao' THEN '' ELSE " + alias + '.' + field + ' END']
+    return 'to_jsonb(' + alias + ') || jsonb_build_object(' + ','.join(fields) + ')'
+
+
+def _selection():
+    owned = lambda alias: '(' + ' OR '.join(_cfg(alias, f) + "->>'provider'='sanbao'" for f in CONFIGS) + ')'
+    foreign = lambda alias: '(' + ' OR '.join('(' + _cfg(alias, f) + " <> '{}'::jsonb AND coalesce(" + _cfg(alias, f) + "->>'provider','') <> 'sanbao')" for f in CONFIGS) + ')'
+    pd = _doc('t', 'private_data')
+    plugin = lambda alias: '(' + _doc(alias, 'other') + "#>>'{admin_info,task_plugin,key}'='pikno-sanbao' OR " + _doc(alias, 'other') + "#>>'{root_info,task_plugin,key}'='pikno-sanbao')"
+    ctes = """
+WITH sb_settlements AS (
+ SELECT * FROM pikno_settlements WHERE line_provider='sanbao' OR model LIKE 'sanbao/%%'
+), sb_lines AS (SELECT * FROM pikno_lines l WHERE %s),
+sb_lines_delete AS (SELECT * FROM sb_lines l WHERE NOT %s),
+sb_lines_update AS (SELECT * FROM sb_lines l WHERE %s),
+sb_tasks AS (
+ SELECT * FROM tasks t WHERE platform IN ('pikno-sanbao','plugin:pikno-sanbao','plugin/pikno-sanbao')
+ OR %s#>>'{execution,task_plugin,key}'='pikno-sanbao'
+ OR EXISTS(SELECT 1 FROM sb_settlements h WHERE h.user_id=t.user_id AND h.channel_id=t.channel_id
+    AND (h.id=t.task_id OR (h.upstream_task_id<>'' AND h.upstream_task_id=t.task_id)))
+), sb_models AS (
+ SELECT public_model name FROM pikno_line_sync_states WHERE provider='sanbao'
+ UNION SELECT public_model FROM sb_lines
+ UNION SELECT model FROM sb_settlements
+ UNION SELECT model_name FROM logs WHERE model_name LIKE 'sanbao/%%'
+ UNION SELECT model_name FROM quota_data WHERE model_name LIKE 'sanbao/%%'
+), sb_shared_models AS (
+ SELECT DISTINCT m.name FROM sb_models m WHERE
+ EXISTS(SELECT 1 FROM pikno_lines l WHERE l.public_model=m.name AND %s)
+ OR EXISTS(SELECT 1 FROM pikno_line_sync_states s WHERE s.public_model=m.name AND s.provider<>'sanbao')
+ OR EXISTS(SELECT 1 FROM pikno_settlements s WHERE s.model=m.name AND coalesce(s.line_provider,'') NOT IN ('','sanbao'))
+ OR EXISTS(SELECT 1 FROM tasks t WHERE NOT EXISTS(SELECT 1 FROM sb_tasks s WHERE s.id=t.id)
+    AND (%s->>'origin_model_name'=m.name))
+), sb_exclusive_models AS (
+ SELECT name FROM sb_models WHERE name<>'' AND name NOT IN (SELECT name FROM sb_shared_models)
+), sb_log_roots AS (
+ SELECT * FROM logs l WHERE l.model_name IN (SELECT name FROM sb_exclusive_models)
+ OR %s
+ OR EXISTS(SELECT 1 FROM sb_tasks t WHERE t.user_id=l.user_id AND
+   (t.task_id=%s->>'task_id' OR (l.request_id<>'' AND l.request_id=%s#>>'{execution,request_id}')))
+), sb_requests AS (
+ SELECT user_id,%s#>>'{execution,request_id}' request_id FROM sb_tasks t
+ WHERE coalesce(%s#>>'{execution,request_id}','')<>''
+ UNION SELECT user_id,request_id FROM sb_log_roots WHERE coalesce(request_id,'')<>''
+), sb_logs AS (
+ SELECT * FROM logs l WHERE EXISTS(SELECT 1 FROM sb_log_roots r WHERE r.id=l.id)
+ OR EXISTS(SELECT 1 FROM sb_requests r WHERE r.user_id=l.user_id AND r.request_id=l.request_id)
+), sb_events AS (
+ SELECT e.* FROM pikno_settlement_events e JOIN sb_settlements h ON e.order_id=h.id
+), sb_outboxes AS (
+ SELECT o.* FROM pikno_settlement_outboxes o WHERE EXISTS(SELECT 1 FROM sb_events e WHERE o.event_id=e.id)
+ OR EXISTS(SELECT 1 FROM sb_settlements h WHERE h.user_id=o.user_id AND %s->>'order_id'=h.id)
+), sb_quotes AS (
+ SELECT q.* FROM pikno_price_quote_slots q JOIN sb_settlements h ON q.order_id=h.id AND q.user_id=h.user_id
+), sb_audits AS (
+ SELECT a.* FROM audit_logs a WHERE a.route LIKE '/pikno-sanbao/%%'
+ OR EXISTS(SELECT 1 FROM sb_requests r WHERE r.user_id=a.user_id AND r.request_id=a.request_id)
+), sb_quota AS (SELECT * FROM quota_data WHERE model_name IN (SELECT name FROM sb_exclusive_models)),
+sb_abilities AS (SELECT * FROM abilities WHERE model IN (SELECT name FROM sb_exclusive_models)),
+sb_plugins AS (SELECT * FROM task_plugins WHERE key='pikno-sanbao'),
+sb_states AS (SELECT * FROM pikno_line_sync_states WHERE provider='sanbao'),
+sb_snapshots AS (SELECT * FROM pikno_sync_snapshots WHERE provider='sanbao'),
+sb_providers AS (SELECT * FROM pikno_sync_providers WHERE provider='sanbao')
+""" % (owned('l'), foreign('l'), foreign('l'), pd, foreign('l'), _doc('t', 'properties'), plugin('l'),
+       _doc('l', 'other'), pd, pd, pd, _doc('o', 'payload'))
+    selected = dict(zip(ORDER, ('sb_outboxes', 'sb_events', 'sb_quotes', 'sb_audits', 'sb_logs', 'sb_quota',
+                               'sb_tasks', 'sb_settlements', 'sb_abilities', 'sb_lines', 'sb_states',
+                               'sb_snapshots', 'sb_providers', 'sb_plugins')))
+    return ctes, selected
+
+
+def _inventory_sql(tables):
+    ctes, selected = _selection()
+    entries = []
+    for table in tables:
+        if table in selected:
+            source = selected[table]
+            deletes = 'sb_lines_delete' if table == 'pikno_lines' else source
+            keys = "(SELECT coalesce(jsonb_agg(pk ORDER BY pk::text),'[]'::jsonb) FROM (SELECT " + _pk(table, 'r') + ' pk FROM ' + deletes + ' r) k)'
+            update_keys = "(SELECT coalesce(jsonb_agg(pk ORDER BY pk::text),'[]'::jsonb) FROM (SELECT " + _pk(table, 'r') + ' pk FROM sb_lines_update r) k)' if table == 'pikno_lines' else "'[]'::jsonb"
+            predicate = 'NOT EXISTS(SELECT 1 FROM ' + source + ' s WHERE ' + _pk(table, 's') + '=' + _pk(table, 'r') + ')'
+            target = _fingerprint('SELECT to_jsonb(r) row FROM ' + source + ' r')
+            updated = _fingerprint('SELECT ' + _sanitized_line('r') + ' row FROM sb_lines_update r') if table == 'pikno_lines' else _fingerprint('SELECT NULL::jsonb row WHERE false')
+        else:
+            keys = update_keys = "'[]'::jsonb"
+            predicate = 'true'
+            target = updated = _fingerprint('SELECT NULL::jsonb row WHERE false')
+        preserved = _fingerprint('SELECT to_jsonb(r) row FROM ' + _identifier(table) + ' r WHERE ' + predicate)
+        entries += [_literal(table), "jsonb_build_object('delete_keys'," + keys + ",'update_keys'," + update_keys + ",'target'," + target + ",'preserved'," + preserved + ",'updated'," + updated + ')']
+    foreign_plugin = "coalesce(" + _doc('t', 'private_data') + "#>>'{execution,task_plugin,key}','') NOT IN ('','pikno-sanbao')"
+    other_plugin = '(' + ' OR '.join("coalesce(" + _doc('l', 'other') + "#>>'{" + k + ",task_plugin,key}','') NOT IN ('','pikno-sanbao')" for k in ('admin_info', 'root_info')) + ')'
+    channel = _doc('c', 'setting')
+    blockers = {
+        'nonterminal_tasks': "SELECT count(*) FROM sb_tasks WHERE coalesce(status,'UNKNOWN') NOT IN ('SUCCESS','FAILURE')",
+        'unresolved_settlements': "SELECT count(*) FROM sb_settlements WHERE coalesce(reserved_quota,0)<>0 OR coalesce(settled_outcome,'') NOT IN ('succeeded','failed','waived') OR coalesce(generation_state,'unknown')='unknown' OR coalesce(financial_state,'') NOT IN ('settled','refunded','partially_refunded') OR coalesce(review_reason,'')<>''",
+        'conflicting_order_provider': "SELECT count(*) FROM sb_settlements WHERE coalesce(line_provider,'') NOT IN ('','sanbao')",
+        'conflicting_task_plugin': 'SELECT count(*) FROM sb_tasks t WHERE ' + foreign_plugin,
+        'conflicting_log_plugin': 'SELECT count(*) FROM sb_logs l WHERE ' + other_plugin,
+        'channel_bindings_require_review': "SELECT count(*) FROM channels c WHERE " + channel + "->>'task_plugin_key'='pikno-sanbao' OR coalesce(" + channel + "->'task_extend_plugin_keys','[]'::jsonb) ? 'pikno-sanbao'",
+        'quote_owner_mismatch': 'SELECT count(*) FROM pikno_price_quote_slots q JOIN sb_settlements h ON q.order_id=h.id WHERE q.user_id<>h.user_id',
+        'outbox_owner_mismatch': 'SELECT count(*) FROM pikno_settlement_outboxes o JOIN sb_events e ON o.event_id=e.id JOIN sb_settlements h ON e.order_id=h.id WHERE o.user_id<>h.user_id',
+    }
+    block_expr = []
+    for name, query in blockers.items():
+        block_expr += [_literal(name), '(' + query + ')']
+    pairs = ['(' + entries[i] + ',' + entries[i + 1] + ')' for i in range(0, len(entries), 2)]
+    table_expr = '(SELECT jsonb_object_agg(name,value) FROM (VALUES ' + ','.join(pairs) + ') items(name,value))'
+    return ctes + "SELECT jsonb_build_object('format',1,'provider','sanbao','tables'," + table_expr + ",'blockers',jsonb_build_object(" + ','.join(block_expr) + "),'notes',jsonb_build_object('shared_model_identities_preserved',(SELECT count(*) FROM sb_shared_models)))"
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def preflight_inventory(query):
+    try:
+        schema = query("SELECT jsonb_build_object('tables',coalesce(jsonb_agg(table_name ORDER BY table_name),'[]'::jsonb)) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+        tables = schema['tables']
+        if not REQUIRED.issubset(tables) or len(tables) != len(set(tables)):
+            raise CleanupError('CLEANUP_REQUIRED_SCHEMA_MISSING')
+        for table in tables:
+            _identifier(table)
+        plan = query(_inventory_sql(tables))
+        if any(type(value) is not int or value != 0 for value in plan['blockers'].values()):
+            raise CleanupError('CLEANUP_UNRESOLVED_OR_SHARED_RECORDS_REQUIRE_REVIEW')
+        plan['plan_sha256'] = _digest(plan)
+        return plan
+    except CleanupError:
+        raise
+    except Exception:
+        raise CleanupError('CLEANUP_PREFLIGHT_FAILED_DETAILS_WITHHELD') from None
+
+
+def summary(plan):
+    return {'plan_sha256': plan['plan_sha256'],
+            'delete_counts': {t: len(v['delete_keys']) for t, v in plan['tables'].items() if t in KEYS},
+            'update_counts': {t: len(v['update_keys']) for t, v in plan['tables'].items() if v['update_keys']},
+            'opening_balance_snapshot_saved': False, 'source_rows_backed_up': False}
+
+
+def _expected_match(table, alias, plan, kind):
+    values = plan['tables'][table][kind]
+    return _pk(table, alias) + ' IN (SELECT value FROM jsonb_array_elements(' + _json(values) + '))' if values else 'false'
+
+
+def build_apply_sql(plan, *, approved_plan_sha256, services_stopped):
+    value = copy.deepcopy(plan)
+    digest = value.pop('plan_sha256', None)
+    if services_stopped is not True or not isinstance(digest, str) or digest != approved_plan_sha256 or _digest(value) != digest:
+        raise CleanupError('CLEANUP_APPROVAL_OR_PLAN_INVALID')
+    tables = list(value['tables'])
+    if not REQUIRED.issubset(tables) or value.get('format') != 1 or value.get('provider') != 'sanbao':
+        raise CleanupError('CLEANUP_PLAN_SCHEMA_INVALID')
+    if any(type(v) is not int or v != 0 for v in value['blockers'].values()):
+        raise CleanupError('CLEANUP_PLAN_BLOCKED')
+    for table in tables:
+        _identifier(table)
+        for kind in ('delete_keys', 'update_keys'):
+            keys = value['tables'][table][kind]
+            if table not in KEYS and keys or kind == 'update_keys' and table != 'pikno_lines' and keys:
+                raise CleanupError('CLEANUP_PROTECTED_TABLE_TARGETED')
+            if table in KEYS and any(not isinstance(k, list) or len(k) != len(KEYS[table]) or any(type(x) not in (str, int) for x in k) for k in keys):
+                raise CleanupError('CLEANUP_PRIMARY_KEY_INVALID')
+    sql = ['BEGIN ISOLATION LEVEL SERIALIZABLE;', "SET LOCAL standard_conforming_strings=on;", "SET LOCAL lock_timeout='5s';", "SET LOCAL statement_timeout='45s';",
+           'LOCK TABLE ' + ','.join(_identifier(t) for t in sorted(tables)) + ' IN ACCESS EXCLUSIVE MODE;',
+           'CREATE TEMP TABLE cleanup68_before (inventory jsonb) ON COMMIT DROP; INSERT INTO cleanup68_before ' + _inventory_sql(tables) + ';']
+    sql.append(_do('IF (SELECT inventory FROM cleanup68_before) IS DISTINCT FROM ' + _json(value) + " THEN RAISE EXCEPTION 'CLEANUP_INVENTORY_DRIFT'; END IF;"))
+    for table in ORDER:
+        sql.append('DELETE FROM ' + _identifier(table) + ' r WHERE ' + _expected_match(table, 'r', plan, 'delete_keys') + ';')
+    assignments = [f + "=CASE WHEN " + _cfg('r', f) + "->>'provider'='sanbao' THEN '' ELSE r." + f + ' END' for f in CONFIGS]
+    sql.append('UPDATE pikno_lines r SET ' + ','.join(assignments) + ' WHERE ' + _expected_match('pikno_lines', 'r', plan, 'update_keys') + ';')
+    assertions = []
+    for table in tables:
+        entry = value['tables'][table]
+        skip = '(' + _expected_match(table, 'r', plan, 'delete_keys') + ' OR ' + _expected_match(table, 'r', plan, 'update_keys') + ')' if table in KEYS else 'false'
+        preserved = _fingerprint('SELECT to_jsonb(r) row FROM ' + _identifier(table) + ' r WHERE NOT ' + skip)
+        assertions.append('IF ' + preserved + ' IS DISTINCT FROM ' + _json(entry['preserved']) + " THEN RAISE EXCEPTION 'CLEANUP_PRESERVED_ROWS_CHANGED'; END IF;")
+        if table in KEYS:
+            assertions.append('IF EXISTS(SELECT 1 FROM ' + _identifier(table) + ' r WHERE ' + _expected_match(table, 'r', plan, 'delete_keys') + ") THEN RAISE EXCEPTION 'CLEANUP_TARGET_REMAINS'; END IF;")
+        if table == 'pikno_lines':
+            updated = _fingerprint('SELECT to_jsonb(r) row FROM pikno_lines r WHERE ' + _expected_match(table, 'r', plan, 'update_keys'))
+            assertions.append('IF ' + updated + ' IS DISTINCT FROM ' + _json(entry['updated']) + " THEN RAISE EXCEPTION 'CLEANUP_SHARED_LINE_CHANGED'; END IF;")
+    sql += [_do('\n'.join(assertions)), 'COMMIT;',
+            'SELECT ' + _json({'committed': True, 'plan_sha256': digest, 'protected_fingerprints_preserved': True}) + ';']
+    return '\n'.join(sql)
+
+
+def apply(run_psql, plan, *, approved_plan_sha256, services_stopped):
+    script = build_apply_sql(plan, approved_plan_sha256=approved_plan_sha256, services_stopped=services_stopped)
+    try:
+        result = run_psql(script)
+    except Exception:
+        raise CleanupError('CLEANUP_TRANSACTION_FAILED_DETAILS_WITHHELD') from None
+    if not isinstance(result, dict) or result.get('committed') is not True or result.get('plan_sha256') != approved_plan_sha256 or result.get('protected_fingerprints_preserved') is not True:
+        raise CleanupError('CLEANUP_COMMIT_RESULT_INVALID_REVIEW_REQUIRED')
+    return {'applied': True, **summary(plan), 'protected_fingerprints_preserved': True,
+            'wallet_or_counter_adjustments': False, 'financial_restore': False}
+
+
+def _catalog_path(path, allowed_directory):
+    path = Path(path)
+    base = Path(allowed_directory)
+    if not path.is_absolute() or not base.is_absolute() or path.is_symlink() or base.is_symlink() or path.parent.resolve() != base.resolve() or path.resolve() != path or not path.is_file():
+        raise CleanupError('CATALOG_PATH_INVALID')
+    return path
+
+
+def stage_catalog(path, expected_sha256, *, allowed_directory):
+    path = _catalog_path(path, allowed_directory)
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise CleanupError('CATALOG_HASH_DRIFT')
+    state = json.loads(raw)
+    removed = {}
+    for name in ('draft', 'published', 'previous'):
+        snapshot = state.get(name)
+        if snapshot is None:
+            removed[name] = 0
+            continue
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get('models'), list) or any(not isinstance(x, dict) for x in snapshot['models']):
+            raise CleanupError('CATALOG_SHAPE_INVALID')
+        models = snapshot['models']
+        snapshot['models'] = [item for item in models if item.get('provider') != 'sanbao']
+        removed[name] = len(models) - len(snapshot['models'])
+        if removed[name]:
+            snapshot['revision'] = _digest(snapshot['models'])[:24]
+    if any(removed.values()):
+        state['revision'] = _digest(state)[:24]
+    payload = json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    fd, name = tempfile.mkstemp(prefix='.catalog-sanbao68-', suffix='.tmp', dir=path.parent)
+    try:
+        if hasattr(os, 'fchmod'):
+            os.fchmod(fd, 0o600)
+        else:
+            os.chmod(name, 0o600)
+        with os.fdopen(fd, 'wb') as target:
+            target.write(payload)
+            target.flush()
+            os.fsync(target.fileno())
+    except Exception:
+        os.unlink(name)
+        raise CleanupError('CATALOG_STAGE_FAILED_DETAILS_WITHHELD') from None
+    return {'stage_path': name, 'before_sha256': expected_sha256, 'after_sha256': hashlib.sha256(payload).hexdigest(), 'removed': removed}
+
+
+def commit_catalog(path, staged, *, allowed_directory):
+    path = _catalog_path(path, allowed_directory)
+    candidate = Path(staged['stage_path'])
+    if candidate.parent != path.parent or candidate.is_symlink() or not candidate.name.startswith('.catalog-sanbao68-') or not candidate.is_file():
+        raise CleanupError('CATALOG_STAGE_PATH_INVALID')
+    if hashlib.sha256(path.read_bytes()).hexdigest() != staged['before_sha256'] or hashlib.sha256(candidate.read_bytes()).hexdigest() != staged['after_sha256']:
+        raise CleanupError('CATALOG_COMMIT_HASH_DRIFT')
+    os.replace(candidate, path)
+    if os.name != 'nt':
+        descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    return {'catalog_replaced': True, 'removed': staged['removed'], 'sha256': staged['after_sha256'], 'source_rows_backed_up': False}

@@ -1,0 +1,2011 @@
+{
+  "schema": 1,
+  "archive": ".agents/pending-cleanup-relay-source.zip",
+  "sha256": "c44164165304de28bad376cca460f50c7a0b4d5f6963dcc7f9a0b55313aad624",
+  "files": [
+    {
+      "path": "output/relay-portal-current/account-baseline/public/account-lite/account.css",
+      "sha256": "9c4f015d339e3c6114671d03aa8edf3dce1fbdcbb4238cf8d91780c5706f4851",
+      "bytes": 12915,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/account-baseline/public/account-lite/account.mjs",
+      "sha256": "89e8e127183818ce51d7cae911e49415806599ac7c7cd5913dfef0639c5b44d0",
+      "bytes": 45919,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/account-baseline/public/account-lite/index.html",
+      "sha256": "df261c96e50bdcbcb2054ae0298ba0b7eb27f8d93ef044f6541a60acd504c2c1",
+      "bytes": 6609,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/controller/pikno_line_sync.go",
+      "sha256": "64397cc25093c51d5e016fbf6e977580e3e722ab5c4eda4b4ecf278503d76ffe",
+      "bytes": 8079,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/controller/pikno_line_sync_closure_test.go",
+      "sha256": "a8f56911db39d8061d728a8097b075c10df525dfe6fac05050c010ad9b5da091",
+      "bytes": 3271,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/controller/pikno_line_sync_parser_test.go",
+      "sha256": "5ad56e3efda06f1fa606f3e7ccaa9db417a916353971f14c413287a30d609567",
+      "bytes": 7705,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/controller/pikno_line_sync_test.go",
+      "sha256": "cc8bc01ca612db2a601e70009fa882fa6f27b2f9b1aae7cef303e7ef20abc4d8",
+      "bytes": 4765,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/controller/pikno_lines.go",
+      "sha256": "9a55360f2f7fbab9318814bca648a8c435909897da68cc42c141e5e79eab1717",
+      "bytes": 15373,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/freshness-lock-followup/controller/pikno_line_sync.go",
+      "sha256": "c0a1fa0310ed407b4474093f54b48ecb8c020921ec514b92774779fcd59e92dd",
+      "bytes": 8100,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/freshness-lock-followup/controller/pikno_line_sync_parser_test.go",
+      "sha256": "5ad56e3efda06f1fa606f3e7ccaa9db417a916353971f14c413287a30d609567",
+      "bytes": 7705,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/freshness-lock-followup/controller/pikno_line_sync_test.go",
+      "sha256": "a759d92fcd439f665110df309b64415d2e2a3db61082eb080401c9c53280a212",
+      "bytes": 7605,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/freshness-lock-followup/model/pikno_line_closures.go",
+      "sha256": "692c0ed0b7df4e660bf4fc2bd1369c54845d32cc7f18c29e2b573aca9ce61ef6",
+      "bytes": 4274,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/freshness-lock-followup/model/pikno_line_sync.go",
+      "sha256": "153ce8d509ef6b4d0cb8890425877f08cfe767a1da9fa12ccbe8c25ab5ef3943",
+      "bytes": 27102,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/freshness-lock-followup/model/pikno_line_sync_test.go",
+      "sha256": "b3b943b8c8fc7472451cbe9dcf450e4141a0bd0fed5c21ce241171ab818d90f8",
+      "bytes": 25324,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/model/pikno_line_closures.go",
+      "sha256": "f9fe7b01a47437b369ff1398ec8cb1b74b7032c0d884b03e111ec1e48bfeec3a",
+      "bytes": 2908,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/model/pikno_line_closures_test.go",
+      "sha256": "da44cc40b024ad900b897983498b0120a0802bc69bfee42ae9367683283e5e31",
+      "bytes": 12049,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/model/pikno_line_sync.go",
+      "sha256": "c5049761024c04a71dececa8ce8b7f13e69a0ae57d767bdbd742d7fcacd3976a",
+      "bytes": 27385,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/model/pikno_line_sync_test.go",
+      "sha256": "6e73b149ed75e5c0f267a87e02c92aba83a6f55ff03079bc2275d393d4cc862d",
+      "bytes": 16235,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/model/pikno_line_test.go",
+      "sha256": "140823419d87ac9297120db59c12a2693a633bf9ef83d413fab47d855bcf8cc1",
+      "bytes": 7886,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/pkg/piknocatalog/availability.go",
+      "sha256": "2c248e89624c65b51260320df823316465987e3b634011c285017e47e324a5ee",
+      "bytes": 4353,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/pkg/piknocatalog/availability_test.go",
+      "sha256": "0d8580ca8e1628031554a1a7638ab3dfbfe6f0cb65f0a4dd4236ae8ecdcaa04e",
+      "bytes": 5762,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/pkg/piknocatalog/catalog.go",
+      "sha256": "0de9b844f57de545a055057017b1a9a915fce36867628797ce3dd4b502aab12a",
+      "bytes": 15300,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/pkg/piknocatalog/catalog_test.go",
+      "sha256": "dcd1cefa4429c56512302ace1d382b57ba1a5c139a143802f062c3e7d89de02d",
+      "bytes": 8605,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/pkg/piknocatalog/sync_snapshot.go",
+      "sha256": "553561d65fa398335fbbccc1a84d914320b09dcbbd8295804b38cd0703b33be6",
+      "bytes": 12147,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-baseline/pkg/piknocatalog/sync_snapshot_test.go",
+      "sha256": "f0ecce6676339810e2eb9ea9a815506ef6c25d8a6be1fe5766fa6e8d1a610ec6",
+      "bytes": 14663,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/account-lite/account.css",
+      "sha256": "5ba759bb3d375d78f14167deaa1d7d17a3d1d378266bf1d6d929ae5a982abedb",
+      "bytes": 13147,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/account-lite/account.mjs",
+      "sha256": "ba2ebbeeded2a5213c95b8332a210e5ac73fd733e21ca5e865d0fd8f8df3b79a",
+      "bytes": 31868,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/account-lite/index.html",
+      "sha256": "df261c96e50bdcbcb2054ae0298ba0b7eb27f8d93ef044f6541a60acd504c2c1",
+      "bytes": 6609,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/api-guide.md",
+      "sha256": "f757c8063ee81f4fd47f82aeccecfc02ca5204c1656df21a2456481c86fda4b3",
+      "bytes": 10752,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/auth-lite/auth.css",
+      "sha256": "cbaebee2317cd2b1bf092c1caca0620a1de7985d1ccaaf1ce7d60995f330728f",
+      "bytes": 5674,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/auth-lite/index.html",
+      "sha256": "9da58e3741e6c37ff83045b4b52dc4ce64a124ec562593d2f2113623179af23c",
+      "bytes": 4894,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/developer-guide.md",
+      "sha256": "f757c8063ee81f4fd47f82aeccecfc02ca5204c1656df21a2456481c86fda4b3",
+      "bytes": 10752,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/examples/media-edit.mjs",
+      "sha256": "74dfed14dd3d9c1f80d68b9aedde2b1f1ee8f2cfbdae4567662f78dbc81361b9",
+      "bytes": 2091,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/backend-web-baseline/index.html",
+      "sha256": "a661e958125e3ade02c878f12b2feeb1d0d03aa8e6f8cfbf09a963a5c9a85eba",
+      "bytes": 1021,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/browser-qa.js",
+      "sha256": "3cefd5e5bb33b4d3adb071de5ce60539daab8e2b03a5a4b8d63a5e69bf93dd83",
+      "bytes": 8088,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/build-baseline/Dockerfile",
+      "sha256": "53e0fb2490963c6b6c53ace6e4d34d09585fd30a137893ab37ec5b2a72406b76",
+      "bytes": 813,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/build-baseline63.py",
+      "sha256": "d32db082ffcca9e08ba0c7f719c446415275fbd453a32b4fda37c24a1f9f547b",
+      "bytes": 4444,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/build64-candidate.py",
+      "sha256": "af9126cde4ffb727060bd451ed165664efb6fe5b691a05e95593f03165d26328",
+      "bytes": 5763,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/check-all-new-embedded-assets.py",
+      "sha256": "6f4fc131333dc10d4ce39d1122d1e7ddca4ff09d2f1a90f79d4c5832794b61dc",
+      "bytes": 2450,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/check-live-public-assets.py",
+      "sha256": "1bec9024b5959b16aabefcae2d1cd3781adf2bffc94067a318b6e7b96276cdf1",
+      "bytes": 5309,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/check-public-catalogs.py",
+      "sha256": "656de8a004e6841b4b988076d00d78e5332f44538f0912511a3f450cdeff15e8",
+      "bytes": 3695,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/check-runtime-fingerprint.py",
+      "sha256": "e11d4224510f87599c10e3506fb69b485ef443c79b3bdd847deae25ef9898248",
+      "bytes": 2358,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/cleanup-synthetic-validation.py",
+      "sha256": "e858687651597976cef366c60ae7fdf5708ca829af46989f75da2912dfcfad21",
+      "bytes": 8883,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/compare-build-metadata.py",
+      "sha256": "e95c1a99c6e2f2920cf6c6a452c7db27c4fb1ab38c41f4bfa7e65e4753be36dd",
+      "bytes": 4274,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/docs-baseline/api-guide.md",
+      "sha256": "f757c8063ee81f4fd47f82aeccecfc02ca5204c1656df21a2456481c86fda4b3",
+      "bytes": 10752,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/docs-baseline/developer-guide.md",
+      "sha256": "f757c8063ee81f4fd47f82aeccecfc02ca5204c1656df21a2456481c86fda4b3",
+      "bytes": 10752,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/docs-baseline/public/examples/media-edit.mjs",
+      "sha256": "74dfed14dd3d9c1f80d68b9aedde2b1f1ee8f2cfbdae4567662f78dbc81361b9",
+      "bytes": 2091,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/index.html",
+      "sha256": "39a9a946ed5b0c6f38816d559790873721bcb8066ffe9341864d34c0dc0956d2",
+      "bytes": 917,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/src/features/pricing/lib/__tests__/billing-expression.test.ts",
+      "sha256": "b04258ffa87e9d6764d20122d5c3d2fbc68eff797acce1f342b907cb3d76e253",
+      "bytes": 18716,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/src/i18n/locales/en.json",
+      "sha256": "0b73abf7c29b1bf3dcc6e7510988222dd4f07b80913eb35df9abf02b361ab247",
+      "bytes": 526674,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/src/i18n/locales/zh.json",
+      "sha256": "1cb783e6fe294fc49e86d25b94af93d4d14b86ac0be39d0a507490c036b750e6",
+      "bytes": 516106,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/src/lib/__tests__/lite-entry.test.ts",
+      "sha256": "1a248926a749feef690c5d877a0867ed6f56185199e48fa25f91c8cc753e19d8",
+      "bytes": 1848,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/src/lib/lite-entry.ts",
+      "sha256": "45896736d157c41858bab24de6bf8095180dc335444639ea8a5a9ae19b83b047",
+      "bytes": 2392,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/frontend-baseline/source/src/main.tsx",
+      "sha256": "c92772feddb9502bfb4ce0164b1ee1fe5f6a31c07d5b3bf0112f54d7dd9f13ca",
+      "bytes": 427,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/merge-web.py",
+      "sha256": "a4da7a1604921ee1729bb5976f75de7356489a38acdb6c775a384549b385990e",
+      "bytes": 3178,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/preview-server.mjs",
+      "sha256": "adcc1d43d7fe953fab14910405dbe747963b42bf713c67f338507362f83027b6",
+      "bytes": 5357,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/production-readonly-preflight.py",
+      "sha256": "dd0c33db453d739117ce7d33a7742f9e24acf9b0239326cd9246a1f061bf3f08",
+      "bytes": 6697,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/public-catalog-harness.go",
+      "sha256": "a58c2482d00dfd33c918313aa225c54cb289a5de871d66e4337d35e033d083a3",
+      "bytes": 2683,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/public-release-qa.js",
+      "sha256": "33546f546d295037a99b3475073a0fd343cb45db14761b075bfb67377a6fc5b8",
+      "bytes": 4559,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/read-production-activity.py",
+      "sha256": "4a550b227ed893744d8a2ce3ebda4f41c5aa2466482d0e450b460fcf06bae6ee",
+      "bytes": 4186,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/read64-sync-verification.py",
+      "sha256": "c9258d5c1065773a5adff06064f6467e010dee18c70149674812e5f6aa74f6b0",
+      "bytes": 1902,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/release64-candidate.py",
+      "sha256": "d709e36685cd32dad677138655142aed8f300c38b11dc8bd6fc1cc028d161a64",
+      "bytes": 22582,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/release64-run.py",
+      "sha256": "0b3f6e3871399ad8f3a9dcd7657ec5313b080cd04d645effeb1cc40be796ba60",
+      "bytes": 5352,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/smoke64-candidate.py",
+      "sha256": "38eea3ef02490ea95875cd2b9287b8ea9d5a140eb1935996e57dc36d3350ad31",
+      "bytes": 6865,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/sqlite-version.go",
+      "sha256": "3f3cad6b5f443bcbac1a668565486b0e631aa2cb566cf130125c8b06d8d89c82",
+      "bytes": 452,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/test_release64_candidate.py",
+      "sha256": "fac9299a48ad15436c1f0d79e7d1f0857234326f035482afc53da49c53b41656",
+      "bytes": 10675,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/validation-env.py",
+      "sha256": "21a5b568ee2aec63758f0df5eb74efd252825c610e2d845072d6682bfa26a16f",
+      "bytes": 9785,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-portal-current/verify-web-embed.py",
+      "sha256": "c61f3c2fd9283afee29722af20de3b6883e4fb099b6302da7f80042fa01b69b4",
+      "bytes": 3060,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/backend-web-baseline64/account-lite/account.mjs",
+      "sha256": "35d3a527ed5a17b25b49fd676b73f11cb77c7ddc471dcfb1d93e97e4d36394c1",
+      "bytes": 32426,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/backend-web-baseline64/account-lite/index.html",
+      "sha256": "838dce09d6e5036c5cce09fe15a71a6610027ee4313be4613841d29549c8bd2f",
+      "bytes": 7630,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/backend-web-baseline64/auth-lite/auth.css",
+      "sha256": "cbaebee2317cd2b1bf092c1caca0620a1de7985d1ccaaf1ce7d60995f330728f",
+      "bytes": 5674,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/backend-web-baseline64/auth-lite/index.html",
+      "sha256": "9da58e3741e6c37ff83045b4b52dc4ce64a124ec562593d2f2113623179af23c",
+      "bytes": 4894,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/backend-web-baseline64/index.html",
+      "sha256": "10e543a6ae83118e8676273a710aa1d04b52731c57e2716494311413b0c6db52",
+      "bytes": 2265,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/browser-artwork-qa.js",
+      "sha256": "47fdfedc7448236eebd83cecff5237d0f3f6698f12dbdf49df3f942ae41325af",
+      "bytes": 5571,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/browser-functional-qa.js",
+      "sha256": "836c08448dd14e0f61a693c8cfc2f506dbcebdd801328ac3e0e802065715f547",
+      "bytes": 8089,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/build-baseline64.py",
+      "sha256": "2deff4007c9fd6dccf99fe3956ce6ba5c100c5795e345dba70138227fadd2df5",
+      "bytes": 4953,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/build65-candidate.py",
+      "sha256": "e641635460ae9be029a3de8bf4466cd33b265c36c4bca771051f68fe014616b6",
+      "bytes": 7145,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/check-live-public-assets.py",
+      "sha256": "e5ecaf253642540438a6c88783dab5afc221ec963110195e8272335ff340801e",
+      "bytes": 9943,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/frontend-baseline/src/features/portal/app.tsx",
+      "sha256": "5f75b80543572241780d736ea1254c9c0b8121edf62f3fc6d601c600555636a3",
+      "bytes": 40281,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/frontend-baseline/src/styles/portal.css",
+      "sha256": "9417a122a096f082a10de25f3d2350f0a2c154b7f121e08f25afe5e6678bfc70",
+      "bytes": 40924,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/merge65-web.py",
+      "sha256": "82745d69aaadfaa4a6f60c0c12a568d323e2ee92a1a0c3daf0bdb6d74051cd4c",
+      "bytes": 2753,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/preview-server.mjs",
+      "sha256": "3c2ae7e3db48aeddee32d66c76e552256af7c943215ec00c88b96154ea200418",
+      "bytes": 5880,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/public-artwork-qa.js",
+      "sha256": "58b504e2a1a75925c4cf6e3ad540e17f670a08333db56a6fe41b8ac3ab179d55",
+      "bytes": 5944,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/public-artwork-qa.template.js",
+      "sha256": "e806c18031c4f8d6ff201bce6a054fb978750fb660a67ba6a041726a244ccb59",
+      "bytes": 4976,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/readonly-production64.py",
+      "sha256": "1064a729b03a06ab3b0ff89698b344b59b157a12cf14dd6ad886961e8829905a",
+      "bytes": 2167,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/release65-candidate.py",
+      "sha256": "d13d55b075657da749534022d2e2a4695c362f606f7aa5bb2deb40ff7dea98d4",
+      "bytes": 24639,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/release65-run.py",
+      "sha256": "a14611864e2e973f3ea9b4fa3e286c74d38a7724542bc9d670d65b2286c779e9",
+      "bytes": 5445,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/smoke65-candidate.py",
+      "sha256": "b3ba895d8d009649a1d4dce2586ffd570f7dedfdcca909a07801d1b2d01479ca",
+      "bytes": 7191,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-artwork-current/test_release65_candidate.py",
+      "sha256": "f481a8ec673fd037e879b3baab7b7fbd14886519a871bdf33daf2ed113961f70",
+      "bytes": 11573,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/auth-baseline/auth.css",
+      "sha256": "c5babc974d4d8dcde6f4a4332784f35f918fbda634555ee3824424786975d08d",
+      "bytes": 5461,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/auth-baseline/index.html",
+      "sha256": "9da58e3741e6c37ff83045b4b52dc4ce64a124ec562593d2f2113623179af23c",
+      "bytes": 4894,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/auth-dist-visual-check.js",
+      "sha256": "03e21d15fe204f0ac63118f724ed1beee59b7c32c4ae01b63467bde8cc00d760",
+      "bytes": 3496,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/auth-visual-check.js",
+      "sha256": "e8d38392c28c5b27b01b6673cc28ab57fe9a676a8db8ea1a31fdad6f54c5a8f5",
+      "bytes": 3444,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/backend-source-baseline65/router/web-router.go",
+      "sha256": "65fc5eabdf10050dc48aae35d24b46d74ee842fde5d8cd9f21a2099940a73c9c",
+      "bytes": 1773,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/backend-web-baseline65/account-lite/account.mjs",
+      "sha256": "35d3a527ed5a17b25b49fd676b73f11cb77c7ddc471dcfb1d93e97e4d36394c1",
+      "bytes": 32426,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/backend-web-baseline65/account-lite/index.html",
+      "sha256": "838dce09d6e5036c5cce09fe15a71a6610027ee4313be4613841d29549c8bd2f",
+      "bytes": 7630,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/backend-web-baseline65/auth-lite/auth.css",
+      "sha256": "cbaebee2317cd2b1bf092c1caca0620a1de7985d1ccaaf1ce7d60995f330728f",
+      "bytes": 5674,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/backend-web-baseline65/auth-lite/index.html",
+      "sha256": "9da58e3741e6c37ff83045b4b52dc4ce64a124ec562593d2f2113623179af23c",
+      "bytes": 4894,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/backend-web-baseline65/index.html",
+      "sha256": "ac66ea3b0a3624306df9a2d34514fdba1c799c53f3dfd72fd8bbb35dc672e9a0",
+      "bytes": 2265,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/browser-functional-qa.js",
+      "sha256": "a7a24b76c9ca6d9a0f86b60228b28bad67b7fdbb45f6214f1a1d20ce329fcee7",
+      "bytes": 8091,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/browser-hero-qa.js",
+      "sha256": "96c214d48e737f8ed4dddbb33f6d31e29cde5581ec4c83dff3dc154f3485f444",
+      "bytes": 3749,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/build-baseline65.py",
+      "sha256": "fc9420ea4e31bf7f49050fe910a7d9f57f926dbed56f0878c83470973295febd",
+      "bytes": 5059,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/build66-candidate.py",
+      "sha256": "5e872103d9003a82323e883c21f381e48ed10f045173ee56d5cbb923e034408b",
+      "bytes": 7902,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/check-existing-media-handler.py",
+      "sha256": "5e0fed4a208e41f6931a43d7b8ef2b4c9070ee3bfd6c0862be220516fcfb9453",
+      "bytes": 3163,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/frontend-baseline/src/features/portal/app.tsx",
+      "sha256": "00a0f2650e8b8cf1919c62005dbb7e2f777a80bff0e931d008b33284ccb83b18",
+      "bytes": 41056,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/frontend-baseline/src/features/portal/portal.test.tsx",
+      "sha256": "58337be8178ff305a4ab228ec683981f2b67f3f4f8ee92063768855895d7a9d2",
+      "bytes": 9403,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/frontend-baseline/src/styles/portal.css",
+      "sha256": "6d8cc6af5e7c5826916a20b8ae4a4ce25c6015fdea52e6b250b2c455d3a47571",
+      "bytes": 39467,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/i18n-baseline/en.json",
+      "sha256": "44e228b35d2f0010509130a871e64775ddb414d90478c1df07c99fa0828e8cfe",
+      "bytes": 536723,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/i18n-baseline/zh.json",
+      "sha256": "54ef5a086a7be87d6d3c1dc18c6e128252c12dc47fbe8a576b715f718cc3a109",
+      "bytes": 526034,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/media-handler-fixture/main.go",
+      "sha256": "0f5069b787a75e3b44d52b816b5e8069988c8a9ecffe4b80655785ee38da9463",
+      "bytes": 3945,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/media-http-check.go",
+      "sha256": "8798331bf7738331af0eb9235dc55d2fe4e76cfe4c947a6151619b01c18b3b87",
+      "bytes": 2201,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/merge66-web.py",
+      "sha256": "7cc10eecf6dad4c612a349c89100b96a6f887e57b130b1201f38e000e45b7722",
+      "bytes": 2870,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/preview-server.mjs",
+      "sha256": "288805d3966829648c4e96f833a002046c5b04927e1c2835f42f67caa017d60b",
+      "bytes": 6621,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/public-ui-qa.js",
+      "sha256": "4905eb8c78c063d2c4b727805a7945e3432d2b7e6b45ad9dafcbf7eb6235592c",
+      "bytes": 3748,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/readonly-production65.py",
+      "sha256": "0f180eee25dd24a34c84fee5c0da55f08a45c3cf216e46ef0dd80a5d688567c4",
+      "bytes": 2212,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/release66-candidate.py",
+      "sha256": "4b57ee5a3bbd0fed789cc368765ed870575cb11be3f18382dbfa472e501e42a2",
+      "bytes": 25729,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/release66-run.py",
+      "sha256": "9bd85b0e70a2507c7732e2877c6f220fd9d295d3ccb1dc2f98024e59d06aa090",
+      "bytes": 5445,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/smoke66-candidate.py",
+      "sha256": "ab2a02b0dd237538f5f3d9742a36cd3a60b496e8c3f6f40b57b42e0c722ce99e",
+      "bytes": 8386,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-hero-auth-current/test_release66_candidate.py",
+      "sha256": "3bcd7ef0f1fb54dedd44f47ff089f60312e5c6442aa46748e70da03d0ab471c6",
+      "bytes": 11573,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/Dockerfile",
+      "sha256": "aa89dff117ef214aab4f1cbdf2029b49bb1ae24fff7566cf31ee2c2016eb406d",
+      "bytes": 828,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/backend-web-dist/account-lite/account.mjs",
+      "sha256": "35d3a527ed5a17b25b49fd676b73f11cb77c7ddc471dcfb1d93e97e4d36394c1",
+      "bytes": 32426,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/backend-web-dist/account-lite/index.html",
+      "sha256": "838dce09d6e5036c5cce09fe15a71a6610027ee4313be4613841d29549c8bd2f",
+      "bytes": 7630,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/backend-web-dist/index.html",
+      "sha256": "21df5761be7de74ebd77d3ca3f7786f3a73ff2f5319a3d65e27f15da73a8dee2",
+      "bytes": 2265,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/app.tsx",
+      "sha256": "10ea792c2a3c2d4da6b07f690c7cb60ab3e65bfb9380ad3ba151b0a2945508c6",
+      "bytes": 4455,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/components/data-table/core/data-table-view.tsx",
+      "sha256": "70784b510ef624e292f8e95cd98540e2370f9fe686f58dc58f3bfb6605918881",
+      "bytes": 8596,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/components/layout/components/authenticated-layout.tsx",
+      "sha256": "93e173c118722ad16a5084bf0b742181ef82ed3c592f2d84837088d0bc67f6c3",
+      "bytes": 2185,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/components/layout/components/header.tsx",
+      "sha256": "f54c9019ec841ad8f5918a0501b04872e9488800a5043f56f68d51b243aea9a0",
+      "bytes": 1340,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/components/layout/components/section-page-layout.tsx",
+      "sha256": "850699889f31ffce3ffc269f7ce0dc9627610e3254cbbc5e1cb3dde39ddb7ae1",
+      "bytes": 4119,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/components/layout/components/system-brand.tsx",
+      "sha256": "564a7f2f5d4efa836f6103f8ea660f9e763deb7381bd90267d2b7de5f21046c7",
+      "bytes": 3513,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/before/frontend/src/styles/theme.css",
+      "sha256": "abf0d3fc4f5bb6e7c8f0f75277b363117376abc97f2baca91f0be7ca1db90903",
+      "bytes": 9583,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/build67-candidate.py",
+      "sha256": "7765230953b2ddb9f610d0e33a35aeef6f387d2ce18e24525f51be513bd05035",
+      "bytes": 6064,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/check-desktop.js",
+      "sha256": "9fcf75a6be9326639499f3cf3d9dff6c6bfc64adbdf4f82f426d1f8a7bc70d77",
+      "bytes": 2930,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/check-dialog-table.js",
+      "sha256": "42349615fa5e1e9c073fa700d610bcb0a62e10198b7c56feb8107af33da0616d",
+      "bytes": 3642,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/check-highlight-boundary.js",
+      "sha256": "25f4217b19139e670d624c37e301d878e2b13f066c9b279a3ba119d8bd4fd463",
+      "bytes": 925,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/check-live-ui.js",
+      "sha256": "ee401e0129be7b10891c328c2510a67b443d888c8974c3bb1b1e09fa556cf6a7",
+      "bytes": 2531,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/check-mobile-public.js",
+      "sha256": "6d4ccca5104cd10786e1d546f0a977c1da5e20ccea4ca0df219ff5a75a2fe20a",
+      "bytes": 4329,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/check-sidebar-baseline.py",
+      "sha256": "2cfc13f9acc3b4818b590dfb6043fb013f4188d29951279850d7b054ceb495f2",
+      "bytes": 1501,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/extend-baseline.py",
+      "sha256": "55e2485d4ac06d1c2ae963d4d1990c1125e8c03b08d3b9d9303b01ff2b4d0e47",
+      "bytes": 712,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/finalize.py",
+      "sha256": "d4cf08505942328be609f7d066f67903ff9e2b098c20332491665bace265af6e",
+      "bytes": 6130,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/inspect-ui.js",
+      "sha256": "e75eda6e8ffc9a8941492cc90822bc4975376e11501bd272264333339261d788",
+      "bytes": 896,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/media-http-check.go",
+      "sha256": "8798331bf7738331af0eb9235dc55d2fe4e76cfe4c947a6151619b01c18b3b87",
+      "bytes": 2201,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/merge67-web.py",
+      "sha256": "a05aaf554ae7b60cb2c6dc0a5727c43bb8940bf1edf265cec78b67d100414053",
+      "bytes": 2820,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/open-live-ui.js",
+      "sha256": "5bd8b89f5be817a45bdd8a38013dd1b95d647ed0aa021cbec2943208bffb1bc6",
+      "bytes": 1770,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/open-user-menu.js",
+      "sha256": "5b471969ce0b840ea662de3d66d26a0923a14a98573fce9580ae276116f8c1be",
+      "bytes": 125,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/prepare.py",
+      "sha256": "8632f1a8b82d7b8ffcfb5b2a4ba57c3c19bd1d1f4f4e0493270ba79c52fb3095",
+      "bytes": 2656,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/prepare67-tools.py",
+      "sha256": "d3b9259a17a89c64e068675b634c4fcdb23809b20ec2bd2cfd621bc1c47ebd39",
+      "bytes": 2137,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/preview-server.mjs",
+      "sha256": "4715c189e074cd84f1ec2a6e3f4dcf6c756036b9a1efaea6134846dafdb7d7d0",
+      "bytes": 14216,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/release67-candidate.py",
+      "sha256": "706caad23180a0937b6b7e6c7b9cd9f2db903af6977bdb3120ebbe261adbfa06",
+      "bytes": 25729,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/release67-run.py",
+      "sha256": "e4b10f7d3848d0e63dcb2429492a94de76198e9589c66571cc21a3e1d471c868",
+      "bytes": 5445,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/reproduce66.py",
+      "sha256": "a6568fe15e18d640c88f717578e42aee4ee78c708cf638c569285293f61ed270",
+      "bytes": 1666,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/run-ui.py",
+      "sha256": "8066e9be1d091b86d86918d62565b5781ad2409dfd91afe346ff47e65a340072",
+      "bytes": 1672,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/smoke67-candidate.py",
+      "sha256": "874657467d306c83c01ae0a1151c74fae1bbc8203a81d89954d25f64060156e1",
+      "bytes": 8389,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/stage-progress.py",
+      "sha256": "42b06fb34655ab9e8049c543471d498a7230787bbee48433aa8c67453b55d4e0",
+      "bytes": 658,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/test_release67_candidate.py",
+      "sha256": "f9aeb8298c965032e1a4a60fcb1d129afc867e7c8b01d500f7a70dcc9c4de0f0",
+      "bytes": 11573,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-theme-current/verify-public.py",
+      "sha256": "650667e651c24f153be970643e48389a5bf0010e47816a99f1636050605ceb74",
+      "bytes": 2876,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/prepare-history-deletion-proposal.py",
+      "sha256": "acf7d8c7e427ece6b009e5536620803ce048d0ea37bbdf027a56ff93f64cffa2",
+      "bytes": 5765,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/read-availability.py",
+      "sha256": "4f54a97a5555213654c38decac5f5732ddae69cf3263209daa06a7a117744ff1",
+      "bytes": 3172,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/read-history-log-links.py",
+      "sha256": "c669cae31b906a1e26e9ac58bb1c4955dbcc41d5683830f8a1c43594f86d5785",
+      "bytes": 4067,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/read-history-scope.py",
+      "sha256": "40f2c347fd4efe5ee5a6989aba88895a528e9e22148d470dc51d4d7c27cc19d1",
+      "bytes": 7368,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/read-production.py",
+      "sha256": "e710c71a618c638d56ef1845763f916cbd55c7825d7bd365621cbc1abfdae544",
+      "bytes": 3180,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/read-retirement-counts.py",
+      "sha256": "06324a86242e499ab20e161f0fcf376fd7dd0b67ffa7b69009df95efb5ebd87b",
+      "bytes": 4025,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-admin-operations-current/update-state.py",
+      "sha256": "0d2691c83eaf658587b1e36fd5ccbb22cf5f0313b7d9ef2e3e5b39a2e9bfab1e",
+      "bytes": 4715,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/common/constants.go",
+      "sha256": "28826586694e59cbc412a49706e4d4dffd76574122d8f7221d2a4fb06da644a3",
+      "bytes": 7523,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/controller/pikno_fixed_cny_test.go",
+      "sha256": "cac1a48bd1f4b08997af3ff0ac48adc229774fc9c3bae23de57acce64073e3cc",
+      "bytes": 5644,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/controller/topup.go",
+      "sha256": "7b68bb5749f8687487587af7f5e92c921d7e6a7f86bf68203641ce984da57ce2",
+      "bytes": 21424,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/main.go",
+      "sha256": "4c2b562d2f91101819a06abd7747ef5a37caf35e3e97771e77804484cc3f551a",
+      "bytes": 12493,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/middleware/access_token_routes.go",
+      "sha256": "63c718f3f4ea84c4940206c509d8f39eec288b5d9f9b1dd63d052271419d84f5",
+      "bytes": 23699,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/middleware/rate-limit.go",
+      "sha256": "90aec6468c92b1ffe2490565b5e4f13f0c154d90bd1a839bf93e47c59c53ddc6",
+      "bytes": 8053,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/model/topup.go",
+      "sha256": "0f860a3dd06a1cc3185e821a4d2cc48351006071d292e8d502d56a6922b8687d",
+      "bytes": 20908,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/backend/router/api-router.go",
+      "sha256": "0a49577dbf3374c0d603682fb2ef9865469b9e716df1a424cecab3ea7f2b458c",
+      "bytes": 27468,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/embedded/account-lite/account.mjs",
+      "sha256": "35d3a527ed5a17b25b49fd676b73f11cb77c7ddc471dcfb1d93e97e4d36394c1",
+      "bytes": 32426,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/embedded/account-lite/index.html",
+      "sha256": "838dce09d6e5036c5cce09fe15a71a6610027ee4313be4613841d29549c8bd2f",
+      "bytes": 7630,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/lanjing-bridge/server.mjs",
+      "sha256": "8aab7808ccd2964c27b683bd0dcbcb723ccf34b43c34fce1a76f46a1f7ea1719",
+      "bytes": 17811,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/lanjing-bridge/test/server.test.mjs",
+      "sha256": "987869be947c6475fe5530ad9b7ee0213e95f0eddbacc33e530540b7866ac6da",
+      "bytes": 10050,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/web/account.mjs",
+      "sha256": "35d3a527ed5a17b25b49fd676b73f11cb77c7ddc471dcfb1d93e97e4d36394c1",
+      "bytes": 32426,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/web/client.mjs",
+      "sha256": "ced18a96b7efe620e823d62a57ff5cde7b511dd42dc56f6c5a7703ffe1e59c12",
+      "bytes": 20505,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/before/web/index.html",
+      "sha256": "838dce09d6e5036c5cce09fe15a71a6610027ee4313be4613841d29549c8bd2f",
+      "bytes": 7630,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/bridge-backend-fixture.mjs",
+      "sha256": "ff717028ba34eaa75208500e21b6fc1e2c9928497450eb8980b904c20fcc0aa8",
+      "bytes": 9556,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/build-candidate.py",
+      "sha256": "6ef60cacad4f3df47e9036dadc3c40cf11d245212f1745a06431b55b43f1dc38",
+      "bytes": 3615,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/check-bridge-backend.py",
+      "sha256": "180e49cd73469c88351a2243f6b26fc807fe2b92352aff1b1f094a2bba3e0aa6",
+      "bytes": 2778,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/check-database-matrix.py",
+      "sha256": "d67d75332efe928487edc2f8800ba064f6123c601828d8876ff973fcc373ea58",
+      "bytes": 3392,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/build-candidate.cjs",
+      "sha256": "8b8545a4f38e84e331866d387f9a2c1ec1d9182522fe05343a7a2806011aaacd",
+      "bytes": 3494,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/cashier-electron-fixture.cjs",
+      "sha256": "deec0357797a6b9014e01e7b8e93dcd9404cf2659f657ce3d246c1cda8ae7d8a",
+      "bytes": 6778,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/portable-startup-fixture.cjs",
+      "sha256": "4d8b770c4d0d39a0409bd5265d4a98795ccf1e8f3cb917e9efaddb7434641d36",
+      "bytes": 3327,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/portable-startup-fixture.ps1",
+      "sha256": "80d469a01dad888f1c14159334000cb17b98617356a1d9615a056ea161a7cf33",
+      "bytes": 3300,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package/stage.json",
+      "sha256": "dc9b73def148378fc51d8c907200375d5dfebd889b4641b17e92a0c201601995",
+      "bytes": 1027,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/build-candidate.cjs",
+      "sha256": "d66e49943fe9f2a6c52570e14c30b77cf8c0813af3b3cd82785dc33f77ac2efb",
+      "bytes": 3494,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/cashier-electron-fixture.cjs",
+      "sha256": "548b09f9ff0fccf9118714ab50675e5e43947145e12d9e761ab0fe74ea7752c3",
+      "bytes": 6847,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/portable-startup-fixture.cjs",
+      "sha256": "4d8b770c4d0d39a0409bd5265d4a98795ccf1e8f3cb917e9efaddb7434641d36",
+      "bytes": 3327,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/portable-startup-fixture.ps1",
+      "sha256": "80d469a01dad888f1c14159334000cb17b98617356a1d9615a056ea161a7cf33",
+      "bytes": 3300,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/desktop-package-v3/stage.json",
+      "sha256": "4b94ef0291b4438801b9a0e58939f78e7fa2773596c5e137c6c847a8ff601c21",
+      "bytes": 1042,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/web-fixture.mjs",
+      "sha256": "f51bb214f752d98296c6a2bcd7401ac6ada0810a8611d19b1a80151d63469fa4",
+      "bytes": 4151,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-current/web-flow.cjs",
+      "sha256": "653bec75206312d7083f5b137700df76ae81a4c59de4db7fbae67ad332ce8591",
+      "bytes": 1442,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/build-candidate.py",
+      "sha256": "bad0340c4f626808e74b11e6fcae8079d857f4d4265a287e1c41a60086ba435b",
+      "bytes": 604,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/build-candidate.cjs",
+      "sha256": "88dd0a30cdbe424c3ae89ebd1379cf94caee1d6df8b034fe669b15e55d918dc7",
+      "bytes": 3508,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/cashier-electron-fixture.cjs",
+      "sha256": "baf787a5b480427ac593df589206baa3f087ecfad1808149e4acdbeb2dcbf290",
+      "bytes": 8937,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/portable-startup-fixture.cjs",
+      "sha256": "4d8b770c4d0d39a0409bd5265d4a98795ccf1e8f3cb917e9efaddb7434641d36",
+      "bytes": 3327,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/portable-startup-fixture.ps1",
+      "sha256": "80d469a01dad888f1c14159334000cb17b98617356a1d9615a056ea161a7cf33",
+      "bytes": 3300,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/desktop-package/stage.json",
+      "sha256": "a955a8ed74a39fee509158970ad379fe0de77c4756ccd37833bd91d6743399aa",
+      "bytes": 1077,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/web-fixture.mjs",
+      "sha256": "7fe7f912cb618887bc1dc529cc1f2c8841a8e887525b6c56d1866b116d6e6583",
+      "bytes": 5704,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-payment-one-click-current/web-flow.cjs",
+      "sha256": "070cc225ef72a107fe361a96705739e6468f841a37d46c0b042419b0ca73601b",
+      "bytes": 2688,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-topup-glass-current/build/account-lite/account.css",
+      "sha256": "891449355845729428d8e6a0d4015deca37a150b0a970db915d57d7a78fe65ea",
+      "bytes": 20886,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-topup-glass-current/web-flow.cjs",
+      "sha256": "3e725ea38ee70b17744ec200fa4d60642710d7dd9049f04431bbd04b8a7d111a",
+      "bytes": 3844,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/apply71-run.py",
+      "sha256": "a0b6e49380cfc73d070c5e5230c7c145f6ea9c4bdc8cd51729b31e8b3a352159",
+      "bytes": 3199,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/audit71-rebaseline.py",
+      "sha256": "6bad6f892b61e9296eba0a26893596f126dce033ae541de2e8247cd215bbdfb6",
+      "bytes": 6724,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/build-backend.py",
+      "sha256": "8696dd140c6dd9816d2d76ccc68278a5a863637f04af2483a1a4d574e6a8034e",
+      "bytes": 3374,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/build-desktop.cjs",
+      "sha256": "a147b5cde4d7db38daffbc633c8f56acbf29acc0e20bb3e1b1cebb08c2f48694",
+      "bytes": 3428,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/check-database-matrix.py",
+      "sha256": "4faf6366f11ab2381ddd83d8dd61dd9711e4eb99b3ade68973bd2ca3a30b6763",
+      "bytes": 3484,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/check-http-integration.py",
+      "sha256": "06e33ec399c82cf0a65d3c6e93dba523ee09659a4409eda9580a5dfda1c84853",
+      "bytes": 2208,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/desktop-browser.test.cjs",
+      "sha256": "c5365e9e51d2024c6d35fb57902ed531e5ee9f3bc06b02148808a7da87a5f558",
+      "bytes": 13229,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/onboarding-http-fixture.mjs",
+      "sha256": "7fe8e7039351726ad514f8bcae7f5e6f13766ea5d50a00bc6ef7f5ff8dc7cca8",
+      "bytes": 6927,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/portable-startup-fixture.cjs",
+      "sha256": "4d8b770c4d0d39a0409bd5265d4a98795ccf1e8f3cb917e9efaddb7434641d36",
+      "bytes": 3327,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/portable-startup-fixture.ps1",
+      "sha256": "80d469a01dad888f1c14159334000cb17b98617356a1d9615a056ea161a7cf33",
+      "bytes": 3300,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/prepare-website77.py",
+      "sha256": "196080ca082cafa4f61fab54a72a31538506ec555ff3c781961dbbe65e4cd902",
+      "bytes": 10567,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/publish-website77.py",
+      "sha256": "5de71af63a53f6b1f3cd6b7c7964ed1e7904ad22963547d00b2dc9dcbc5fdfd1",
+      "bytes": 19849,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/record-live-state.py",
+      "sha256": "6f21d740dfbb0f471c5185cf95be59d4753c2dca6e85eaeec52d5b0433bb24e5",
+      "bytes": 4428,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/release71-apply.py",
+      "sha256": "e5653a09766d5e6e170ee398eaef4e6a5f5893ca7d14bf94b5eefdab1140da82",
+      "bytes": 19105,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/release71-candidate.py",
+      "sha256": "9691fb2b031f102dc5eccc85dbadfbac626fff4e5ff90b24aacfa58dd584f1a0",
+      "bytes": 14824,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/release71-run.py",
+      "sha256": "73be46ad6c48f7dcd17d3231f245060bb75a4f7f3da123d452bd9012fd2dc431",
+      "bytes": 5905,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/test_website77_operations.py",
+      "sha256": "8e77f80021d6a7f6bec03de6303a0b1ec48ef120297362a051bc3a52afd42537",
+      "bytes": 4797,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/update-state.py",
+      "sha256": "7e4d12f11e2b4470b0838fdf426238f80a90f8b6e8a9833b178fd3f631bbb00d",
+      "bytes": 4534,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/verify71-guards.py",
+      "sha256": "10a96b05d44a4c0d08b1c57a102d065b9ba3029d670e97ccb216e636686ce3c1",
+      "bytes": 11887,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/verify71-public.py",
+      "sha256": "652c80589f520bb9e207acd9fe0c92ee99d633372f1e499153fce0746cf2cf6a",
+      "bytes": 3329,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/web-fixture.mjs",
+      "sha256": "a18158ab351e12c6f9e4d16bb29500922e096063dc296ca45b9011d4ec3ecfc4",
+      "bytes": 5169,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/web-flow.cjs",
+      "sha256": "386bc48125472fd060c535d5f41d0eee456f8d68b49cdd7b070fa996bd8c375a",
+      "bytes": 3870,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-before-promotion/tests/website-video-cases.test.mjs",
+      "sha256": "99a12b458c02062a481883dcdba97b6cdb2802d8bb3eb9307299f927f2e7e98a",
+      "bytes": 1529,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-before-promotion/website/public/index.html",
+      "sha256": "62d231c596c624f52d26c8e13aba57079306c68ba0b988222d38e86bdf673a15",
+      "bytes": 9366,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-before-promotion/website/public/quickstart.js",
+      "sha256": "4f7df3f36542cc005fab5d2327384cf09c80129acb7e100547815b48d40c3b34",
+      "bytes": 7364,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-before-promotion/website/public/tutorials/index.html",
+      "sha256": "a43c48f7d4a3e2c70fa59624881d25145fccfc03b783632ecd36771045a6dabc",
+      "bytes": 12654,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-before-promotion/website/src/download-handler.js",
+      "sha256": "58400bd7d9cb3bddb208ad3cf5962a2810616de523ad92990cc6ebc16fff127c",
+      "bytes": 8919,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/tests/website-download.test.mjs",
+      "sha256": "da02c1299fe7a7810b6b9b1dc83dc1093c6801e3b419e032836e42451cc1e48e",
+      "bytes": 19862,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/tests/website-quickstart.test.mjs",
+      "sha256": "269ac8bcfb6c68245c124693ab7d1ddbbc5ac8a51cd0d199c8f8bea099974932",
+      "bytes": 5676,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/tests/website-video-cases.test.mjs",
+      "sha256": "99a12b458c02062a481883dcdba97b6cdb2802d8bb3eb9307299f927f2e7e98a",
+      "bytes": 1529,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/.wrangler/cache/wrangler-account.json",
+      "sha256": "47b866d07e05299083159662251234c06a54021010aa85de60684d0493df5998",
+      "bytes": 119,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/public/index.html",
+      "sha256": "c62a86a41d2f5d6a638d9bc18bc18a98861fce3e8e8574e257fdc609f229f6b7",
+      "bytes": 9610,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/public/quickstart.js",
+      "sha256": "a27a4410e4b9fbadac6b7e66bf5a3921deb05f2d1320346645c8ef29de527c56",
+      "bytes": 7427,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/public/tutorials/index.html",
+      "sha256": "876660a4652fc8a5be1ded8c003621f576dd1e3d74356f6d98374fe649dd2045",
+      "bytes": 11982,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/src/download-gateway.js",
+      "sha256": "5c7ba96812d07155d1a3926c6edd8e55848b15e04c920cfbd4d91c3b361cf263",
+      "bytes": 953,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/src/download-handler.js",
+      "sha256": "99ea266ec7c6c491ad9bf4180f948a3a1c4b9db9061548fc0274dffb2142ba16",
+      "bytes": 9275,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/src/worker.js",
+      "sha256": "e548d364d402402f2c564f9ffa0f414afaf57cf57651f33fd95a83af190bd2c9",
+      "bytes": 445,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-candidate/website/wrangler.jsonc",
+      "sha256": "c2f3ab19e16571fb55e6bcfd7ac26633ed1bc0a580dbb212f50229020d96bfb3",
+      "bytes": 751,
+      "reason": "previous website build config"
+    },
+    {
+      "path": "output/relay-account-browser-current/website77-proxy.py",
+      "sha256": "fce8493d591e9da48b765b589c42a2921702d1e7cf8afb816060d7f3ffad3170",
+      "bytes": 7495,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/audit-payload-usage.py",
+      "sha256": "cc57d2b981ccc4b2aaaa62cbfc9c903ef13553b71f3329c75f8e7b4b9b88a348",
+      "bytes": 4104,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/audit-server-readonly.py",
+      "sha256": "eee2daf8fc91226e7d5dd27408885e3cbfd8fe9f291384b90544527727b032d4",
+      "bytes": 7489,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/audit-server-references.py",
+      "sha256": "8664803114f0c64af0af600208e7768f7afa29b5b64dcbd866052554bb4f65b6",
+      "bytes": 5089,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/build72.py",
+      "sha256": "dde7f9f80af25798f33458f2dc5d110f14635e4a0fe686228ec88b6656b82529",
+      "bytes": 4635,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/capacity-preclean.py",
+      "sha256": "4c83d954df557a8e3ab80efe7496fb959f70533c56c7880d5cba945c71072de4",
+      "bytes": 9656,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/cleanup-after-release.py",
+      "sha256": "07d78670a74408fcc1a115fd63cd5278bfb171da42d5c491a5e93de98cf6d488",
+      "bytes": 12921,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/prepare-cleanup-plan.py",
+      "sha256": "8538fcf1cef31ada8a526d92b055ef071b52187ae1bd466e1d0428ef80ac81ee",
+      "bytes": 5696,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/preview.py",
+      "sha256": "d8736a4987c145312ffc8d21aeb76d1acf03bfa1b414303209609e1edaf22944",
+      "bytes": 2934,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/release72-remote.py",
+      "sha256": "0e6f1f5c5310a525f597c1c1fe53a07fe920e4718ca603644065f4c8cc00dd21",
+      "bytes": 23554,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/release72-run.py",
+      "sha256": "7481ea0472651881b6735fa0621f593b03f9ac72af30a16cf9d797c6dedc3bea",
+      "bytes": 5383,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/verify-release-guards.py",
+      "sha256": "18f525726ec5b17f203b2a0b8aba45c62bcbac679c61982c84e7d7243c1b6d6a",
+      "bytes": 6733,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/verify72-public.py",
+      "sha256": "5ef33f8d1f241f1a80b1ab1d7410bb79b5105c01786ef39eb4f35d9f7e6d53b1",
+      "bytes": 3648,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/visual-local.js",
+      "sha256": "66ccc9c216e11faf29bdef32547c27cfe5b4e6549cc7e5d545e86bdf50ceed35",
+      "bytes": 2126,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-model-gif-current/visual-variant.js",
+      "sha256": "cea220fdf355a8bea7bd520362655c0dd6eff0359dd7a291cdbf5ab2a7dfea12",
+      "bytes": 1988,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/common/constants.go",
+      "sha256": "28826586694e59cbc412a49706e4d4dffd76574122d8f7221d2a4fb06da644a3",
+      "bytes": 7523,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_fixed_cny_test.go",
+      "sha256": "cac1a48bd1f4b08997af3ff0ac48adc229774fc9c3bae23de57acce64073e3cc",
+      "bytes": 5644,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_line_sync.go",
+      "sha256": "377e2623eb3a5cee1e95797f40ab07072d754c5ed2ecbf810ad06697b70fb06a",
+      "bytes": 8090,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_line_sync_closure_test.go",
+      "sha256": "dfdab9da4ba1d2ebd9928378b23954e16838c60c09fe7bb3aad77e3d2ab3efb3",
+      "bytes": 3249,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_line_sync_parser_test.go",
+      "sha256": "f75fde2ff2ac7c1631445e83a07fc7ffeb0e91e2e480adbd6371a4fb7bf7f9a6",
+      "bytes": 9126,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_line_sync_scheduler_test.go",
+      "sha256": "aa5a284f427649355d969a788823f52f7de94715cf62a56e830cc5ed03c8fcdb",
+      "bytes": 2461,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_line_sync_test.go",
+      "sha256": "7f00a5fa7c3ba7fe0021f2928620a7081d1c61052063439e61452dd5c2b17205",
+      "bytes": 7707,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_lines.go",
+      "sha256": "7799d36723b4a57a406f42a7633362b2efb9a75fa0c2a15c49014fd6e5a49b99",
+      "bytes": 12209,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_price_quote_test.go",
+      "sha256": "085ede7498701edd749fefaf30ba6c4153db920346e8e56539a45c09419231b8",
+      "bytes": 36482,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/pikno_settlement_test.go",
+      "sha256": "850cd8778b81b3a830f35a4fe8d3f301a51c0cae9e97c5600b4c5c711ea95403",
+      "bytes": 19001,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/controller/topup.go",
+      "sha256": "7b68bb5749f8687487587af7f5e92c921d7e6a7f86bf68203641ce984da57ce2",
+      "bytes": 21424,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/main.go",
+      "sha256": "4c2b562d2f91101819a06abd7747ef5a37caf35e3e97771e77804484cc3f551a",
+      "bytes": 12493,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/middleware/access_token_routes.go",
+      "sha256": "63c718f3f4ea84c4940206c509d8f39eec288b5d9f9b1dd63d052271419d84f5",
+      "bytes": 23699,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/middleware/logger.go",
+      "sha256": "2fecfba19d83eaf95f8212297ec33d6cc1f8b1770f2287050f230ed3b5355cc3",
+      "bytes": 1591,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/middleware/rate-limit.go",
+      "sha256": "90aec6468c92b1ffe2490565b5e4f13f0c154d90bd1a839bf93e47c59c53ddc6",
+      "bytes": 8053,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/model/pikno_line.go",
+      "sha256": "8cd8b8514a2e1cee389c9f9a7105a956759379e1a647119817d94ba4f0903b56",
+      "bytes": 36276,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/model/pikno_line_closures.go",
+      "sha256": "88c7351f8cacee12c89e600f5d46573cc7b993208784c6afb46347cd0e6d3b8e",
+      "bytes": 4935,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/model/pikno_line_sync.go",
+      "sha256": "7e1432c7977c39e1b5cb35eb2f11c901f235e4b70a173c8aa5404ab6ba7f0c6f",
+      "bytes": 27087,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/model/pikno_line_sync_test.go",
+      "sha256": "255b3e9b09d0cabbdd395c681d74a65a397ac448dbb87bcad59ff6b2b836f7f3",
+      "bytes": 29717,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/model/pikno_line_test.go",
+      "sha256": "fc56da6f83d6fded2c7d57bb7bacd199ecd4f1ecc6670790fe41f778fa7d6bae",
+      "bytes": 7935,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/model/topup.go",
+      "sha256": "0f860a3dd06a1cc3185e821a4d2cc48351006071d292e8d502d56a6922b8687d",
+      "bytes": 20908,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/pkg/piknocatalog/catalog.go",
+      "sha256": "3d224eab45178f562f5f84eeaa598e0fab794dff34c6bc17672891168824940b",
+      "bytes": 15331,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/pkg/piknocatalog/catalog_test.go",
+      "sha256": "3e6781e05614abd70714f731f69a96acb70d749148fbbd1e1be7255f1ea4507e",
+      "bytes": 8607,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/pkg/piknocatalog/store.go",
+      "sha256": "0b7616e57f3912744fe477d78fe0f6fdbafcffb6a4953dc5af9dfda5cb520368",
+      "bytes": 7358,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/pkg/piknocatalog/sync_snapshot.go",
+      "sha256": "2ea3f5fc83616a033c43aa1e8aff08071dd3de58365a357e81b3f6d3785d1db4",
+      "bytes": 12233,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/pkg/piknocatalog/sync_snapshot_test.go",
+      "sha256": "10111ae11df91d95a66057fcbf5327106cb1050c66698e97f4c61185f48bf651",
+      "bytes": 16867,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/router/api-router.go",
+      "sha256": "0a49577dbf3374c0d603682fb2ef9865469b9e716df1a424cecab3ea7f2b458c",
+      "bytes": 27468,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/web/dist/account-lite/account.mjs",
+      "sha256": "35d3a527ed5a17b25b49fd676b73f11cb77c7ddc471dcfb1d93e97e4d36394c1",
+      "bytes": 32426,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/baseline67-source/web/dist/account-lite/index.html",
+      "sha256": "838dce09d6e5036c5cce09fe15a71a6610027ee4313be4613841d29549c8bd2f",
+      "bytes": 7630,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/Dockerfile",
+      "sha256": "53af95b3efc9740f8e50bfc43edd98337e0e90dc87561e3c1f155755b65a644c",
+      "bytes": 828,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_line_sync.go",
+      "sha256": "377e2623eb3a5cee1e95797f40ab07072d754c5ed2ecbf810ad06697b70fb06a",
+      "bytes": 8090,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_line_sync_closure_test.go",
+      "sha256": "dfdab9da4ba1d2ebd9928378b23954e16838c60c09fe7bb3aad77e3d2ab3efb3",
+      "bytes": 3249,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_line_sync_parser_test.go",
+      "sha256": "f75fde2ff2ac7c1631445e83a07fc7ffeb0e91e2e480adbd6371a4fb7bf7f9a6",
+      "bytes": 9126,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_line_sync_scheduler_test.go",
+      "sha256": "aa5a284f427649355d969a788823f52f7de94715cf62a56e830cc5ed03c8fcdb",
+      "bytes": 2461,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_line_sync_test.go",
+      "sha256": "7f00a5fa7c3ba7fe0021f2928620a7081d1c61052063439e61452dd5c2b17205",
+      "bytes": 7707,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_lines.go",
+      "sha256": "7799d36723b4a57a406f42a7633362b2efb9a75fa0c2a15c49014fd6e5a49b99",
+      "bytes": 12209,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_price_quote_test.go",
+      "sha256": "085ede7498701edd749fefaf30ba6c4153db920346e8e56539a45c09419231b8",
+      "bytes": 36482,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/controller/pikno_settlement_test.go",
+      "sha256": "850cd8778b81b3a830f35a4fe8d3f301a51c0cae9e97c5600b4c5c711ea95403",
+      "bytes": 19001,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/model/pikno_line.go",
+      "sha256": "8cd8b8514a2e1cee389c9f9a7105a956759379e1a647119817d94ba4f0903b56",
+      "bytes": 36276,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/model/pikno_line_closures.go",
+      "sha256": "88c7351f8cacee12c89e600f5d46573cc7b993208784c6afb46347cd0e6d3b8e",
+      "bytes": 4935,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/model/pikno_line_sync.go",
+      "sha256": "7e1432c7977c39e1b5cb35eb2f11c901f235e4b70a173c8aa5404ab6ba7f0c6f",
+      "bytes": 27087,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/model/pikno_line_sync_test.go",
+      "sha256": "255b3e9b09d0cabbdd395c681d74a65a397ac448dbb87bcad59ff6b2b836f7f3",
+      "bytes": 29717,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/model/pikno_line_test.go",
+      "sha256": "fc56da6f83d6fded2c7d57bb7bacd199ecd4f1ecc6670790fe41f778fa7d6bae",
+      "bytes": 7935,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/pkg/piknocatalog/catalog.go",
+      "sha256": "3d224eab45178f562f5f84eeaa598e0fab794dff34c6bc17672891168824940b",
+      "bytes": 15331,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/pkg/piknocatalog/catalog_test.go",
+      "sha256": "3e6781e05614abd70714f731f69a96acb70d749148fbbd1e1be7255f1ea4507e",
+      "bytes": 8607,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/pkg/piknocatalog/store.go",
+      "sha256": "0b7616e57f3912744fe477d78fe0f6fdbafcffb6a4953dc5af9dfda5cb520368",
+      "bytes": 7358,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/pkg/piknocatalog/sync_snapshot.go",
+      "sha256": "2ea3f5fc83616a033c43aa1e8aff08071dd3de58365a357e81b3f6d3785d1db4",
+      "bytes": 12233,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/before/backend/pkg/piknocatalog/sync_snapshot_test.go",
+      "sha256": "10111ae11df91d95a66057fcbf5327106cb1050c66698e97f4c61185f48bf651",
+      "bytes": 16867,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/build68.py",
+      "sha256": "8c3201373aa573ab20c7232627aff942689599ce455f76f3d64597125a61bdf0",
+      "bytes": 4138,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/check-public-catalog.py",
+      "sha256": "ecbe36311a1188b3b456b95a824a468e1fdec5a90156b1e2009272b606c554f3",
+      "bytes": 1083,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/cleanup-test-resources.py",
+      "sha256": "2113f03f2bf9af4f31d5ffefc09450fba24ce4c4be2708795795d294257005a0",
+      "bytes": 1808,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/cleanup68.py",
+      "sha256": "1bcc8b2dbf1ec3287158f8599122478baf3d570a2c8557043ff981642b3c961d",
+      "bytes": 20318,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/database-matrix68.py",
+      "sha256": "90a38a45a88a4f124c315eb86731aa24464563b826abf1d214ae64e235c6aeee",
+      "bytes": 18181,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/finalize68.py",
+      "sha256": "0439a1dd0197c5bde05be3f9eeffff143c166abb5a401738f55141a64289bf59",
+      "bytes": 6916,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/media-http-check.go",
+      "sha256": "8798331bf7738331af0eb9235dc55d2fe4e76cfe4c947a6151619b01c18b3b87",
+      "bytes": 2201,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/prepare-public68.py",
+      "sha256": "9f5e62049563d6e928e3a213d7110fb43cff9fbee5fd97702e39baccefa64dae",
+      "bytes": 463,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/prepare-release68.py",
+      "sha256": "66f21523acadefcd340d39ce6d6ee1fe4de8c77d22a5e7e14f38b86e84a8ec75",
+      "bytes": 2226,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/prepare.py",
+      "sha256": "4f7c3e5ed2bf4f3ac5b79a990a8d028644b3fd05ba6a70f4a4c514897b04fa83",
+      "bytes": 2880,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/prepare68-build.py",
+      "sha256": "4a1296f3809ea13de5369a76c107bfd655287a28e03d66468672f2a70a4f6510",
+      "bytes": 702,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/progress68.py",
+      "sha256": "a813d9909a9a55d5fa06084b9d0d9387ce27bb410087603785e75d7fb414fe34",
+      "bytes": 1175,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/public_https.py",
+      "sha256": "bb430ea161e46b1bac4c075c2b62dfd5e45ce395f6ae82fe17c5131df31f773d",
+      "bytes": 1006,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/quiet-window.py",
+      "sha256": "026e7e54890d5c6cb1c53fa92d9a63882b54fa78664526e1acb92a8bc71a2168",
+      "bytes": 1469,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/release68-candidate.py",
+      "sha256": "9b9453a3815c58270c021b5baefe41b2ae4b9ddef6d71ad9e21c4f367d9e7030",
+      "bytes": 25461,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/release68-operations.py",
+      "sha256": "4a64c7c77b786e22a36f91d8ceef47c3956951f629d506463320cb84966288ae",
+      "bytes": 12726,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/release68-run.py",
+      "sha256": "a0ddd2c9ac4d7cc52f665c6c06677b9d2ce8f4110c4ab9baeb00a23287487ae9",
+      "bytes": 5518,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/reproduce67.py",
+      "sha256": "2ed8e5c82081265e28c383dd6ce3eb08f31e3d2a0b57fe0f6e1fb34933bd2486",
+      "bytes": 1529,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/save-root-source.py",
+      "sha256": "deac6c70bb62415f22994a23a7a1be3f579636e40ded22dc6db13ec38c3c07e9",
+      "bytes": 394,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/smoke68-candidate.py",
+      "sha256": "c82df190fb9f2dd8e0a2c2da89f22152b0e65f5dec56a21a8d1a8d193a96a975",
+      "bytes": 8398,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/sqlite-version68.go",
+      "sha256": "bf454a33d2c1e14144c2349c2258cc1fe1157db1bdb3c855de1eff10a6c2522d",
+      "bytes": 265,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/test_cleanup68.py",
+      "sha256": "92367f7e83e9585ea340bf1da648e0a74ad101bd95d480b3385407a89bc81aa4",
+      "bytes": 16927,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/test_release68_guards.py",
+      "sha256": "1115a6ae7f4d32483b6213a4c010bf489218947059ca21c2c52822a236823b35",
+      "bytes": 16192,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/update-candidate-state.py",
+      "sha256": "507b386b3495993807f648fa65f2675c0a0a647fa5a0e395f721a5e23859aa52",
+      "bytes": 1511,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/update-sync-tests.py",
+      "sha256": "c9ef23e077e6f08d8d03a228f3dfde97e1703d52babe594104255d5e9aa7309c",
+      "bytes": 5696,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/validate68.py",
+      "sha256": "0aec6d105a8be886c880eb2c9b2b082048e5e38e02c6e3fcc95921f237fe25d5",
+      "bytes": 1750,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/verify-erasure68.py",
+      "sha256": "da51579b93503a3dd0c307d5260616be5cefc8383a820ae2ef4d7f5ca3bff0e2",
+      "bytes": 1756,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/relay-sanbao-retirement-current/verify-public68.py",
+      "sha256": "a80751dfd3fa135df0a743f3a6b99ab5b3172abfec4a7f4e4063e2065ed77b24",
+      "bytes": 2788,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/docker-cleanup-current/cleanup.py",
+      "sha256": "a8052251fc26a01ea574aacf862ee8ae77c92388be3e6f07a174bf382ce03c2a",
+      "bytes": 9719,
+      "reason": "nonidentical retained release-specific source"
+    },
+    {
+      "path": "output/playwright/top-tabs-workspaces/fixture.cjs",
+      "sha256": "38568d9a89a994a9aded28be208d4645bf3570d168c0fee2588e48b69cdf054a",
+      "bytes": 3322,
+      "reason": "nonidentical retained release-specific source"
+    }
+  ]
+}

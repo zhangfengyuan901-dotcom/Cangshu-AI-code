@@ -1,0 +1,14 @@
+import importlib.util
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location('payment_builder', here.parent / 'relay-payment-current/build-candidate.py')
+builder = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(builder)
+builder.HERE = here
+builder.SOURCE = here / 'backend-candidate'
+builder.WEB_BASELINE = here / 'before/embedded'
+builder.WEB_CHANGED = {'account-lite/index.html', 'account-lite/account.mjs', 'account-lite/client.mjs'}
+builder.VERSION = 'v1.0.0-rc.41-hamster.70'
+builder.BINARY = 'backend70-new-api'
+builder.main()

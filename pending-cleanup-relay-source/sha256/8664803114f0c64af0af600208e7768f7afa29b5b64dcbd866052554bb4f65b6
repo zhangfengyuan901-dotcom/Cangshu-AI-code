@@ -1,0 +1,87 @@
+"""Read Docker disk accounting and active-project build references."""
+import importlib.util
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+REMOTE=r'''
+import hashlib,http.client,json,pathlib,re,socket,subprocess
+PHASE='container_metadata'
+def run(args):
+ p=subprocess.run(args,capture_output=True,timeout=90)
+ if p.returncode:raise RuntimeError('REFERENCE_QUERY_FAILED')
+ return p.stdout
+ids=run(['docker','ps','-aq','--no-trunc']).decode().split()
+containers=json.loads(run(['docker','inspect',*ids]))
+groups={}
+for container in containers:
+ labels=container['Config'].get('Labels') or {}
+ project=labels.get('com.docker.compose.project')
+ files=labels.get('com.docker.compose.project.config_files','').split(',')
+ if project and all(files):groups[(project,tuple(files))]=True
+projects=[]
+for project,files in groups:
+ PHASE='project_'+project
+ paths=[pathlib.Path(file) for file in files]
+ allowed=('/opt/piknoai-relay','/opt/pikno-tool-control')
+ safe=all(path.is_file() and any(path.resolve()==pathlib.Path(base) or pathlib.Path(base) in path.resolve().parents for base in allowed) for path in paths)
+ if not safe:
+  projects.append({'project':project,'resolved':False});continue
+ command=['docker','compose','-p',project]
+ for file in files:command+=['-f',file]
+ try:config=json.loads(run([*command,'config','--format','json']))
+ except RuntimeError:
+  projects.append({'project':project,'resolved':False,'reason':'COMPOSE_REQUIRES_ORIGINAL_EXTERNAL_ENVIRONMENT'});continue
+ services=[]
+ for service,value in config['services'].items():
+  item={'service':service,'image_reference':value.get('image'),'profiles':value.get('profiles',[]),'build_images':[]}
+  build=value.get('build')
+  if build:
+   if isinstance(build,str):build={'context':build}
+   context=pathlib.Path(build['context'])
+   dockerfile=context/build.get('dockerfile','Dockerfile')
+   if dockerfile.is_file() and any(pathlib.Path(base) in dockerfile.resolve().parents for base in allowed):
+    text=dockerfile.read_text();image_args={}
+    for line in text.splitlines():
+     match=re.match(r'^\s*ARG\s+([A-Z0-9_]*(?:IMAGE|BASE)[A-Z0-9_]*)=(\S+)\s*$',line,re.I)
+     if match:image_args[match.group(1)]=match.group(2)
+    image_args.update({key:str(value) for key,value in (build.get('args') or {}).items() if re.fullmatch(r'[A-Z0-9_]*(?:IMAGE|BASE)[A-Z0-9_]*',key,re.I)})
+    for line in text.splitlines():
+     match=re.match(r'^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)',line,re.I)
+     if not match:continue
+     ref=match.group(1)
+     for key,value in image_args.items():ref=ref.replace('${'+key+'}',value).replace('$'+key,value)
+     if re.fullmatch(r'[A-Za-z0-9._:/-]+(?:@sha256:[0-9a-f]{64})?',ref):item['build_images'].append(ref)
+     else:item['unresolved_build_reference']=True
+    item['dockerfile_sha256']=hashlib.sha256(dockerfile.read_bytes()).hexdigest()
+   else:item['unresolved_build_reference']=True
+  services.append(item)
+ projects.append({'project':project,'resolved':True,'services':services,
+                  'compose_fingerprints':[hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]})
+PHASE='docker_disk_accounting'
+class Connection(http.client.HTTPConnection):
+ def connect(self):
+  self.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);self.sock.settimeout(90);self.sock.connect('/var/run/docker.sock')
+connection=Connection('localhost');connection.request('GET','/system/df');response=connection.getresponse()
+if response.status!=200:raise RuntimeError('DOCKER_DISK_ACCOUNTING_FAILED')
+disk=json.loads(response.read())
+images=[{'id':entry['Id'],'shared_bytes':entry.get('SharedSize',-1),
+         'unique_bytes':entry['Size']-entry['SharedSize'] if entry.get('SharedSize',-1)>=0 else None,
+         'container_count':entry.get('Containers')} for entry in disk.get('Images',[])]
+print(json.dumps({'projects':projects,'image_disk_accounting':images,'layers_bytes':disk.get('LayersSize'),
+                 'build_cache_record_count':len(disk.get('BuildCache',[])),'production_mutations':0}))
+'''
+
+spec=importlib.util.spec_from_file_location('cleanup_transport',ROOT/'output/direct-media-production-current/transport.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+try:
+    wrapped="try:\n exec("+repr(REMOTE)+")\nexcept Exception as error:\n import json\n print(json.dumps({'ok':False,'phase':globals().get('PHASE','initial'),'error_type':type(error).__name__,'code':str(error) if isinstance(error,RuntimeError) else 'PRIVATE_DETAILS_WITHHELD'}))\n"
+    value=module.remote(wrapped,timeout=240)
+    if value.get('ok') is False:
+        print(json.dumps(value));raise SystemExit(1)
+    (HERE/'server-reference-audit.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps({'saved':True,'projects':len(value['projects']),'image_disk_records':len(value['image_disk_accounting']),'production_mutations':0}))
+except Exception:
+    print(json.dumps({'saved':False,'code':'REFERENCE_AUDIT_FAILED_DETAILS_WITHHELD','production_mutations':0}))
+    raise SystemExit(1)

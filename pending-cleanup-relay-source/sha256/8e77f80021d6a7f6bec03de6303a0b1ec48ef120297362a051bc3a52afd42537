@@ -1,0 +1,92 @@
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location("website77_operations", HERE / "publish-website77.py")
+operations = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(operations)
+
+class PromotionTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = Path(tempfile.mkdtemp(prefix="website77-operations-", dir=HERE)).resolve()
+        assert self.directory.is_relative_to(HERE.resolve())
+        self.root = self.directory / "workspace"
+        self.source = self.directory / "candidate/website"
+        self.here = self.directory / "evidence"
+        self.here.mkdir()
+        runtime = ["public/index.html", "public/quickstart.js", "public/tutorials/index.html", "src/download-handler.js"]
+        test_names = ["website-download.test.mjs", "website-quickstart.test.mjs", "website-video-cases.test.mjs"]
+        self.manifest = {"version": "1.7.77", "changed_files": runtime, "baseline_hashes": {}, "source_hashes": {}, "baseline_test_hashes": {}, "test_hashes": {}}
+        self.targets = []
+        for name in runtime:
+            source = self.source / name
+            target = self.root / "仓鼠AI/website" / name
+            self.create(source, b"new-source-" + name.encode())
+            self.create(target, b"old-source-" + name.encode())
+            self.targets.append(target)
+            self.manifest["baseline_hashes"][name] = operations.sha(target)
+            self.manifest["source_hashes"][name] = operations.sha(source)
+        for name in test_names:
+            source = self.source.parent / "tests" / name
+            target = self.root / "仓鼠AI/tests" / name
+            self.create(source, b"new-test-" + name.encode())
+            self.create(target, b"old-test-" + name.encode())
+            self.targets.append(target)
+            self.manifest["baseline_test_hashes"][name] = operations.sha(target)
+            self.manifest["test_hashes"][name] = operations.sha(source)
+        self.before = {target: target.read_bytes() for target in self.targets}
+
+    def tearDown(self):
+        assert self.directory.is_relative_to(HERE.resolve())
+        shutil.rmtree(self.directory)
+
+    @staticmethod
+    def create(path, content):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    def invoke(self, run):
+        with patch.object(operations, "ROOT", self.root), patch.object(operations, "SITE", self.source), patch.object(operations, "HERE", self.here), \
+             patch.object(operations, "artifact", return_value=(self.manifest, None)), patch.object(operations, "tests"), patch.object(operations, "run", side_effect=run):
+            return operations.promote()
+
+    def test_only_seven_exact_files_are_promoted(self):
+        record = self.invoke(lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, b"31 tests passed", b""))
+        self.assertEqual(record["runtime_files"], 4)
+        self.assertEqual(record["test_files"], 3)
+        self.assertEqual(len(record["source_hashes"]), 7)
+        for target in self.targets:
+            backup = self.here / "website77-before-promotion" / target.relative_to(self.root / "仓鼠AI")
+            self.assertEqual(backup.read_bytes(), self.before[target])
+            self.assertNotEqual(target.read_bytes(), self.before[target])
+
+    def test_preexisting_change_prevents_all_writes(self):
+        self.targets[1].write_bytes(b"independent-source-change")
+        with self.assertRaisesRegex(AssertionError, "CANONICAL_SOURCE_DRIFT"):
+            self.invoke(lambda *args, **kwargs: self.fail("tests should not run"))
+        for target in self.targets:
+            if target != self.targets[1]:
+                self.assertEqual(target.read_bytes(), self.before[target])
+
+    def test_failure_restores_own_writes_and_preserves_later_changes(self):
+        def failed_tests(*args, **kwargs):
+            self.targets[0].write_bytes(b"concurrent-editor-change")
+            return subprocess.CompletedProcess(args, 1, b"fixture test failure", b"")
+        with self.assertRaisesRegex(AssertionError, "CANONICAL_WEBSITE_TESTS_FAILED"):
+            self.invoke(failed_tests)
+        self.assertEqual(self.targets[0].read_bytes(), b"concurrent-editor-change")
+        for target in self.targets[1:]:
+            self.assertEqual(target.read_bytes(), self.before[target])
+        journal = json.loads((self.here / "website77-promotion-journal.json").read_text())
+        self.assertEqual(len(journal["restored"]), 6)
+        self.assertEqual(len(journal["concurrent_changes_preserved"]), 1)
+
+if __name__ == "__main__":
+    unittest.main()

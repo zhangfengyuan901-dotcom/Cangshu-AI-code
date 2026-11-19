@@ -1,0 +1,169 @@
+"""Isolated release guard checks. No transport, container, or financial calls."""
+import ast
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import tempfile
+import types
+
+HERE=Path(__file__).resolve().parent
+source=HERE/'release71-apply.py'
+tree=ast.parse(source.read_text())
+selected=[node for node in tree.body if isinstance(node,ast.FunctionDef) or isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id in ('NEW_TABLES','NEW_TOPUP_COLUMNS','REVIEWED_REVERSE','STOP_GRACE_SECONDS') for target in node.targets)]
+
+class Stage:
+    OLD_APP_IMAGE='old-app'
+    OLD_BRIDGE_IMAGE='old-bridge'
+    COMPOSE=['docker','compose']
+    @staticmethod
+    def hashed(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    @staticmethod
+    def require(value,code):
+        if not value:
+            raise RuntimeError(code)
+
+stage=Stage()
+ns={'stage':stage,'json':json,'re':re,'os':os,'Path':Path,'signal':signal}
+exec(compile(ast.Module(body=selected,type_ignores=[]),str(source),'exec'),ns)
+checks=[]
+
+def check(name,operation,error=None):
+    try:
+        operation()
+    except RuntimeError as failure:
+        if error is None or str(failure)!=error:
+            raise
+    else:
+        if error is not None:
+            raise AssertionError(name+' did not reject')
+    checks.append(name)
+
+base={'active_nonunknown_tasks':0,'active_nonunknown_settlements':0,'active_llm':0,'recent_pending_recharges':0,'active_reverse':1,'retained_unknown_tasks':2,'retained_unknown_digest':'same','recent_tasks':5,'recent_settlements':4,'recent_llm':3}
+reverse={'active_count':1,'eligible_count':1,'digest':ns['REVIEWED_REVERSE']['digest']}
+stage.activity=lambda:copy.deepcopy(base)
+ns['reverse_state']=lambda:copy.deepcopy(reverse)
+guard=lambda:ns['assert_no_new_work'](base,ns['REVIEWED_REVERSE'])
+check('reviewed_unchanged_old_reverse_and_recent_terminal_rows_permitted',guard)
+for field in ('active_nonunknown_tasks','active_nonunknown_settlements','active_llm','recent_pending_recharges'):
+    original=base[field];base[field]=1
+    check(field+'_blocks',guard,'RECENT_OR_ACTIVE_NONUNKNOWN_WORK');base[field]=original
+check('unreviewed_reverse_blocks',lambda:ns['assert_no_new_work'](base),'RECENT_OR_ACTIVE_NONUNKNOWN_WORK')
+for field,value in (('active_count',2),('eligible_count',0),('digest','changed')):
+    original=reverse[field];reverse[field]=value
+    check('reverse_'+field+'_change_blocks',guard,'RETAINED_REVERSE_STATE_CHANGED');reverse[field]=original
+base['active_reverse']=2
+check('new_reverse_during_probe_blocks',guard,'RETAINED_REVERSE_STATE_CHANGED');base['active_reverse']=1
+check('old_unknown_change_blocks',lambda:ns['assert_no_new_work']({**base,'retained_unknown_digest':'changed'},ns['REVIEWED_REVERSE']),'RETAINED_UNKNOWN_STATE_CHANGED')
+
+with tempfile.TemporaryDirectory() as temporary:
+    stage.PRIVATE=Path(temporary)
+    (stage.PRIVATE/'apply-attempt-1.json').write_text('{}')
+    (stage.PRIVATE/'apply-attempt-2.json').write_text('{}')
+    (stage.PRIVATE/'apply-attempt-3.json').write_text('{}')
+    (stage.PRIVATE/'apply-reservations-1.json').write_text('{}')
+    (stage.PRIVATE/'apply-reservations-2.json').write_text('{}')
+    (stage.PRIVATE/'apply-failure-1.json').write_text(json.dumps({'code':'RECENT_OR_ACTIVE_NONUNKNOWN_WORK','financial_restore':False,'image_only_rollback':True}))
+    (stage.PRIVATE/'apply-failure-2.json').write_text(json.dumps({'code':'PAIR_RUNTIME_BINDINGS_CHANGED','financial_restore':False,'image_only_rollback':True}))
+    failure=stage.PRIVATE/'apply-failure-3.json'
+    reviewed={'code':'PAIR_RUNTIME_BINDINGS_CHANGED','financial_restore':False,'image_only_rollback':True}
+    failure.write_text(json.dumps(reviewed))
+    check('exact_three_reviewed_gate_failures_allow_retry',ns['reviewed_attempt_history'])
+    for key,value in (('code','OTHER_FAILURE'),('financial_restore',True),('image_only_rollback',False)):
+        failure.write_text(json.dumps({**reviewed,key:value}))
+        check('previous_failure_'+key+'_blocks',ns['reviewed_attempt_history'],'PREVIOUS_FAILURE_NOT_REVIEWED_ACTIVE_GATE')
+    failure.write_text(json.dumps(reviewed))
+    for name in ('apply-success-1.json','apply-attempt-4.json','apply-reservations-3.json'):
+        extra=stage.PRIVATE/name;extra.write_text('{}')
+        check(name+'_blocks_retry',ns['reviewed_attempt_history'],'PREVIOUS_APPLY_REQUIRES_REVIEW');extra.unlink()
+
+old={'columns':[{'table':'users','column':'id','type':'bigint'}],'constraints':[],'indexes':[]}
+new=copy.deepcopy(old)
+new['columns'] += [{'table':'top_ups','column':column} for column in ns['NEW_TOPUP_COLUMNS']]
+new['columns'] += [{'table':table,'column':'id'} for table in ns['NEW_TABLES']]
+check('only_requested_additive_schema_accepted',lambda:ns['schema_additions_only'](old,new))
+for label,change,error in (
+ ('old_column',lambda value:value['columns'][0].update(type='text'),'EXISTING_COLUMN_CHANGED'),
+ ('old_index',lambda value:value['indexes'].append({'table':'users','name':'extra'}),'EXISTING_SCHEMA_INDEXES_CHANGED'),
+ ('unrelated_column',lambda value:value['columns'].append({'table':'other','column':'x'}),'UNEXPECTED_NEW_TABLE')):
+    changed=copy.deepcopy(new);change(changed)
+    check(label+'_change_rejected',lambda:ns['schema_additions_only'](old,changed),error)
+
+identity={'id':'container','image':'old-app','pid':123,'start':'55','comm':'new-api'}
+info={'Id':'container','Image':'old-app','State':{'Pid':123,'Running':True}}
+actual_identity=ns['process_identity']
+procfiles={'/proc/123/comm':'new-api\n','/proc/123/cgroup':'0::/docker/container\n','/proc/123/stat':'123 (new-api) '+' '.join(['S']+['0']*18+['55'])}
+class ProcPath:
+    def __init__(self,value):self.value=str(value)
+    def __truediv__(self,value):return ProcPath(self.value+'/'+str(value))
+    def joinpath(self,value):return self/value
+    def read_text(self):return procfiles[self.value]
+ns['Path']=ProcPath
+assert actual_identity(info)==identity
+checks.append('process_identity_checks_container_comm_and_starttime')
+for name,value in (('comm','unexpected'),('cgroup','0::/docker/foreign')):
+    key='/proc/123/'+name;prior=procfiles[key];procfiles[key]=value
+    check('process_'+name+'_mismatch_blocks',lambda:actual_identity(info),'STOP_PROCESS_OWNERSHIP_MISMATCH');procfiles[key]=prior
+check('process_unapproved_image_blocks',lambda:actual_identity({**info,'Image':'other'}),'STOP_IMAGE_NOT_REVIEWED')
+check('process_invalid_pid_blocks',lambda:actual_identity({**info,'State':{'Pid':1,'Running':True}}),'STOP_PROCESS_NOT_RUNNING')
+ns['Path']=Path
+stage.inspect=lambda name:copy.deepcopy(info)
+ns['process_identity']=lambda *args:copy.deepcopy(identity)
+signals=[]
+ns['os']=types.SimpleNamespace(kill=lambda pid,value:signals.append((pid,value)))
+check('verified_identity_receives_only_term',lambda:ns['deliver_verified_term'](identity))
+assert signals==[(123,signal.SIGTERM)]
+for key,value in (('Image','changed'),('Pid',999)):
+    original=info[key] if key=='Image' else info['State'][key]
+    if key=='Image':info[key]=value
+    else:info['State'][key]=value
+    check('signal_'+key+'_drift_blocks',lambda:ns['deliver_verified_term'](identity),'STOP_PROCESS_IDENTITY_CHANGED')
+    if key=='Image':info[key]=original
+    else:info['State'][key]=original
+ns['process_identity']=lambda *args:{**identity,'start':'changed'}
+check('signal_pid_reuse_blocks',lambda:ns['deliver_verified_term'](identity),'STOP_PROCESS_IDENTITY_CHANGED')
+assert len(signals)==1
+commands=[]
+class Stop:
+    def __init__(self,args,**kwargs):commands.append(args)
+    def wait(self,timeout):assert timeout==300;return 0
+    def poll(self):return None
+ns['subprocess']=types.SimpleNamespace(Popen=Stop,DEVNULL=-3,TimeoutExpired=TimeoutError)
+ns['time']=types.SimpleNamespace(sleep=lambda duration:None)
+ns['process_identity']=lambda *args:copy.deepcopy(identity)
+ns['deliver_verified_term']=lambda value:True
+check('recreate_owns_normal_120_second_docker_lifecycle',lambda:ns['recreate_pair'](info,info,('old-app',),('old-app',),'new-app','new-app'))
+assert commands==[['docker','compose','up','-d','--no-deps','--no-build','--pull','never','--timeout','120','new-api','lanjing-bridge']]
+delivered=[]
+ns['deliver_verified_term']=lambda value:delivered.append(value) or True
+ns['recreate_pair'](info,info,('old-app',),('old-app',),'old-app','old-app')
+assert delivered==[]
+checks.append('already_desired_running_images_are_never_signaled')
+runtime={'Config':{'Image':'old','Hostname':'old-host','Env':['B=2','A=1'],'Labels':{'com.docker.compose.image':'old-image'},'User':'node','Cmd':['node','server.mjs']},'HostConfig':{'Binds':['/a:/b:ro'],'RestartPolicy':{'Name':'unless-stopped'}},'Mounts':[{'Name':'generated','Source':'/a','Destination':'/b','RW':False}],'NetworkSettings':{'Networks':{'network':{}}}}
+equivalent=copy.deepcopy(runtime);equivalent['Config'].update(Image='new',Hostname='new-host',Env=['A=1','B=2']);equivalent['Config']['Labels']['com.docker.compose.image']='new-image';equivalent['Mounts'][0]['Name']='other-generated'
+assert ns['runtime_differences'](runtime,equivalent)==[]
+checks.append('only_already_ignored_container_generated_metadata_is_ignored')
+for label,change in (('environment',lambda value:value['Config'].update(Env=['A=secret-change','B=2'])),('user',lambda value:value['Config'].update(User='root')),('command',lambda value:value['Config'].update(Cmd=['other'])),('mount_permissions',lambda value:value['Mounts'][0].update(RW=True)),('restart',lambda value:value['HostConfig']['RestartPolicy'].update(Name='no')),('network',lambda value:value['NetworkSettings'].update(Networks={'other':{}}))):
+    altered=copy.deepcopy(runtime);change(altered);differences=ns['runtime_differences'](runtime,altered)
+    assert differences and all('secret-change' not in item for item in differences)
+    checks.append(label+'_drift_detected_without_values')
+mounted=copy.deepcopy(runtime)
+mounted['HostConfig']['Mounts']=[{'Type':'bind','Source':'/secret-a','Target':'/run/secrets/a','ReadOnly':True,'BindOptions':{'Propagation':'rprivate'}},{'Type':'bind','Source':'/secret-b','Target':'/run/secrets/b','ReadOnly':True,'BindOptions':{'Propagation':'rprivate'}}]
+permuted=copy.deepcopy(mounted);permuted['HostConfig']['Mounts'].reverse()
+assert ns['runtime_differences'](mounted,permuted)==[] and ns['runtime_digest'](mounted)==ns['runtime_digest'](permuted)
+assert ns['runtime_differences'](mounted,permuted,False)
+checks.append('unique_host_mount_permutation_equal_with_raw_evidence_retained')
+for label,change in (('source',lambda value:value.update(Source='/different')),('target',lambda value:value.update(Target='/different')),('permission',lambda value:value.update(ReadOnly=False)),('type',lambda value:value.update(Type='volume')),('nested_option',lambda value:value['BindOptions'].update(Propagation='shared'))):
+    altered=copy.deepcopy(mounted);change(altered['HostConfig']['Mounts'][0]);assert ns['runtime_differences'](mounted,altered) and ns['runtime_digest'](mounted)!=ns['runtime_digest'](altered)
+    checks.append('host_mount_'+label+'_drift_rejected')
+duplicate=copy.deepcopy(mounted);duplicate['HostConfig']['Mounts'][1]['Target']=duplicate['HostConfig']['Mounts'][0]['Target']
+check('duplicate_host_mount_target_rejected',lambda:ns['runtime_digest'](duplicate),'DUPLICATE_HOST_MOUNT_TARGET')
+assert ns['runtime_differences'](mounted,duplicate,False)
+checks.append('invalid_duplicate_raw_evidence_still_available')
+
+value={'passed':True,'checks':checks,'count':len(checks),'apply_source_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'production_mutations':0,'apply_executed':False}
+(HERE/'release71-guard-verification.json').write_text(json.dumps(value,indent=2)+'\n')
+print(json.dumps({'passed':True,'count':len(checks),'production_mutations':0,'apply_executed':False}))

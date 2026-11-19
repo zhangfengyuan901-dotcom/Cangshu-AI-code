@@ -1,0 +1,38 @@
+async (page) => {
+  page.setDefaultTimeout(60000);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  const checks=[];
+  const check=(name,value)=>{if(!value)throw new Error(name);checks.push(name)};
+  await page.getByRole('button',{name:'表格视图',exact:true}).click();
+  const table=page.locator('[data-slot="table"]').first();
+  await table.waitFor();
+  check('table_five_synthetic_rows',await table.locator('tbody tr').count()===5);
+  const colors=await table.evaluate(t=>({header:getComputedStyle(t.querySelector('thead')).backgroundColor,background:getComputedStyle(t).backgroundColor}));
+  check('table_shared_dark_surfaces',colors.header==='rgb(28, 30, 40)'&&colors.background==='rgb(11, 12, 16)');
+  await page.screenshot({path:'D:/PIKNO/output/playwright/relay-admin-theme-current/channels-table.png',fullPage:true});
+  await page.getByRole('button',{name:/创建渠道/}).click();
+  const panel=page.locator('[data-slot="sheet-content"], [data-slot="dialog-content"]').filter({visible:true}).last();
+  await panel.waitFor();
+  await page.waitForFunction(()=>[...document.querySelectorAll('[data-slot="sheet-content"], [data-slot="dialog-content"]')].every(e=>getComputedStyle(e).opacity==='1'&&!e.hasAttribute('data-starting-style')));
+  const panelStyle=await panel.evaluate(e=>({bg:getComputedStyle(e).backgroundColor,fg:getComputedStyle(e).color,outsideShell:!e.closest('[data-slot="sidebar-wrapper"]')}));
+  check('portalled_editor_inherits_theme',panelStyle.outsideShell&&['rgb(25, 27, 36)','rgb(11, 12, 16)'].includes(panelStyle.bg)&&panelStyle.fg==='rgb(242, 243, 245)');
+  await page.screenshot({path:'D:/PIKNO/output/playwright/relay-admin-theme-current/channel-editor.png',fullPage:true});
+  await page.keyboard.press('Escape');
+  await panel.waitFor({state:'hidden'});
+  check('editor_escape_closes',true);
+  await page.locator('[data-slot="sidebar-trigger"]').click();
+  await page.locator('[data-slot="sidebar"][data-state="collapsed"]').waitFor();
+  check('sidebar_collapses',true);
+  await page.screenshot({path:'D:/PIKNO/output/playwright/relay-admin-theme-current/sidebar-collapsed.png',fullPage:true});
+  await page.locator('[data-slot="sidebar-trigger"]').click();
+  await page.locator('[data-slot="sidebar"][data-state="expanded"]').waitFor();
+  check('sidebar_expands',true);
+  await page.getByRole('link',{name:'用户',exact:true}).click();
+  await page.getByRole('heading',{name:'用户',exact:true}).waitFor();
+  await page.locator('text=synthetic-ui-2').first().waitFor();
+  check('users_navigation_and_synthetic_records',true);
+  await page.screenshot({path:'D:/PIKNO/output/playwright/relay-admin-theme-current/users.png',fullPage:true});
+  check('desktop_no_document_overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  return {passed:true,checks,colors,panelStyle,synthetic:true};
+}

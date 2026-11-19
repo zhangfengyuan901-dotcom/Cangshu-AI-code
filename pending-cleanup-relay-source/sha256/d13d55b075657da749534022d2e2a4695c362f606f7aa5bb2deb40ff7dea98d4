@@ -1,0 +1,414 @@
+"""Server-side release candidate. Writing actions require an explicit runner action."""
+import copy
+import fcntl
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import tarfile
+import time
+
+ROOT = Path('/opt/piknoai-relay/current')
+STAGE = Path('/opt/piknoai-relay/portal65-20261111')
+PRIVATE = STAGE / 'private'
+APP = 'piknoai-relay-new-api-1'
+PG = 'piknoai-relay-postgres-1'
+TOOL = 'pikno-tool-control-tool-control-1'
+OLD_IMAGE = 'sha256:3d42a46a742e553564e114259e384ea22221e044b89c10e54cf441a3db748120'
+OLD_BINARY = '753b7d8ea340bb40c94caebc11bd20d47ddf812119bfd052ffae3119b6529737'
+OLD_TOOL = 'sha256:d8542965a9e47d9db9eaf2bb612def9ff33e818c73ffc1aac6dde60886184b41'
+OLD_VERSION = 'v1.0.0-rc.41-hamster.64'
+NEW_IMAGE = 'hamster-portal65-release:local'
+VERSION = 'v1.0.0-rc.41-hamster.65'
+LAYERS = ('compose.yaml', 'compose.ecs.yaml', 'compose.payments.yaml', 'compose.tunnel.yaml', 'compose.llm36.yaml')
+COMPOSE = ['docker', 'compose', *[v for name in LAYERS for v in ('-f', str(ROOT / name))]]
+PROTECTED = ('users', 'tokens', 'options', 'top_ups', 'tasks', 'pikno_settlements', 'pikno_settlement_events',
+             'pikno_settlement_outboxes', 'pikno_llm_requests', 'pikno_reverse_operations', 'logs', 'redemptions')
+CATALOG = ('pikno_lines', 'pikno_line_sync_states', 'pikno_sync_providers', 'pikno_sync_snapshots', 'channels', 'abilities', 'task_plugins')
+
+
+def require(value, code):
+    if not value:
+        raise RuntimeError(code)
+
+
+def run(args, *, data=None, timeout=90):
+    result = subprocess.run(args, input=data, capture_output=True, timeout=timeout)
+    require(result.returncode == 0, 'RELEASE_COMMAND_FAILED_' + args[0])
+    return result.stdout
+
+
+def hashed(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def digest(file):
+    with Path(file).open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def inspect(name):
+    return json.loads(run(['docker', 'inspect', name]))[0]
+
+
+def runtime(info):
+    config = copy.deepcopy(info['Config'])
+    config.pop('Image', None)
+    config.pop('Hostname', None)
+    for key in ('com.docker.compose.config-hash', 'com.docker.compose.image', 'com.docker.compose.replace'):
+        config.get('Labels', {}).pop(key, None)
+    config['Env'] = sorted(config.get('Env', []))
+    mounts = [{key: value for key, value in entry.items() if key != 'Name'} for entry in info['Mounts']]
+    return hashed({'config': config, 'host': info['HostConfig'], 'mounts': mounts,
+                   'networks': sorted(info['NetworkSettings']['Networks'])})
+
+
+def sql(query):
+    raw = run(['docker', 'exec', '-i', PG, 'psql', '-U', 'pikno', '-d', 'newapi', '-At', '-v', 'ON_ERROR_STOP=1',
+               '-c', 'BEGIN READ ONLY; ' + query + '; ROLLBACK']).decode()
+    rows = [line for line in raw.splitlines() if line.startswith(('{', '['))]
+    require(len(rows) == 1, 'READONLY_SQL_SHAPE')
+    return json.loads(rows[0])
+
+
+def present_tables():
+    return set(sql("SELECT coalesce(json_agg(table_name),'[]'::json) FROM information_schema.tables WHERE table_schema='public'"))
+
+
+def protected_snapshot():
+    present = present_tables()
+    result = {}
+    for name in PROTECTED:
+        if name in present:
+            result[name] = sql('SELECT json_build_object(\'count\',count(*),\'digest\',md5(coalesce(json_agg(row ORDER BY row::text),\'[]\'::json)::text)) FROM (SELECT to_jsonb(r) AS row FROM "' + name + '" r) s')
+    return result
+
+
+def schema():
+    tables = ','.join("'" + name + "'" for name in (*PROTECTED, *CATALOG))
+    return sql("SELECT json_build_object('columns',(SELECT coalesce(json_agg(json_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) ORDER BY table_name,ordinal_position),'[]'::json) FROM information_schema.columns WHERE table_schema='public' AND table_name IN (" + tables + ")), 'constraints',(SELECT coalesce(json_agg(json_build_object('table',r.relname,'name',c.conname,'type',c.contype,'definition',pg_get_constraintdef(c.oid)) ORDER BY r.relname,c.conname),'[]'::json) FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public' AND r.relname IN (" + tables + ")), 'indexes',(SELECT coalesce(json_agg(json_build_object('table',tablename,'name',indexname,'definition',indexdef) ORDER BY tablename,indexname),'[]'::json) FROM pg_indexes WHERE schemaname='public' AND tablename IN (" + tables + ")))")
+
+
+def inventory():
+    # Full current configuration stays exclusively in the private server folder.
+    # Historical customer rows are represented by fingerprints, never copied here.
+    return {'lines': sql("SELECT coalesce(json_agg(to_jsonb(r) ORDER BY public_model),'[]'::json) FROM pikno_lines r"),
+            'sync_states': sql("SELECT coalesce(json_agg(to_jsonb(r) ORDER BY public_model),'[]'::json) FROM pikno_line_sync_states r"),
+            'sync_providers': sql("SELECT coalesce(json_agg(to_jsonb(r) ORDER BY provider),'[]'::json) FROM pikno_sync_providers r"),
+            'channel_projections': sql("SELECT coalesce(json_agg(json_build_object('id',id,'models',models,'model_mapping',model_mapping) ORDER BY id),'[]'::json) FROM channels"),
+            'protected': protected_snapshot(), 'schema': schema()}
+
+
+def activity():
+    return sql("""WITH clock AS (SELECT extract(epoch FROM now())::bigint ts)
+    SELECT json_build_object(
+      'recent_tasks',(SELECT count(*) FROM tasks WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0),coalesce(start_time,0),coalesce(finish_time,0)) >= (SELECT ts-600 FROM clock)),
+      'recent_settlements',(SELECT count(*) FROM pikno_settlements WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0)) >= (SELECT ts-600 FROM clock)),
+      'tasks_active',(SELECT count(*) FROM tasks WHERE status NOT IN ('SUCCESS','FAILURE') AND NOT (status='UNKNOWN' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock))),
+      'settlements_active',(SELECT count(*) FROM pikno_settlements WHERE (coalesce(settled_outcome,'')='' OR reserved_quota<>0) AND NOT (generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock))),
+      'llm_active',(SELECT count(*) FROM pikno_llm_requests WHERE state NOT IN ('settled','released','unknown') OR state='unknown' AND updated_at>=(SELECT ts-900 FROM clock)),
+      'recent_llm',(SELECT count(*) FROM pikno_llm_requests WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0)) >= (SELECT ts-600 FROM clock)),
+      'pending_recharges',(SELECT count(*) FROM top_ups WHERE status='pending' AND create_time>=(SELECT ts-600 FROM clock)),
+      'reverse_active',(SELECT count(*) FROM pikno_reverse_operations WHERE NOT ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR (kind='task' AND state='done' AND financial_state='settled') OR (kind='task' AND state IN ('error','cancelled') AND financial_state='released'))),
+      'old_unknown_settlements',(SELECT count(*) FROM pikno_settlements WHERE generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock)),
+      'old_unknown_llm',(SELECT count(*) FROM pikno_llm_requests WHERE state='unknown' AND updated_at<(SELECT ts-900 FROM clock)))""")
+
+
+def assert_quiet():
+    value = activity()
+    allowed = {'old_unknown_settlements', 'old_unknown_llm'}
+    require(all(type(number) is int and number == 0 for key, number in value.items() if key not in allowed), 'RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')
+    health = json.loads(run(['docker', 'exec', TOOL, 'node', '-e', "fetch('http://127.0.0.1:8090/healthz').then(async r=>{if(!r.ok)process.exit(1);console.log(await r.text())}).catch(()=>process.exit(1))"]))
+    require(health.get('active') == 0 and health.get('accepting') is True, 'CONTROL_ACTIVE_DEFER_RELEASE')
+    return value
+
+
+def files_fingerprint():
+    files = (*LAYERS, '.env', '.auth-challenge55.env', '.promptvv-reverse.env')
+    return {name: digest(ROOT / name) for name in files if (ROOT / name).is_file()}
+
+
+def save_private(name, value):
+    require(STAGE.parent.resolve() == STAGE.parent and not STAGE.is_symlink(), 'STAGE_PATH_INVALID')
+    require(not PRIVATE.is_symlink(), 'PRIVATE_PATH_INVALID')
+    PRIVATE.mkdir(parents=True, mode=0o700, exist_ok=True)
+    os.chmod(STAGE, 0o700)
+    os.chmod(PRIVATE, 0o700)
+    path = PRIVATE / name
+    with path.open('x', encoding='utf-8') as target:
+        os.chmod(path, 0o600)
+        json.dump(value, target, sort_keys=True)
+    return digest(path)
+
+
+def manifest():
+    value = json.loads((STAGE / 'build65.json').read_text())
+    require(value.get('version') == VERSION and re.fullmatch('[a-f0-9]{64}', value.get('binary_sha256', '')), 'CANDIDATE_MANIFEST_INVALID')
+    return value
+
+
+def current(old=True):
+    app, tool = inspect(APP), inspect(TOOL)
+    expected = OLD_IMAGE if old else json.loads((PRIVATE / 'stage.json').read_text())['candidate_image_id']
+    require(app['Image'] == expected and app['State']['Running'], 'LIVE_APP_IDENTITY_DRIFT')
+    require(tool['Image'] == OLD_TOOL and tool['State']['Running'], 'CONTROL_IDENTITY_DRIFT')
+    require(app['State'].get('Health', {}).get('Status') == 'healthy', 'LIVE_APP_UNHEALTHY')
+    require(tool['State'].get('Health', {}).get('Status') == 'healthy', 'LIVE_CONTROL_UNHEALTHY')
+    sha = run(['docker', 'exec', APP, 'sha256sum', '/new-api']).decode().split()[0]
+    require(sha == (OLD_BINARY if old else manifest()['binary_sha256']), 'LIVE_BINARY_DRIFT')
+    return app, tool
+
+
+def preflight():
+    app, tool = current()
+    values = activity()
+    return {'read_only': True, 'old_version': OLD_VERSION, 'app_image_id': app['Image'], 'app_binary_sha256': OLD_BINARY,
+            'app_runtime_fingerprint': runtime(app), 'tool_runtime_fingerprint': runtime(tool),
+            'activity': values, 'production_business_mutations': 0,
+            'compose_image_slot_verified': bool(compose_with_image(app['Config']['Image'], NEW_IMAGE))}
+
+
+def stage():
+    app, tool = current()
+    build = manifest()
+    require(digest(STAGE / 'backend65-new-api.gz') == build['gzip_sha256'], 'CANDIDATE_GZIP_HASH_DRIFT')
+    binary = STAGE / 'backend65-new-api'
+    require(not binary.exists(), 'STAGED_BINARY_ALREADY_EXISTS')
+    with gzip.open(STAGE / 'backend65-new-api.gz', 'rb') as source, binary.open('xb') as target:
+        while chunk := source.read(1024 * 1024):
+            target.write(chunk)
+    os.chmod(binary, 0o700)
+    require(binary.stat().st_size == build['binary_bytes'] and digest(binary) == build['binary_sha256'], 'CANDIDATE_BINARY_HASH_DRIFT')
+    before = {'app_runtime': runtime(app), 'tool_runtime': runtime(tool), 'files': files_fingerprint(),
+              'old_image_reference': app['Config']['Image'], 'inventory': inventory()}
+    inventory_hash = save_private('inventory-stage.json', before)
+    base = 'hamster-portal65-base:local'
+    run(['docker', 'tag', OLD_IMAGE, base])
+    recipe = ('FROM ' + base + '\nCOPY backend65-new-api /new-api\n').encode()
+    # Stream the large binary, following the already verified 63 overlay build.
+    # Build output stays private and never enters the SSH response.
+    with (PRIVATE / 'stage-build.log').open('xb') as log:
+        os.chmod(log.name, 0o600)
+        process = subprocess.Popen(['docker', 'build', '--network', 'none', '--pull=false', '-t', NEW_IMAGE, '-'],
+                                   stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT,
+                                   env=dict(os.environ, DOCKER_BUILDKIT='0'))
+        try:
+            with tarfile.open(fileobj=process.stdin, mode='w|') as bundle:
+                entry = tarfile.TarInfo('Dockerfile'); entry.size = len(recipe); bundle.addfile(entry, io.BytesIO(recipe))
+                entry = tarfile.TarInfo('backend65-new-api'); entry.size = binary.stat().st_size; entry.mode = 0o755
+                with binary.open('rb') as source:
+                    bundle.addfile(entry, source)
+            process.stdin.close()
+            require(process.wait(timeout=240) == 0, 'CANDIDATE_IMAGE_BUILD_FAILED')
+        except Exception:
+            if process.poll() is None:
+                process.kill(); process.wait(timeout=10)
+            raise
+    candidate = json.loads(run(['docker', 'image', 'inspect', NEW_IMAGE]))[0]
+    require(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'sha256sum', NEW_IMAGE, '/new-api']).decode().split()[0] == build['binary_sha256'], 'CANDIDATE_IMAGE_BINARY_DRIFT')
+    require(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', '/new-api', NEW_IMAGE, '--version']).decode().strip() == VERSION, 'CANDIDATE_VERSION_DRIFT')
+    save_private('stage.json', {'candidate_image_id': candidate['Id'], 'inventory_sha256': inventory_hash,
+                               'old_runtime': before['app_runtime'], 'tool_runtime': before['tool_runtime'], 'files': before['files'],
+                               'old_image_reference': before['old_image_reference'], 'binary_sha256': build['binary_sha256'],
+                               'manifest_sha256': digest(STAGE / 'build65.json'),
+                               'new_compose_sha256': hashlib.sha256(compose_with_image(before['old_image_reference'], NEW_IMAGE).encode()).hexdigest()})
+    return {'staged': True, 'candidate_image_id': candidate['Id'], 'version': VERSION,
+            'private_inventory_recorded': True, 'inventory_sha256': inventory_hash, 'application_restarted': False, 'financial_restore': False}
+
+
+def compose_with_image(expected, replacement):
+    path = ROOT / 'compose.yaml'
+    text = path.read_text()
+    lines = text.splitlines(keepends=True)
+    in_service = False
+    matches = []
+    for index, line in enumerate(lines):
+        if re.fullmatch(r'  new-api:\s*\n?', line):
+            in_service = True
+            continue
+        if in_service and re.match(r'^  [A-Za-z0-9_-]+:', line):
+            in_service = False
+        if in_service:
+            match = re.fullmatch(r'(    image:\s*)([^\s#]+)(\s*(?:#.*)?\n?)', line)
+            if match:
+                require(match.group(2) == expected, 'COMPOSE_IMAGE_REFERENCE_DRIFT')
+                matches.append(index)
+                lines[index] = match.group(1) + replacement + match.group(3)
+    require(len(matches) == 1, 'COMPOSE_IMAGE_SLOT_AMBIGUOUS')
+    return ''.join(lines)
+
+
+def replace_compose_image(expected, replacement):
+    path = ROOT / 'compose.yaml'
+    updated = compose_with_image(expected, replacement)
+    temporary = path.with_name(path.name + '.portal65')
+    with temporary.open('x') as target:
+        os.chmod(temporary, path.stat().st_mode & 0o777)
+        target.write(updated); target.flush(); os.fsync(target.fileno())
+    os.replace(temporary, path)
+
+
+def schema_allowed(before, after):
+    require(before == after, 'FRONTEND_ONLY_RELEASE_SCHEMA_CHANGED')
+
+
+def verify_frontend():
+    build = manifest()
+    entry = build.get('frontend_entry_script', '')
+    require(re.fullmatch(r'/[a-zA-Z0-9_./-]+\.js', entry) is not None, 'FRONTEND_ENTRY_MANIFEST_INVALID')
+    resources = build.get('frontend_resources', [])
+    require(1 <= len(resources) <= 24, 'FRONTEND_RESOURCES_MANIFEST_INVALID')
+    for item in resources:
+        path = item.get('path', '')
+        require(re.fullmatch(r'/[a-zA-Z0-9_./-]+\.(?:js|css|svg|png|ico|mjs|webp|jpg|jpeg|avif)', path) is not None and '..' not in path,
+                'FRONTEND_RESOURCE_PATH_INVALID')
+        response = subprocess.run(['docker', 'exec', APP, 'wget', '-S', '-q', '-T', '10', '-O', '-',
+                                   'http://127.0.0.1:3000' + path], capture_output=True, timeout=20)
+        require(response.returncode == 0, 'FRONTEND_RESOURCE_HTTP_FAILED')
+        body = response.stdout
+        if item.get('content_type'):
+            types = re.findall(r'Content-Type:\s*([^;\s]+)', response.stderr.decode(errors='replace'), re.IGNORECASE)
+            require(types and types[-1].lower() == item['content_type'], 'FRONTEND_RESOURCE_CONTENT_TYPE_DRIFT')
+        require(len(body) <= 8 * 1024 * 1024 and hashlib.sha256(body).hexdigest() == item['sha256'], 'FRONTEND_RESOURCE_HASH_DRIFT')
+    paths = build.get('public_paths', ['/'])
+    require(1 <= len(paths) <= 8, 'FRONTEND_PUBLIC_PATHS_INVALID')
+    for path in paths:
+        require(re.fullmatch(r'/[a-zA-Z0-9_/-]*', path) is not None and '..' not in path, 'FRONTEND_PUBLIC_PATH_INVALID')
+        body = run(['docker', 'exec', APP, 'wget', '-q', '-T', '10', '-O', '-', 'http://127.0.0.1:3000' + path])
+        require(entry.encode() in body, 'FRONTEND_PUBLIC_ROUTE_NOT_SERVING_CANDIDATE')
+    return {'checked_resources': len(resources), 'checked_public_paths': len(paths)}
+
+
+def verify():
+    app, tool = current(old=False)
+    staged = json.loads((PRIVATE / 'stage.json').read_text())
+    before = json.loads((PRIVATE / 'inventory-before-apply.json').read_text())
+    require(runtime(app) == staged['old_runtime'] and runtime(tool) == staged['tool_runtime'], 'RUNTIME_BINDINGS_CHANGED')
+    fingerprints = files_fingerprint()
+    require(fingerprints.get('compose.yaml') == staged['new_compose_sha256'], 'POST_APPLY_COMPOSE_DRIFT')
+    require(all(fingerprints.get(key) == value for key, value in staged['files'].items() if key != 'compose.yaml'), 'POST_APPLY_CONFIG_DRIFT')
+    after = inventory()
+    require(after['protected'] == before['protected'], 'PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED_REVIEW_REQUIRED')
+    schema_allowed(before['schema'], after['schema'])
+    frontend = verify_frontend()
+    old_lines = {row['public_model']: row for row in before['lines']}
+    new_lines = {row['public_model']: row for row in after['lines']}
+    states = {row['public_model']: row for row in after['sync_states']}
+    removed = sorted(set(old_lines) - set(new_lines))
+    added = sorted(set(new_lines) - set(old_lines))
+    changed = sorted(key for key in set(old_lines) & set(new_lines) if old_lines[key] != new_lines[key])
+    for model in removed:
+        state = states.get(model, {})
+        require(state.get('paused') is True and state.get('pause_reason') in ('missing', 'disabled') and
+                state.get('retired_revision', 0) >= old_lines[model].get('version', 0), 'REMOVED_LINE_MISSING_RETIREMENT_EVIDENCE')
+    # The 64 business runtime is unchanged. Its existing scheduler can update
+    # catalog configuration during a restart; retain separate private evidence.
+    providers_before = {row['provider']: row for row in before['sync_providers']}
+    providers_after = {row['provider']: row for row in after['sync_providers']}
+    for model in added + changed:
+        try:
+            draft = json.loads(new_lines[model]['draft_config'])
+        except Exception:
+            raise RuntimeError('CATALOG_DELTA_CONFIG_REQUIRES_REVIEW') from None
+        provider = draft.get('provider')
+        latest = providers_after.get(provider, {})
+        require(provider in ('sanbao', 'canseedream') and latest.get('state') == 'ready' and
+                latest.get('last_verified_at', 0) > providers_before.get(provider, {}).get('last_verified_at', 0) and
+                latest.get('last_verified_at', 0) >= new_lines[model].get('updated_at', 0),
+                'CATALOG_DELTA_WITHOUT_EXISTING_SCHEDULER_EVIDENCE_REVIEW_REQUIRED')
+    stamp = str(time.time_ns())
+    save_private('inventory-after-verify-' + stamp + '.json', after)
+    save_private('line-change-set-' + stamp + '.json', {'removed': removed, 'added': added, 'changed': changed,
+                                                      'existing_background_sync_observed': before['sync_providers'] != after['sync_providers'],
+                                                      'before_count': len(old_lines), 'after_count': len(new_lines)})
+    return {'verified': True, 'version': VERSION, 'app_image_id': app['Image'], 'healthy': True,
+            'runtime_bindings_preserved': True, 'protected_history_and_financial_fingerprints_preserved': True,
+            'removed_current_line_count': len(removed), 'current_line_count': len(new_lines),
+            'added_current_line_count': len(added), 'changed_current_line_count': len(changed),
+            'catalog_background_activity_observed': before['sync_providers'] != after['sync_providers'],
+            'business_runtime_source_changed': False,
+            'frontend': frontend,
+            'schema_unchanged': True, 'financial_restore': False, 'real_generation_calls': 0}
+
+
+def wait_new():
+    for _ in range(90):
+        try:
+            current(old=False)
+            return
+        except RuntimeError:
+            time.sleep(2)
+    raise RuntimeError('CANDIDATE_HEALTH_TIMEOUT')
+
+
+def safe_failure_code(error):
+    value = str(error)
+    if isinstance(error, RuntimeError) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,159}', value):
+        return value
+    return 'PRIVATE_FAILURE_DETAILS_WITHHELD'
+
+
+def apply():
+    app, tool = current()
+    staged = json.loads((PRIVATE / 'stage.json').read_text())
+    require(runtime(app) == staged['old_runtime'] and runtime(tool) == staged['tool_runtime'], 'PRE_APPLY_RUNTIME_DRIFT')
+    require(files_fingerprint() == staged['files'], 'PRE_APPLY_CONFIG_DRIFT')
+    candidate = json.loads(run(['docker', 'image', 'inspect', NEW_IMAGE]))[0]
+    require(candidate['Id'] == staged['candidate_image_id'], 'STAGED_IMAGE_TAG_DRIFT')
+    require(digest(STAGE / 'build65.json') == staged['manifest_sha256'], 'STAGED_MANIFEST_DRIFT')
+    require(not (PRIVATE / 'inventory-before-apply.json').exists(), 'PRIOR_APPLY_REQUIRES_REVIEW')
+    assert_quiet()
+    stopped = False
+    image_swapped = False
+    try:
+        stopped = True
+        run([*COMPOSE, 'stop', '-t', '900', 'new-api'], timeout=930)
+        # A request could have entered between the initial check and stop.
+        # Recheck before taking the exact baseline or enabling the candidate.
+        assert_quiet()
+        before = inventory()
+        save_private('inventory-before-apply.json', before)
+        replace_compose_image(staged['old_image_reference'], NEW_IMAGE)
+        image_swapped = True
+        run([*COMPOSE, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'new-api'], timeout=180)
+        wait_new()
+        return verify()
+    except Exception as error:
+        # No SQL restore, refund, retry or replay exists in this recovery path.
+        cause = safe_failure_code(error)
+        recovery = 'IMAGE_ONLY_RECOVERY_SUCCEEDED'
+        try:
+            if image_swapped:
+                replace_compose_image(NEW_IMAGE, staged['old_image_reference'])
+            if stopped:
+                run([*COMPOSE, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'new-api'], timeout=180)
+                for _ in range(90):
+                    try:
+                        recovered_app, recovered_tool = current()
+                        require(runtime(recovered_app) == staged['old_runtime'] and runtime(recovered_tool) == staged['tool_runtime'],
+                                'RECOVERY_RUNTIME_BINDINGS_DRIFT')
+                        break
+                    except RuntimeError:
+                        time.sleep(2)
+                else:
+                    raise RuntimeError('OLD_IMAGE_RECOVERY_HEALTH_OR_BINDINGS_FAILED')
+        except Exception as recovery_error:
+            recovery = 'IMAGE_ONLY_RECOVERY_FAILED_' + safe_failure_code(recovery_error)
+        raise RuntimeError('APPLY_ABORTED_' + cause + '_' + recovery + '_REVIEW_REQUIRED') from None
+
+
+def main(action):
+    require(action in ('preflight', 'stage', 'apply', 'verify'), 'UNKNOWN_RELEASE_ACTION')
+    if action == 'preflight':
+        return preflight()
+    require(STAGE.parent.resolve() == STAGE.parent and not STAGE.is_symlink(), 'STAGE_PATH_INVALID')
+    # A task-private lock serializes this release without changing financial data.
+    STAGE.mkdir(mode=0o700, exist_ok=True)
+    with (STAGE / '.release65.lock').open('a') as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return {'stage': stage, 'apply': apply, 'verify': verify}[action]()

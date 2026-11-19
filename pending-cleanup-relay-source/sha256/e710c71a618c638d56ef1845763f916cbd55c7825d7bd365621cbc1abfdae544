@@ -1,0 +1,37 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('admin_operations_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import json,subprocess
+def run(args):
+ r=subprocess.run(args,capture_output=True,timeout=45)
+ if r.returncode:raise RuntimeError('READONLY_AUDIT_COMMAND_FAILED')
+ return r.stdout
+def sql(query):
+ raw=run(['docker','exec','-i','piknoai-relay-postgres-1','psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c',"BEGIN READ ONLY; SET LOCAL statement_timeout='15s'; "+query+'; ROLLBACK']).decode()
+ rows=[x for x in raw.splitlines() if x.startswith(('{','['))]
+ if len(rows)!=1:raise RuntimeError('READONLY_AUDIT_SQL_SHAPE')
+ return json.loads(rows[0])
+app=json.loads(run(['docker','inspect','piknoai-relay-new-api-1']))[0]
+if app['Image']!='sha256:8be2256d39ac20393e8c64b26f397763de19d70d730331d2a724bdd42788b51d':raise RuntimeError('LIVE_VERSION_DRIFT_REQUIRES_REVIEW')
+tables=('pikno_lines','pikno_line_sync_states','pikno_sync_providers','pikno_sync_snapshots','channels','abilities','task_plugins','tasks','pikno_settlements','pikno_llm_requests','pikno_reverse_operations','logs','quota_data')
+names=','.join(repr(n) for n in tables)
+schema=sql("SELECT coalesce(json_object_agg(table_name,cols),'{}'::json) FROM (SELECT table_name,json_agg(column_name ORDER BY ordinal_position) cols FROM information_schema.columns WHERE table_schema='public' AND table_name IN ("+names+") GROUP BY table_name) s")
+counts=sql("""SELECT json_build_object(
+ 'sanbao_sync_states',(SELECT count(*) FROM pikno_line_sync_states WHERE provider='sanbao'),
+ 'sanbao_sync_providers',(SELECT count(*) FROM pikno_sync_providers WHERE provider='sanbao'),
+ 'sanbao_sync_snapshots',(SELECT count(*) FROM pikno_sync_snapshots WHERE provider='sanbao'),
+ 'sanbao_plugin_versions',(SELECT count(*) FROM task_plugins WHERE key='pikno-sanbao'),
+ 'sanbao_enabled_active_plugins',(SELECT count(*) FROM task_plugins WHERE key='pikno-sanbao' AND active=true AND enabled=true),
+ 'sanbao_channel_configs',(SELECT count(*) FROM channels WHERE lower(base_url) LIKE '%sanbaobeauty.com%'),
+ 'sanbao_channel_abilities',(SELECT count(*) FROM abilities a JOIN channels c ON c.id=a.channel_id WHERE lower(c.base_url) LIKE '%sanbaobeauty.com%'),
+ 'sanbao_historical_settlements',(SELECT count(*) FROM pikno_settlements WHERE line_provider='sanbao' OR model LIKE 'sanbao/%'),
+ 'current_line_configs_total',(SELECT count(*) FROM pikno_lines))""")
+print(json.dumps({'read_only':True,'image_id':app['Image'],'healthy':app['State'].get('Health',{}).get('Status')=='healthy','schema':schema,'counts':counts,'customer_rows_exported':0,'mutations':0}))
+'''
+try:value=transport.remote(code,timeout=90)
+except Exception:print('{"passed":false,"code":"READONLY_PRODUCTION_AUDIT_FAILED_DETAILS_WITHHELD"}');raise SystemExit(1)
+(HERE/'production-readonly-audit.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({k:v for k,v in value.items() if k!='schema'}))

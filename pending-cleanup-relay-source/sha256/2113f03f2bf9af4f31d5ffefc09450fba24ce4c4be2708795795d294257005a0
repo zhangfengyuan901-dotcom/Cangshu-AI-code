@@ -1,0 +1,25 @@
+import json,subprocess
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+manifest=json.loads((HERE/'database-resources68.json').read_text(encoding='utf-8'))
+def run(args):
+ r=subprocess.run(args,capture_output=True,timeout=40)
+ assert r.returncode==0,'TEST_RESOURCE_COMMAND_FAILED'
+ return r.stdout
+for item in manifest['containers']:
+ info=json.loads(run(['docker','inspect',item['id']]))[0]
+ assert info['Id']==item['id'] and info['Name'].lstrip('/')==item['name'] and info['Image']==item['image_id']
+ assert info['Config']['Labels'].get('codex.task')==manifest['task'] and not info['HostConfig'].get('PortBindings')
+ assert all(m['Type']=='tmpfs' for m in info['Mounts'])
+network=json.loads(run(['docker','network','inspect',manifest['network']['id']]))[0]
+assert network['Id']==manifest['network']['id'] and network['Internal'] is True
+assert set(network.get('Containers',{})) <= {i['id'] for i in manifest['containers']}
+plan={'scope':'exact_task_owned_tmpfs_test_containers_and_internal_network','containers':[i['id'] for i in manifest['containers']],
+ 'network':manifest['network']['id'],'production_resources':[],'remove_volumes':False,'opening_balance_snapshot_saved':False}
+(HERE/'database-resource-cleanup-plan.json').write_text(json.dumps(plan,indent=2)+'\n',encoding='utf-8')
+for item in manifest['containers']:run(['docker','rm','-f',item['id']])
+network=json.loads(run(['docker','network','inspect',manifest['network']['id']]))[0]
+assert not network.get('Containers')
+run(['docker','network','rm',manifest['network']['id']])
+plan['completed']=True;(HERE/'database-resource-cleanup-plan.json').write_text(json.dumps(plan,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'task_test_containers_removed':2,'task_internal_network_removed':True,'production_resources_touched':False}))

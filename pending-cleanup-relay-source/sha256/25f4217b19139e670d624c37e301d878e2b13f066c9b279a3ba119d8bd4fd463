@@ -1,0 +1,14 @@
+async (page) => {
+ const result=await page.evaluate(()=>{
+  const table=document.createElement('table');
+  table.setAttribute('data-slot','table');
+  table.innerHTML='<tbody data-slot="table-body"><tr data-slot="table-row" class="bg-emerald-50/70 dark:bg-emerald-500/10"><td>合成命中档位</td></tr></tbody>';
+  document.body.append(table);
+  try{
+   const row=table.querySelector('tr');
+   return {theme:document.documentElement.dataset.adminTheme,background:getComputedStyle(row).backgroundColor,sharedRowSurface:getComputedStyle(row).getPropertyValue('--admin-row-surface')};
+  }finally{table.remove()}
+ });
+ if(result.theme!=='pikno'||result.background==='rgb(11, 12, 16)'||result.background==='rgba(0, 0, 0, 0)'||result.sharedRowSurface.trim()!=='')throw new Error('billing_tier_highlight_overridden');
+ return {passed:true,checks:['billing_tier_highlight_preserved_outside_managed_lists'],result,synthetic:true};
+}

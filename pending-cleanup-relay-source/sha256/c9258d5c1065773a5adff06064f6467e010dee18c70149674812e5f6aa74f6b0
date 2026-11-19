@@ -1,0 +1,23 @@
+import datetime
+import importlib.util
+import json
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+spec = importlib.util.spec_from_file_location('sync_verification_transport', ROOT / 'output/direct-media-production-current/transport.py')
+transport = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(transport)
+source = (HERE / 'release64-candidate.py').read_text(encoding='utf-8')
+code = source + '''
+import datetime
+app,_=current(old=False)
+boot=int(datetime.datetime.fromisoformat(app['State']['StartedAt'].replace('Z','+00:00')).timestamp())
+providers=sql("SELECT coalesce(json_agg(json_build_object('provider',provider,'ready',state='ready','verified_after_boot',last_verified_at>="+str(boot)+",'snapshot_present',length(coalesce(snapshot_hash,''))=64) ORDER BY provider),'[]'::json) FROM pikno_sync_providers WHERE provider IN ('sanbao','canseedream')")
+counts=sql("SELECT json_build_object('retired_markers',(SELECT count(*) FROM pikno_line_sync_states WHERE provider IN ('sanbao','canseedream') AND retired_revision>0),'closed_current_configurations',(SELECT count(*) FROM pikno_lines l JOIN pikno_line_sync_states s ON l.public_model=s.public_model WHERE s.provider IN ('sanbao','canseedream') AND s.paused=true AND s.pause_reason IN ('missing','disabled')))")
+print(json.dumps({'read_only':True,'version':VERSION,'providers':providers,'counts':counts,'first_full_sync_verified':len(providers)==2 and all(p['ready'] and p['verified_after_boot'] and p['snapshot_present'] for p in providers) and counts['closed_current_configurations']==0,'production_business_mutations':0}))
+'''
+result = transport.remote(code, timeout=45)
+stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')
+(HERE / ('production64-sync-' + stamp + '.json')).write_text(json.dumps(result, indent=2)+'\n', encoding='utf-8')
+print(json.dumps(result))

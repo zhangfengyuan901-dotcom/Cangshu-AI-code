@@ -1,0 +1,21 @@
+import hashlib,json,subprocess
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+FRONT=ROOT/'build/hamster-trim44-web'
+baseline=json.loads((HERE/'baseline.json').read_text())
+saved={item['path']:(FRONT/item['path']).read_bytes() for item in baseline['frontend_source_files']}
+try:
+    for name in saved:
+        (FRONT/name).write_bytes((HERE/'before/frontend'/name).read_bytes())
+    result=subprocess.run(['cmd','/c','npm exec --yes --package=bun -- bun run test src/hooks/__tests__/sidebar-config.test.tsx --reporter=json --outputFile=D:/PIKNO/output/relay-admin-theme-current/sidebar-baseline-tests.json'],cwd=FRONT,capture_output=True,timeout=120)
+    (HERE/'sidebar-baseline-tests.log').write_bytes(result.stdout+result.stderr)
+finally:
+    for name,data in saved.items(): (FRONT/name).write_bytes(data)
+assert all((FRONT/name).read_bytes()==data for name,data in saved.items()),'SOURCE_RESTORE_FAILED'
+value=json.loads((HERE/'sidebar-baseline-tests.json').read_text(encoding='utf-8'))
+assert value['numFailedTests']==5,'BASELINE_FAILURE_COUNT_CHANGED'
+summary={'baseline66_failed_tests':5,'current_failed_tests':5,'source_restored':True,
+    'baseline_failures':[a['fullName'] for t in value['testResults'] for a in t['assertionResults'] if a['status']=='failed']}
+(HERE/'sidebar-baseline-comparison.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'baseline66_failed_tests':5,'source_restored':True}))

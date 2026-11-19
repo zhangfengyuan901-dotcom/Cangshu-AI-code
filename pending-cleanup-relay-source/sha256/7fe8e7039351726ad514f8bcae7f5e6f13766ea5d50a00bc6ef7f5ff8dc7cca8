@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import { createHash, randomBytes } from 'node:crypto';
+import { setTimeout as wait } from 'node:timers/promises';
+const api = 'http://backend:3000';
+let phase = 'health';
+const headers = token => token ? { authorization: 'Bearer ' + token } : {};
+async function request(path, body, token, extra = {}) {
+  const result = await fetch(api + path, {
+    method: body === undefined ? 'GET' : 'POST', headers: { Origin: 'https://www.piknoai.com', Referer: 'https://www.piknoai.com/account-lite/index.html', ...headers(token), ...extra, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: 'error', signal: AbortSignal.timeout(15000),
+  });
+  return { status: result.status, body: await result.json(), cookie: result.headers.get('set-cookie') };
+}
+async function data(path, body, token, extra) {
+  const result = await request(path, body, token, extra);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.success, true);
+  return result;
+}
+async function start(token, purpose = 'connect') {
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const value = (await data('/api/user/desktop/start', { challenge, purpose }, token)).body.data;
+  assert.match(value.flow_id, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(new URL(value.verification_url).pathname, '/hub/billing');
+  assert.equal(new URL(value.verification_url).hash, '#desktop=' + value.flow_id);
+  return { flow_id: value.flow_id, verifier };
+}
+try {
+  for (let i = 0; ; i++) {
+    if (await fetch(api + '/api/status').then(r => r.ok).catch(() => false)) break;
+    if (i > 40) throw Error('health_timeout');
+    await wait(500);
+  }
+  phase = 'setup';
+  await data('/api/setup', { username: 'fixtureadmin', password: 'synthetic-onboarding-only', confirmPassword: 'synthetic-onboarding-only' });
+  const admin = (await data('/api/user/login', { username: 'fixtureadmin', password: 'synthetic-onboarding-only' })).body.data.access_token;
+  const scopes = ['image-standard', 'video-standard', 'tool-standard', 'chat-standard'];
+  for (const [key, value] of Object.entries({ ServerAddress: 'https://www.piknoai.com', EmailVerificationEnabled: 'false',
+    UserUsableGroups: JSON.stringify(Object.fromEntries(scopes.map(scope => [scope, scope]))),
+    GroupRatio: JSON.stringify(Object.fromEntries(['default', ...scopes].map(scope => [scope, 1]))),
+  })) {
+    const response = await fetch(api + '/api/option/', { method: 'PUT', headers: { ...headers(admin), 'content-type': 'application/json' }, body: JSON.stringify({ key, value }) });
+    assert.equal((await response.json()).success, true);
+  }
+  phase = 'registration';
+  const flow = await start();
+  const registered = await data('/api/user/register', { username: 'enrollmentqa', password: 'synthetic-new-account-only' }, undefined, { 'X-Hamster-Desktop-Flow': flow.flow_id });
+  const browser = registered.body.data;
+  assert.equal(typeof browser.access_token, 'string');
+  const userID = browser.user.id;
+  assert.equal((await data('/api/user/desktop/inspect', { flow_id: flow.flow_id }, browser.access_token)).body.data.requires_approval, true);
+  assert.equal((await data('/api/user/desktop/exchange', flow)).body.data.status, 'pending');
+  phase = 'approval';
+  await data('/api/user/desktop/approve', { flow_id: flow.flow_id, confirmed: true }, browser.access_token);
+  const result = await data('/api/user/desktop/exchange', flow);
+  const desktop = result.body.data;
+  assert.equal(desktop.status, 'ready');
+  assert.equal(desktop.user.id, userID);
+  assert.ok(result.cookie?.includes('HttpOnly'));
+  assert.equal(desktop.keys.length, 4);
+  assert.deepEqual(desktop.keys.map(k => k.group).sort(), ['image-standard', 'video-standard', 'tool-standard', 'chat-standard'].sort());
+  assert.ok(desktop.keys.every(k => Number.isSafeInteger(k.id) && typeof k.key === 'string' && k.key.length >= 48));
+  phase = 'retry';
+  const repeat = (await data('/api/user/desktop/exchange', flow)).body.data;
+  assert.equal(repeat.session.sid, desktop.session.sid);
+  assert.deepEqual(repeat.keys.map(k => k.id), desktop.keys.map(k => k.id));
+  const wrong = await request('/api/user/desktop/exchange', { ...flow, verifier: 'x'.repeat(43) });
+  assert.ok([400, 403, 409].includes(wrong.status));
+  const complete = await data('/api/user/desktop/ack', flow, desktop.access_token);
+  assert.equal(complete.body.data.status, 'complete');
+  const acknowledged = await request('/api/user/desktop/exchange', flow);
+  assert.ok([400, 403, 409].includes(acknowledged.status));
+  phase = 'reconnect_preserves_keys';
+  const again = await start();
+  await data('/api/user/desktop/approve', { flow_id: again.flow_id, confirmed: true }, browser.access_token);
+  const renewed = (await data('/api/user/desktop/exchange', again)).body.data;
+  assert.deepEqual(renewed.keys.map(k => k.id).sort(), desktop.keys.map(k => k.id).sort());
+  phase = 'existing_user_recharge';
+  const recharge = await start(desktop.access_token, 'recharge');
+  const mismatch = await request('/api/user/desktop/inspect', { flow_id: recharge.flow_id }, admin);
+  assert.equal(mismatch.status, 403);
+  assert.equal(mismatch.body.code, 'DESKTOP_ACCOUNT_MISMATCH');
+  const inspection = (await data('/api/user/desktop/inspect', { flow_id: recharge.flow_id }, browser.access_token)).body.data;
+  assert.equal(inspection.requires_approval, false);
+  await data('/api/user/desktop/approve', { flow_id: recharge.flow_id, confirmed: true }, browser.access_token);
+  const rechargeResult = (await data('/api/user/desktop/exchange', recharge)).body.data;
+  assert.equal(rechargeResult.user_id, userID);
+  assert.equal(Object.hasOwn(rechargeResult, 'keys'), false);
+  phase = 'checkout_rejects_wrong_user';
+  const denied = await request('/api/user/pay', { amount: 50, payment_method: 'alipay' }, admin, { 'X-Hamster-Desktop-Flow': recharge.flow_id });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.code, 'DESKTOP_ACCOUNT_MISMATCH');
+  const orders = (await data('/api/user/topup/self?p=1&page_size=20', undefined, desktop.access_token)).body.data;
+  assert.equal(orders.total, 0);
+  console.log(JSON.stringify({ passed: true, automaticRegistrationSession: true, managedScopedKeys: 4,
+    lostResponseRetrySameSession: true, repeatEnrollmentSameKeys: true, rejectedWrongAccountCheckout: true,
+    acknowledgementStopsExchange: true, payments: 0, productionMutations: 0 }));
+} catch (error) {
+  console.error(JSON.stringify({ passed: false, phase, code: error.code || error.name,
+    ...(Number.isSafeInteger(error.actual) ? { actual: error.actual } : {}),
+    ...(Number.isSafeInteger(error.expected) ? { expected: error.expected } : {}),
+    fixtureLine: /fixture\.mjs:(\d+)/.exec(error.stack)?.[1],
+  }));
+  process.exitCode = 1;
+}

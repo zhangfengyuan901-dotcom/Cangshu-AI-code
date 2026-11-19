@@ -1,0 +1,93 @@
+"""Explicit release actions; default operation is a read-only preflight."""
+import argparse
+import datetime
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+REMOTE_STAGE = '/opt/piknoai-relay/portal66-20261111'
+
+
+def digest(path):
+    with path.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def require(value, code):
+    if not value:
+        raise RuntimeError(code)
+
+
+def transport():
+    spec = importlib.util.spec_from_file_location('release66_transport', ROOT / 'output/direct-media-production-current/transport.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def scp_arguments(module):
+    program = Path(module.SSH[0])
+    name = 'scp.exe' if program.suffix.lower() == '.exe' else 'scp'
+    executable = str(program.with_name(name)) if program.parent != Path('.') else name
+    options = []
+    for item in module.SSH[1:-1]:
+        if item == '-T':
+            continue
+        options.append('-P' if item == '-p' else item)
+    return [executable, *options]
+
+
+def stage_payload(module, path):
+    require(path.resolve().is_relative_to(HERE) and not path.is_symlink(), 'LOCAL_MANIFEST_PATH_INVALID')
+    source = json.loads(path.read_text(encoding='utf-8'))
+    fields = ('version', 'binary_sha256', 'binary_bytes', 'gzip_sha256', 'frontend_entry_script', 'frontend_resources', 'public_paths')
+    manifest = {key: source[key] for key in fields if key in source}
+    require(all(key in manifest for key in fields), 'LOCAL_MANIFEST_FIELDS_MISSING')
+    require(manifest['version'] == 'v1.0.0-rc.41-hamster.66', 'LOCAL_CANDIDATE_VERSION_INVALID')
+    gzip_file = (HERE / source.get('gzip_file', 'backend66-new-api.gz')).resolve()
+    require(gzip_file.is_relative_to(HERE) and gzip_file.is_file() and not gzip_file.is_symlink(), 'LOCAL_PAYLOAD_PATH_INVALID')
+    require(digest(gzip_file) == manifest['gzip_sha256'], 'LOCAL_GZIP_HASH_DRIFT')
+    manifest_file = HERE / 'build66-upload.json'
+    manifest_file.write_text(json.dumps(manifest, sort_keys=True) + '\n', encoding='utf-8')
+    files = [(HERE / 'release66-candidate.py', 'release66-candidate.py'), (manifest_file, 'build66.json'), (gzip_file, 'backend66-new-api.gz')]
+    hashes = {name: digest(file) for file, name in files}
+    result = module.remote("import json,pathlib,os\np=pathlib.Path(" + repr(REMOTE_STAGE) + ")\nassert p.parent.resolve()==p.parent and not p.is_symlink()\nassert not (p/'private'/'stage.json').exists()\np.mkdir(mode=0o700,exist_ok=True)\nos.chmod(p,0o700)\nprint(json.dumps({'payload_directory_ready':True}))")
+    require(result.get('payload_directory_ready'), 'REMOTE_PAYLOAD_DIRECTORY_INVALID')
+    command = scp_arguments(module)
+    for file, name in files:
+        result = subprocess.run([*command, str(file), module.SSH[-1] + ':' + REMOTE_STAGE + '/' + name], capture_output=True, timeout=300)
+        require(result.returncode == 0, 'PAYLOAD_TRANSFER_FAILED')
+    module.remote("import json,pathlib,hashlib,os\np=pathlib.Path(" + repr(REMOTE_STAGE) + ")\nfor name,expected in " + repr(hashes) + ".items():\n f=p/name\n assert f.is_file() and not f.is_symlink()\n assert hashlib.sha256(f.read_bytes()).hexdigest()==expected\n os.chmod(f,0o600)\nprint(json.dumps({'payload_hashes_verified':True}))")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['preflight', 'stage', 'apply', 'verify'], nargs='?', default='preflight')
+    parser.add_argument('--manifest', default='build66.json')
+    options = parser.parse_args()
+    module = transport()
+    if options.action == 'stage':
+        stage_payload(module, HERE / options.manifest)
+    if options.action == 'preflight':
+        source = (HERE / 'release66-candidate.py').read_text(encoding='utf-8')
+        code = source + "\ntry:\n value=main('preflight')\n print(json.dumps({'ok':True,'result':value}))\nexcept Exception as error:\n print(json.dumps({'ok':False,'code':str(error) if isinstance(error,RuntimeError) else 'READONLY_PREFLIGHT_FAILED'}))\n"
+    else:
+        code = "import importlib.util,json,pathlib\np=pathlib.Path(" + repr(REMOTE_STAGE) + ")\ns=importlib.util.spec_from_file_location('portal66_release',p/'release66-candidate.py')\nm=importlib.util.module_from_spec(s)\ns.loader.exec_module(m)\ntry:\n value=m.main(" + repr(options.action) + ")\n print(json.dumps({'ok':True,'result':value}))\nexcept Exception as error:\n print(json.dumps({'ok':False,'code':str(error) if isinstance(error,RuntimeError) else 'RELEASE_PRIVATE_DETAILS_WITHHELD'}))\n"
+    value = module.remote(code, timeout=1500 if options.action == 'apply' else 360)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')
+    output = HERE / ('release66-' + options.action + '-' + stamp + '.json')
+    output.write_text(json.dumps(value, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(value))
+    return 0 if value.get('ok') else 1
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        print(json.dumps({'ok':False,'code':str(error) if isinstance(error,RuntimeError) else 'LOCAL_RELEASE_FAILURE_DETAILS_WITHHELD'}))
+        raise SystemExit(1)

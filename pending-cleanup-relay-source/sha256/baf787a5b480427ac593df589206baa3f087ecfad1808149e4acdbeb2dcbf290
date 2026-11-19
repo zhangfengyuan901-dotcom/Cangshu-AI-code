@@ -1,0 +1,150 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const http=require('node:http');
+const path=require('node:path');
+const electron=require('electron');
+const {app,BrowserWindow,session}=electron;
+
+const packaged=path.join(__dirname,'artifacts/win-unpacked/resources/app.asar');
+const {createDesktopAccount,PARTITION}=require(path.join(packaged,'electron/account-desktop.cjs'));
+const profile=fs.mkdtempSync(path.join(__dirname,'fixture-profile-'));
+app.setPath('userData',profile);
+app.setPath('sessionData',profile);
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('disable-component-update');
+app.commandLine.appendSwitch('proxy-server','http://127.0.0.1:9');
+const relay='https://www.piknoai.com';
+const provider='https://2347637.pay.lanjingzf.com';
+const trade='USR12NOFIXTURE1';
+const amount=100,method='wxpay';
+const counts={create:0,submit:0,providerPage:0,return:0,status:0,cancel:0,unexpected:0};
+let phase='boot';
+const ok=data=>Response.json({success:true,data});
+const redirect=url=>new Response(null,{status:303,headers:{Location:url}});
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function waitFor(fn){
+  for(let elapsed=0;elapsed<12000;elapsed+=50){
+    if(await fn())return;
+    await delay(50);
+  }
+  throw Error('FIXTURE_WAIT_TIMEOUT');
+}
+
+async function run(){
+  const modules=new Set(['/account.mjs','/account-native.mjs','/fault-events.mjs']);
+  const server=http.createServer((req,res)=>{
+    if(req.url==='/'){
+      res.writeHead(200,{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'self'"});
+      res.end('<!doctype html><meta charset="utf-8"><title>Payment fixture</title><section class="active" data-panel="account"><span id="billingConnection"></span><div class="account-dashboard"></div></section><script type="module" src="/account.mjs"></script>');
+    }else if(req.url==='/api/config'){
+      res.writeHead(200,{'content-type':'application/json'});
+      res.end(JSON.stringify({relayMode:true,keyStorage:'protected'}));
+    }else if(modules.has(req.url)){
+      res.writeHead(200,{'content-type':'text/javascript; charset=utf-8'});
+      res.end(fs.readFileSync(path.join(packaged,'public',req.url.slice(1))));
+    }else{
+      res.writeHead(404);res.end();
+    }
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const appUrl=`http://127.0.0.1:${server.address().port}/`;
+  const partition=session.fromPartition(PARTITION);
+  partition.protocol.handle('https',async request=>{
+    const url=new URL(request.url);
+    if(url.origin===relay){
+      switch(url.pathname){
+        case '/api/user/auth/refresh':
+          return ok({access_token:'fixture-access',access_expires_at:Date.now()/1000+120,user:{id:12},session:{sid:'fixture-session'}});
+        case '/api/user/self':
+          return ok({id:12,username:'fixture',quota:counts.status>1?100+amount:100,used_quota:0});
+        case '/api/status':
+          return ok({quota_per_unit:1,usd_exchange_rate:1});
+        case '/api/user/self/groups':
+          return ok({});
+        case '/api/user/topup/info':
+          return ok({fixed_cny_topup:true,enable_online_topup:true,payment_compliance_confirmed:true,payment_cancel_supported:true,amount_options:[50,amount],pay_methods:[{type:'alipay'},{type:method}]});
+        case '/api/user/amount':
+          return ok((await request.json()).amount.toFixed(2));
+        case '/api/user/pay':
+          assert.deepEqual(await request.json(),{amount,payment_method:method});
+          counts.create++;
+          return Response.json({message:'success',url:relay+'/pay/lanjing/epay/submit.php',data:{pid:'2347637',type:method,out_trade_no:trade,notify_url:relay+'/api/user/epay/notify',return_url:relay+'/account-lite/index.html?tab=topup&payment_return=1',name:'fixture',money:amount.toFixed(2),sign:'c'.repeat(32),sign_type:'MD5'}});
+        case '/api/user/topup/self':
+          return ok({total:counts.create?1:0,items:counts.create?[{user_id:12,trade_no:trade,money:amount,payment_method:method,status:counts.status>1?'success':'pending',create_time:1700000000}]:[]});
+        case '/api/user/topup/status':
+          if(request.method!=='GET'||url.searchParams.get('trade_no')!==trade)break;
+          counts.status++;
+          return ok({trade_no:trade,money:amount,payment_method:method,status:counts.status>1?'success':'pending'});
+        case '/api/user/topup/cancel':
+          counts.cancel++;
+          return new Response(null,{status:403});
+        case '/pay/lanjing/epay/submit.php': {
+          const posted=new URLSearchParams(await request.text());
+          if(request.method!=='POST'||posted.get('out_trade_no')!==trade||posted.get('money')!==amount.toFixed(2)||posted.get('type')!==method)break;
+          counts.submit++;
+          return redirect(provider+'/payPage/pay.html?orderId=fixture');
+        }
+        case '/pay/lanjing/return':
+          counts.return++;
+          return redirect(relay+'/account-lite/index.html?tab=topup&payment_return=1&trade_no=untrusted');
+      }
+    }
+    if(url.origin===provider&&url.pathname==='/payPage/pay.html'){
+      counts.providerPage++;
+      return redirect(relay+'/pay/lanjing/return?fixture=1');
+    }
+    if(url.pathname!=='/favicon.ico')counts.unexpected++;
+    return new Response(null,{status:403});
+  });
+
+  const win=new BrowserWindow({show:false,webPreferences:{preload:path.join(packaged,'electron/app-events.cjs'),sandbox:true,contextIsolation:true,backgroundThrottling:false}});
+  let cashier,cashierPreferences;
+  class HiddenFixtureWindow extends BrowserWindow{
+    constructor(options){super(options);cashier=this;cashierPreferences=this.webContents.getLastWebPreferences();}
+    show(){}
+    focus(){}
+  }
+  const account=createDesktopAccount({window:win,electron:{...electron,BrowserWindow:HiddenFixtureWindow},appUrl,journalFile:path.join(profile,'operations.json'),connectCreatedKey:()=>{throw Error('unexpected fixture write');}});
+  try{
+    await win.loadURL(appUrl);
+    const js=source=>win.webContents.executeJavaScript(source);
+    await js("window.fixtureEvents=0; window.fixtureConfirms=0; window.confirm=()=>{window.fixtureConfirms++;return false;}; window.addEventListener('hamster-payment-updated',()=>window.fixtureEvents++);");
+    const enabledButton=label=>`[...document.querySelectorAll('dialog button')].find(button=>button.textContent===${JSON.stringify(label)}&&!button.disabled)`;
+    phase='account-balance';
+    await waitFor(()=>js("document.getElementById('localAccountBalance')?.textContent==='¥100.00'"));
+    await js("document.getElementById('payLocalAccount').click()");
+    phase='amount-options';
+    await waitFor(()=>js(`Boolean(${enabledButton('充值 ¥50.00')})`));
+    await js(`${enabledButton('¥100.00')}.click()`);
+    phase='select-amount';
+    await waitFor(()=>js(`Boolean(${enabledButton('充值 ¥100.00')})`));
+    await js(`${enabledButton('微信支付')}.click()`);
+    phase='select-method';
+    await waitFor(()=>js(`Boolean(${enabledButton('充值 ¥100.00')})`));
+    assert.equal(counts.create,0);
+    await js(`${enabledButton('充值 ¥100.00')}.click()`);
+    phase='cashier-open';
+    await waitFor(()=>cashierPreferences!==undefined);
+    const prefs=cashierPreferences;
+    assert.equal(prefs.sandbox,true);assert.equal(prefs.contextIsolation,true);assert.equal(prefs.nodeIntegration,false);assert.ok(!prefs.preload);
+    phase='balance-return';
+    await waitFor(async()=>cashier.isDestroyed()&&await js("window.fixtureEvents>=2&&document.getElementById('localAccountBalance').textContent==='¥200.00'&&document.querySelector('dialog').textContent.includes('已入账')"));
+    assert.equal(await js('window.fixtureConfirms'),0);
+    assert.equal(await js("[...document.querySelectorAll('dialog button')].some(button=>button.textContent==='继续支付')"),false);
+    assert.deepEqual(counts,{create:1,submit:1,providerPage:1,return:1,status:2,cancel:0,unexpected:0});
+    return {ok:true,scope:'real_electron_ui_from_candidate_asar_with_synthetic_partition',counts,clickedRechargeOnce:true,confirmationPrompts:0,selectedAmountCny:amount,matchedCashierAmount:true,verifiedBalanceRefresh:true,realPaymentCalls:0};
+  }finally{
+    account.dispose();win.destroy();partition.protocol.unhandle('https');
+    server.closeAllConnections();server.close();
+  }
+}
+
+app.whenReady().then(run).then(result=>{
+  fs.writeFileSync(path.join(__dirname,'electron-fixture-verification.json'),JSON.stringify(result,null,2)+'\n');
+  app.exit(0);
+}).catch(error=>{
+  const result={ok:false,code:error.code==='ERR_ASSERTION'?'FIXTURE_ASSERTION_FAILED':error.message==='FIXTURE_WAIT_TIMEOUT'?'FIXTURE_WAIT_TIMEOUT':'FIXTURE_FAILED',phase,counts};
+  fs.writeFileSync(path.join(__dirname,'electron-fixture-verification.json'),JSON.stringify(result,null,2)+'\n');
+  app.exit(1);
+});

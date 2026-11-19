@@ -1,0 +1,94 @@
+const assert = require('node:assert/strict');
+const { setTimeout: pause } = require('node:timers/promises');
+
+const port = Number(process.argv[2]);
+assert.ok(Number.isInteger(port) && port > 0 && port <= 65535);
+const endpoint = `http://127.0.0.1:${port}`;
+
+async function waitFor(check, timeout) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const value = await check().catch(() => null);
+    if (value) return value;
+    await pause(250);
+  }
+  throw Error('候选启动检查超时');
+}
+
+async function loadJson(path) {
+  const response = await fetch(endpoint + path, { signal: AbortSignal.timeout(1000) });
+  if (!response.ok) throw Error('测试调试端点不可用');
+  return response.json();
+}
+
+async function connect(address) {
+  const url = new URL(address);
+  assert.equal(url.hostname, '127.0.0.1');
+  assert.equal(Number(url.port), port);
+  const socket = new WebSocket(address);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', reject, { once: true });
+  });
+  let id = 0;
+  const waiting = new Map();
+  socket.addEventListener('message', ({ data }) => {
+    const message = JSON.parse(data);
+    waiting.get(message.id)?.(message);
+  });
+  return {
+    close: () => socket.close(),
+    send(method, params) {
+      return new Promise((resolve, reject) => {
+        const request = ++id;
+        const timer = setTimeout(() => {
+          waiting.delete(request);
+          reject(Error('候选调试消息超时'));
+        }, 2500);
+        waiting.set(request, (message) => {
+          clearTimeout(timer);
+          waiting.delete(request);
+          if (message.error) reject(Error('候选调试消息失败'));
+          else resolve(message.result);
+        });
+        socket.send(JSON.stringify({ id: request, method, params }));
+      });
+    },
+  };
+}
+
+(async () => {
+  let browser;
+  try {
+    const version = await waitFor(() => loadJson('/json/version'), 45000);
+    assert.match(version['User-Agent'], /Electron\/33\.4\.11/);
+    browser = await connect(version.webSocketDebuggerUrl);
+    const page = await waitFor(async () => (await loadJson('/json/list')).find(target => {
+      if (target.type !== 'page') return false;
+      const url = new URL(target.url);
+      return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.pathname === '/';
+    }), 15000);
+    const ui = await connect(page.webSocketDebuggerUrl);
+    try {
+      const startup = await waitFor(async () => {
+        const response = await ui.send('Runtime.evaluate', {
+          expression: `Boolean(document.title.includes('仓鼠AI') && document.body?.dataset?.startupState === 'ready' && document.querySelector('[data-panel="account"].active'))`,
+          returnByValue: true,
+        });
+        return response.result.value;
+      }, 15000);
+      assert.equal(startup, true);
+      console.log(JSON.stringify({ actualPortableExecutable: true, electron33_4_11: true, loopbackAppPage: true, isolatedUnconfiguredAccountView: true }));
+    } finally {
+      ui.close();
+    }
+  } finally {
+    if (browser) {
+      await browser.send('Browser.close').catch(() => {});
+      browser.close();
+    }
+  }
+})().catch(error => {
+  process.exitCode = 1;
+  console.error(error.message);
+});

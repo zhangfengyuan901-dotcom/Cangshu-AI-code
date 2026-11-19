@@ -1,0 +1,206 @@
+"""Check, then apply only an explicitly reviewed post-release cleanup plan."""
+import argparse
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+EXPECTED_IMAGE='sha256:98dcba86d96d71298718cdd26c9fe8f556f204b28853275359b0af5a09c55d02'
+EXPECTED_VERSION='v1.0.0-rc.41-hamster.72'
+
+REMOTE=r'''
+import datetime,fcntl,gzip,hashlib,json,os,pathlib,re,shutil,subprocess,urllib.request
+MODE=__MODE__
+PLAN=__PLAN__
+EXPECTED_IMAGE=__IMAGE__
+EXPECTED_VERSION=__VERSION__
+STAGE=pathlib.Path('/opt/piknoai-relay/modelgif72-20261112')
+JOURNAL=STAGE/'private/gif72-postrelease-cleanup.json'
+__HELPERS__
+def sha(file):
+ value=hashlib.sha256()
+ with file.open('rb') as source:
+  for chunk in iter(lambda:source.read(1024*1024),b''):value.update(chunk)
+ return value.hexdigest()
+def accepted(containers):
+ require(healthy(containers),'SERVICES_NOT_HEALTHY')
+ app=[value for value in containers if value['Name']=='/piknoai-relay-new-api-1']
+ require(len(app)==1 and app[0]['Image']==EXPECTED_IMAGE,'EXPECTED_RELEASE_NOT_RUNNING')
+ opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+ with opener.open('https://www.piknoai.com/api/status',timeout=25) as response:
+  require(response.status==200 and json.load(response)['data']['version']==EXPECTED_VERSION,'EXPECTED_RELEASE_NOT_PUBLIC')
+def active_build_contexts(containers):
+ groups=set()
+ for value in containers:
+  labels=value['Config'].get('Labels') or {}
+  groups.add((labels.get('com.docker.compose.project'),tuple(labels.get('com.docker.compose.project.config_files','').split(','))))
+ contexts=set()
+ for project,files in groups:
+  require(project and all(files),'ACTIVE_BUILD_CONTEXT_UNRESOLVED')
+  command=['docker','compose','-p',project]
+  for name in files:command+=['-f',name]
+  result=subprocess.run([*command,'config','--format','json'],capture_output=True,timeout=60)
+  if result.returncode:result=subprocess.run([*command,'config','--no-interpolate','--no-env-resolution','--format','json'],capture_output=True,timeout=60)
+  require(result.returncode==0,'ACTIVE_BUILD_CONTEXT_UNRESOLVED')
+  for service in json.loads(result.stdout)['services'].values():
+   build=service.get('build')
+   if not build:continue
+   context=build if isinstance(build,str) else build['context']
+   require('$' not in context,'ACTIVE_BUILD_CONTEXT_UNRESOLVED')
+   contexts.add(pathlib.Path(context).resolve())
+ return contexts
+def payload_checks(entry,containers):
+ file=pathlib.Path(entry['path']);real=file.resolve()
+ base=pathlib.Path('/opt/piknoai-relay')
+ require(file.is_file() and not file.is_symlink() and file.parent.resolve()==pathlib.Path(entry['real_parent']) and base in real.parents,'PAYLOAD_PATH_CHANGED')
+ require(not any(part in ('private','current','modelgif72-20261112') for part in real.parts),'PROTECTED_PAYLOAD_PATH')
+ require(re.fullmatch(r'(?:backend\d*[-_]new-api(?:\.gz)?|new-api(?:\.gz)?)',file.name) is not None,'UNREVIEWED_PAYLOAD_NAME')
+ require(file.stat().st_size==entry['bytes'] and sha(file)==entry['sha256'],'PAYLOAD_CONTENT_CHANGED')
+ if file.suffix=='.gz':
+  with gzip.open(file,'rb') as source:magic=source.read(4)
+ else:
+  with file.open('rb') as source:magic=source.read(4)
+ require(magic==b'\x7fELF','PAYLOAD_NOT_GENERATED_ELF')
+ require(not any(context==real or context in real.parents for context in active_build_contexts(containers)),'PAYLOAD_CURRENT_BUILD_CONTEXT_REFERENCE')
+ for value in containers:
+  for mount in value.get('Mounts',[]):
+   source=pathlib.Path(mount.get('Source','/none')).resolve()
+   require(not (real==source or real in source.parents or source in real.parents),'PAYLOAD_MOUNT_REFERENCE')
+  command=[*(value['Config'].get('Env') or []),*(value['Config'].get('Cmd') or []),*(value['Config'].get('Entrypoint') or [])]
+  require(not any(str(real) in item or str(file) in item for item in command if isinstance(item,str)),'PAYLOAD_RUNTIME_REFERENCE')
+ for proc in pathlib.Path('/proc').iterdir():
+  if not proc.name.isdigit():continue
+  try:executable=pathlib.Path(os.readlink(proc/'exe').removesuffix(' (deleted)')).resolve()
+  except OSError:executable=None
+  require(executable!=real,'PAYLOAD_EXECUTABLE_REFERENCE')
+  try:fds=list((proc/'fd').iterdir())
+  except OSError:continue
+  for fd in fds:
+   try:target=pathlib.Path(os.readlink(fd).removesuffix(' (deleted)')).resolve()
+   except OSError:continue
+   require(target!=real,'PAYLOAD_OPEN_FILE_REFERENCE')
+ return file
+def protected_images(containers,images,refs):
+ mapping={value['Id']:value for value in images}
+ protected={value['Image'] for value in containers}
+ protected.update(value['Id'] for value in images if any(tag in refs for tag in value.get('RepoTags') or []))
+ for current in tuple(protected):
+  seen=set()
+  while current in mapping and mapping[current].get('Parent'):
+   parent=mapping[current]['Parent'];require(parent not in seen,'IMAGE_PARENT_CYCLE')
+   seen.add(parent);protected.add(parent);current=parent
+ return protected
+def image_checks(entry,containers,images,refs):
+ matches=[value for value in images if value['Id']==entry['id']]
+ require(len(matches)==1,'REVIEWED_IMAGE_NOT_PRESENT')
+ image=matches[0]
+ require(sorted(image.get('RepoTags') or [])==entry['tags'],'REVIEWED_IMAGE_TAG_CHANGED')
+ require(not any(value['Image']==image['Id'] for value in containers),'IMAGE_CONTAINER_REFERENCE')
+ require(not any(value.get('Parent')==image['Id'] for value in images),'IMAGE_CHILD_REFERENCE')
+ require(image['Id'] not in protected_images(containers,images,refs),'PROTECTED_IMAGE_REFERENCE')
+ return image
+def emit_journal(value,initial=False):
+ if initial:require(not JOURNAL.exists(),'PREVIOUS_CLEANUP_REQUIRES_REVIEW')
+ require(not JOURNAL.is_symlink(),'JOURNAL_SYMLINK_FORBIDDEN')
+ temporary=JOURNAL.with_name(JOURNAL.name+'.tmp')
+ require(not temporary.exists(),'JOURNAL_TEMPORARY_EXISTS')
+ with temporary.open('x') as target:
+  os.chmod(temporary,0o600);json.dump(value,target,sort_keys=True);target.flush();os.fsync(target.fileno())
+ os.replace(temporary,JOURNAL)
+result={'status':'checking','mode':MODE,'images_deleted':[],'files_deleted':[],'volumes_deleted':0,
+        'business_data_deleted':0,'git_objects_deleted':0,'current_stage_preserved':str(STAGE),
+        'expected_version':EXPECTED_VERSION,'expected_image_id':EXPECTED_IMAGE}
+with pathlib.Path('/run/pikno-model-gif-cleanup.lock').open('a') as lock:
+ fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ try:
+  containers,images=inventory();accepted(containers)
+  baseline=runtime_snapshot(containers);volumes=volume_snapshot()
+  refs,fingerprints=reference_snapshot(containers)
+  contexts=[]
+  for entry in PLAN['payload_file_candidates']:
+   usage=entry.get('usage_audit',{})
+   require(not any(usage.get(key,1) for key in ('build_context_overlaps','mount_overlaps','open_fd_references','executable_references')),'PAYLOAD_USAGE_NOT_REVIEWED')
+   payload_checks(entry,containers)
+  for entry in PLAN['after_release_image_candidates']:image_checks(entry,containers,images,refs)
+  result.update({'status':'ready','checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+       'root_free_bytes_before':shutil.disk_usage('/').free,'eligible_image_ids':[value['id'] for value in PLAN['after_release_image_candidates']],
+       'eligible_payload_files':[{key:value[key] for key in ('path','bytes','sha256')} for value in PLAN['payload_file_candidates']],
+       'protected_image_ids':sorted(protected_images(containers,images,refs)),'runtime_fingerprints':baseline,
+       'volume_inventory':volumes,'configuration_fingerprints':fingerprints,'production_mutations':0})
+  if MODE=='apply':
+   result['status']='running';emit_journal(result,True)
+   for entry in PLAN['after_release_image_candidates']:
+    current_containers,current_images=inventory()
+    require(runtime_snapshot(current_containers)==baseline and healthy(current_containers),'LIVE_RUNTIME_CHANGED')
+    current_refs,current_fingerprints=reference_snapshot(current_containers)
+    require(current_fingerprints==fingerprints,'ACTIVE_CONFIGURATION_CHANGED')
+    image_checks(entry,current_containers,current_images,current_refs)
+    before_free=shutil.disk_usage('/').free
+    run(['docker','image','rm','--no-prune',entry['id']],timeout=120)
+    require(entry['id'] not in run(['docker','image','ls','-aq','--no-trunc']).decode().split(),'IMAGE_DELETE_NOT_CONFIRMED')
+    result['images_deleted'].append({'id':entry['id'],'tags':entry['tags'],'root_free_delta_bytes':shutil.disk_usage('/').free-before_free})
+    emit_journal(result)
+   for entry in PLAN['payload_file_candidates']:
+    current_containers,_=inventory()
+    require(runtime_snapshot(current_containers)==baseline and healthy(current_containers),'LIVE_RUNTIME_CHANGED')
+    require(reference_snapshot(current_containers)[1]==fingerprints,'ACTIVE_CONFIGURATION_CHANGED')
+    file=payload_checks(entry,current_containers)
+    file.unlink()
+    result['files_deleted'].append({key:entry[key] for key in ('path','bytes','sha256')})
+    emit_journal(result)
+   after_containers,after_images=inventory();accepted(after_containers)
+   require(runtime_snapshot(after_containers)==baseline,'POST_CLEANUP_RUNTIME_CHANGED')
+   require(volume_snapshot()==volumes,'POST_CLEANUP_VOLUME_INVENTORY_CHANGED')
+   require(reference_snapshot(after_containers)[1]==fingerprints,'POST_CLEANUP_CONFIG_CHANGED')
+   require(protected_images(after_containers,after_images,reference_snapshot(after_containers)[0])==set(result['protected_image_ids']),'PROTECTED_IMAGES_CHANGED')
+   result.update({'status':'completed','root_free_bytes_after':shutil.disk_usage('/').free,'all_services_healthy':True,
+                  'runtime_preserved':True,'configuration_preserved':True,'volume_inventory_preserved':True,
+                  'current_images_and_parent_chain_preserved':True,'production_mutations':len(result['images_deleted'])+len(result['files_deleted'])})
+   emit_journal(result)
+ except Exception as error:
+  result.update({'status':'stopped_for_review','code':str(error) if isinstance(error,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(error)) else 'PRIVATE_DETAILS_WITHHELD',
+                 'root_free_bytes_after':shutil.disk_usage('/').free})
+  if MODE=='apply' and JOURNAL.exists():emit_journal(result)
+ print(json.dumps(result))
+'''
+
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('action',choices=('check','apply'))
+    parser.add_argument('--reviewed-plan-sha256')
+    args=parser.parse_args()
+    plan_file=HERE/'cleanup-plan.json'
+    plan=json.loads(plan_file.read_text(encoding='utf-8'))
+    assert len(plan['after_release_image_candidates'])==21 and len(plan['payload_file_candidates'])==13
+    if args.action=='apply':
+        approved=HERE/'postrelease-cleanup-ready.json'
+        assert args.reviewed_plan_sha256==hashlib.sha256(approved.read_bytes()).hexdigest()
+        ready=json.loads(approved.read_text(encoding='utf-8'))
+        assert ready['status']=='ready' and ready['expected_image_id']==EXPECTED_IMAGE
+        assert ready['eligible_image_ids']==[value['id'] for value in plan['after_release_image_candidates']]
+        assert ready['eligible_payload_files']==[{key:value[key] for key in ('path','bytes','sha256')} for value in plan['payload_file_candidates']]
+    capacity=(HERE/'capacity-preclean.py').read_text(encoding='utf-8')
+    start=capacity.index('def require(value,code):')
+    end=capacity.index('def save(value,initial=False):')
+    helpers=capacity[start:end]
+    source=REMOTE.replace('__MODE__',repr(args.action)).replace('__PLAN__',repr(plan)).replace('__IMAGE__',repr(EXPECTED_IMAGE)).replace('__VERSION__',repr(EXPECTED_VERSION)).replace('__HELPERS__',helpers)
+    spec=importlib.util.spec_from_file_location('cleanup_transport',ROOT/'output/direct-media-production-current/transport.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    value=module.remote(source,timeout=1800 if args.action=='apply' else 300)
+    output=HERE/('postrelease-cleanup-ready.json' if args.action=='check' else 'postrelease-cleanup-result.json')
+    output.write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps({'status':value['status'],'images_deleted':len(value['images_deleted']),'files_deleted':len(value['files_deleted']),
+                      'eligible_images':len(value.get('eligible_image_ids',[])),'eligible_files':len(value.get('eligible_payload_files',[])),
+                      'root_free_bytes_after':value.get('root_free_bytes_after'),'code':value.get('code'),
+                      'evidence_sha256':hashlib.sha256(output.read_bytes()).hexdigest()}))
+    if value['status'] not in ('ready','completed'):raise SystemExit(1)
+
+
+if __name__=='__main__':
+    try:main()
+    except Exception:
+        print(json.dumps({'status':'stopped_for_review','code':'CONTROLLED_OPERATION_FAILED_NO_AUTOMATIC_REPLAY'}))
+        raise SystemExit(1)

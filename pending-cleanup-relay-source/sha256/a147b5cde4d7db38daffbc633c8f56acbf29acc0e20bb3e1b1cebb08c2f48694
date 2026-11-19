@@ -1,0 +1,61 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const cp = require('node:child_process');
+const assert = require('node:assert/strict');
+
+const here = __dirname;
+const workspace = path.resolve(here, '../..');
+const official = path.join(workspace, '仓鼠AI');
+const stage = path.join(here, 'source');
+const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const manifest = JSON.parse(fs.readFileSync(path.join(official, 'release/source-manifest.json')));
+const sourceHashes = {};
+const changed = [];
+const removed = [];
+for (const [name, expected] of Object.entries(manifest.files)) {
+  assert.equal(hash(path.join(official, name)), expected.sha256, 'Formal source drift');
+  const file = path.join(stage, name);
+  if (!fs.existsSync(file)) { removed.push(name); continue; }
+  sourceHashes[name] = hash(file);
+  if (sourceHashes[name] !== expected.sha256) changed.push(name);
+}
+for (const file of fs.readdirSync(path.join(stage, 'electron')).filter(name => name.endsWith('.cjs'))) {
+  const name = 'electron/' + file;
+  if (manifest.files[name]) continue;
+  sourceHashes[name] = hash(path.join(stage, name));
+  changed.push(name);
+}
+assert.ok(changed.includes('electron/account-browser.cjs'));
+const version = process.argv[2] || '1.7.75-internal.20261112.5';
+assert.match(version, /^1\.7\.75-internal\.20261112\.[56]$/);
+const packageFile = path.join(stage, 'package.json');
+const pkg = JSON.parse(fs.readFileSync(packageFile));
+assert.ok(['1.7.75', '1.7.75-internal.20261112.5'].includes(pkg.version));
+pkg.version = version;
+pkg.hamsterInternalCandidate = true;
+fs.writeFileSync(packageFile, JSON.stringify(pkg, null, 2) + '\n');
+const builder = JSON.parse(fs.readFileSync(path.join(here, 'builder.json')));
+builder.portable.artifactName = '仓鼠AI-网页账户验证-' + version + '.exe';
+const config = path.join(here, 'builder-browser-' + version + '.json');
+fs.writeFileSync(config, JSON.stringify(builder, null, 2) + '\n', { flag: 'wx' });
+const log = fs.openSync(path.join(here, 'desktop-build-' + version + '.log'), 'wx');
+const result = cp.spawnSync(process.execPath, [path.join(official, 'node_modules/electron-builder/cli.js'),
+  '--config', config, '--win', 'portable', '--publish', 'never'], {
+  cwd: stage, stdio: ['ignore', log, log], windowsHide: true,
+});
+fs.closeSync(log);
+assert.equal(result.status, 0, 'Desktop candidate build failed');
+const asar = require(path.join(official, 'node_modules/@electron/asar'));
+const asarFile = path.join(here, 'artifacts/win-unpacked/resources/app.asar');
+for (const name of changed) {
+  const digest = crypto.createHash('sha256').update(asar.extractFile(asarFile, name.replaceAll('/', path.sep))).digest('hex');
+  assert.equal(digest, sourceHashes[name]);
+}
+const portable = '仓鼠AI-网页账户验证-' + version + '.exe';
+const verification = { passed: true, version, status: 'isolated_candidate_not_published',
+  portable, portableSha256: hash(path.join(here, 'artifacts', portable)),
+  asarSha256: hash(asarFile), changed, removed, sourceHashes,
+  formalSourceVerified: true, realPaymentCalls: 0, productionMutations: 0 };
+fs.writeFileSync(path.join(here, 'package-verification.json'), JSON.stringify(verification, null, 2) + '\n');
+console.log(JSON.stringify({ passed: true, version, portable, changes: changed.length, portableSha256: verification.portableSha256 }));

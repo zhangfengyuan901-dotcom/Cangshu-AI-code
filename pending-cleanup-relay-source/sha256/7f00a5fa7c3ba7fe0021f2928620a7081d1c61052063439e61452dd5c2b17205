@@ -1,0 +1,182 @@
+package controller
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/pkg/piknocatalog"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+type sync37Transport func(*http.Request) (*http.Response, error)
+
+func (f sync37Transport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestPiknoSyncHTTPConditionalAndFailure(t *testing.T) {
+	t.Setenv("PIKNO_LINE_SYNC_ENABLED", "true")
+	setupResponsesWSRequestTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.PiknoLine{}, &model.TaskPlugin{}))
+	require.NoError(t, model.MigratePiknoLineSync(model.DB))
+	oldRegistry, oldHTTP, oldNow, oldParsed := jsplugin.DefaultRegistry, piknoSyncHTTP, piknoSyncNow, piknoSyncParsed
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	piknoSyncParsed = map[string]bool{}
+	t.Cleanup(func() {
+		jsplugin.DefaultRegistry = oldRegistry
+		piknoSyncHTTP = oldHTTP
+		piknoSyncNow = oldNow
+		piknoSyncParsed = oldParsed
+	})
+	now := time.Now()
+	piknoSyncNow = func() time.Time { return now }
+	calls := 0
+	mode := "initial"
+	piknoSyncHTTP = &http.Client{Transport: sync37Transport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		body := `{"data":[{"id":"fixture_a","type":"video","enabled":true,"billing":"per_second","price_per_second_credits":1,"resolutions":["720p"],"durations":[4]}]}`
+		if r.URL.Host == "see.ximeiedu.org" {
+			require.Equal(t, "/health", r.URL.Path)
+			body = `{"defaults":{"pointPricing":{"pointsPerYuan":100},"videoProviders":[{"id":"fixture_b","providerRoute":"provider_router","providerLine":"fixture_b","pricingMode":"fixed","pointsCost":50,"allowedResolutions":["720p"],"allowedDurations":[4]}],"protocolLines":[{"id":"fixture_b","profile":{"allowTextOnly":true,"allowAudioOnly":true}}]}}`
+			if mode == "empty" {
+				body = `{"defaults":{"videoProviders":[]}}`
+			}
+		} else {
+			require.Equal(t, "https://sanbaobeauty.com/api/public/openapi-models", r.URL.String())
+		}
+		status := 200
+		if mode == "unchanged" {
+			require.Equal(t, `"fixture-etag"`, r.Header.Get("If-None-Match"))
+			status = 304
+			body = ""
+		}
+		if mode == "failed" {
+			status = 502
+			body = "upstream unavailable"
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{"Etag": []string{`"fixture-etag"`}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+	require.NoError(t, PiknoSyncCatalogOnce(context.Background(), true))
+	require.Equal(t, 2, calls)
+	before, err := model.ListPiknoLineAdmin()
+	require.NoError(t, err)
+	require.Len(t, before, 2)
+	for _, line := range before {
+		require.Nil(t, line.Published)
+		require.False(t, line.Draft.Enabled)
+		require.Zero(t, line.Draft.Prices[0].RetailQuota)
+	}
+	now = now.Add(59 * time.Second)
+	require.NoError(t, PiknoSyncCatalogOnce(context.Background(), true))
+	require.Equal(t, 2, calls, "manual refresh shares the 60 second cadence")
+	now = now.Add(time.Second)
+	mode = "unchanged"
+	require.NoError(t, PiknoSyncCatalogOnce(context.Background(), false))
+	require.Equal(t, 4, calls)
+	after, err := model.ListPiknoLineAdmin()
+	require.NoError(t, err)
+	for i := range after {
+		require.Equal(t, before[i].Version, after[i].Version)
+		require.Zero(t, after[i].Sync.MissingCount)
+	}
+	now = now.Add(60 * time.Second)
+	mode = "failed"
+	require.Error(t, PiknoSyncCatalogOnce(context.Background(), true))
+	require.Equal(t, 6, calls)
+	for _, p := range model.PiknoSyncAdminStatus().Providers {
+		require.Equal(t, "error", p.State)
+		require.Equal(t, "catalog_unverified", p.ErrorCode)
+	}
+	after, err = model.ListPiknoLineAdmin()
+	require.NoError(t, err)
+	for _, line := range after {
+		require.Zero(t, line.Sync.MissingCount)
+	}
+	now = now.Add(60 * time.Second)
+	mode = "empty"
+	require.NoError(t, PiknoSyncCatalogOnce(context.Background(), true))
+	after, err = model.ListPiknoLineAdmin()
+	require.NoError(t, err)
+	require.Len(t, after, 1, "one fresh complete empty provider directory removes only that provider's current rows")
+	require.Equal(t, "pikno-video-sb-fixture_a", after[0].PublicModel)
+	now = now.Add(60 * time.Second)
+	mode = "unchanged"
+	require.NoError(t, PiknoSyncCatalogOnce(context.Background(), false))
+	after, err = model.ListPiknoLineAdmin()
+	require.NoError(t, err)
+	require.Len(t, after, 1)
+}
+
+func TestPiknoSyncRejectsPinnedGenerationMismatch(t *testing.T) {
+	t.Setenv("PIKNO_LINE_SYNC_ENABLED", "true")
+	gin.SetMode(gin.TestMode)
+	old := &jsplugin.LoadedPlugin{}
+	old.Meta.Key = "pikno-canseedream"
+	old.Meta.Version = "old-version"
+	line := &model.PiknoLineConfig{Provider: "canseedream", PluginKey: old.Meta.Key, AdapterVersion: "new-version"}
+	for _, key := range []string{jsplugin.ContextKeyPinnedPlugin, jsplugin.ContextKeyPinnedEndpoint, jsplugin.ContextKeyPinnedRoute} {
+		calls := 0
+		router := gin.New()
+		router.POST("/v1/videos", func(c *gin.Context) {
+			c.Set("pikno_sync_expected_line", line)
+			switch key {
+			case jsplugin.ContextKeyPinnedPlugin:
+				c.Set(key, jsplugin.PinnedPlugin{Plugin: old})
+			case jsplugin.ContextKeyPinnedEndpoint:
+				c.Set(key, jsplugin.PinnedEndpoint{Plugin: old})
+			default:
+				c.Set(key, jsplugin.PinnedRoute{Plugin: old})
+			}
+			c.Next()
+		}, PiknoSyncDispatchGuard, func(c *gin.Context) { calls++; c.Status(200) })
+		result := httptest.NewRecorder()
+		router.ServeHTTP(result, httptest.NewRequest(http.MethodPost, "/v1/videos", nil))
+		require.Equal(t, 503, result.Code)
+		require.Zero(t, calls)
+	}
+}
+
+func TestPiknoSyncManualEntryDisabledDoesNotWriteOrRevive(t *testing.T) {
+	f := newParserSyncFixture(t)
+	f.now = f.now.Add(60 * time.Second)
+	lease, _, err := model.AcquirePiknoSyncLease("canseedream", "disabled-entry-fixture", f.now.Unix())
+	require.NoError(t, err)
+	closed := &piknocatalog.AvailabilityClosures{Provider: "canseedream", ClosedIDs: []string{"canseedream/video/fixture_b"}}
+	_, err = model.ApplyPiknoSyncClosures(lease, closed, f.now.Unix())
+	require.NoError(t, err)
+	require.NoError(t, model.RecordPiknoSyncFailure(lease, "catalog_unverified", f.now.Unix()))
+	var beforeRows []model.PiknoLine
+	var beforeProviders []model.PiknoSyncProvider
+	var beforeStates []model.PiknoLineSyncState
+	require.NoError(t, model.DB.Order("public_model").Find(&beforeRows).Error)
+	require.NoError(t, model.DB.Order("provider").Find(&beforeProviders).Error)
+	require.NoError(t, model.DB.Order("public_model").Find(&beforeStates).Error)
+	callsBefore := f.calls["sanbao"] + f.calls["canseedream"]
+	t.Setenv("PIKNO_LINE_SYNC_ENABLED", "false")
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/pikno/lines/admin/sync", nil)
+	c.Set("id", 7)
+	PiknoLinesSync(c)
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "line synchronization is disabled")
+	require.Equal(t, callsBefore, f.calls["sanbao"]+f.calls["canseedream"])
+	var afterRows []model.PiknoLine
+	var afterProviders []model.PiknoSyncProvider
+	var afterStates []model.PiknoLineSyncState
+	require.NoError(t, model.DB.Order("public_model").Find(&afterRows).Error)
+	require.NoError(t, model.DB.Order("provider").Find(&afterProviders).Error)
+	require.NoError(t, model.DB.Order("public_model").Find(&afterStates).Error)
+	require.Equal(t, beforeRows, afterRows)
+	require.Equal(t, beforeProviders, afterProviders)
+	require.Equal(t, beforeStates, afterStates)
+	var retiredCount int64
+	require.NoError(t, model.DB.Model(&model.PiknoLine{}).Where("public_model = ?", "pikno-video-cs-fixture_b").Count(&retiredCount).Error)
+	require.Zero(t, retiredCount)
+}

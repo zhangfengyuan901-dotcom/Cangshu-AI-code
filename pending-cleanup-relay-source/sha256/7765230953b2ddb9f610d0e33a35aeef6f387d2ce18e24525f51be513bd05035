@@ -1,0 +1,73 @@
+import gzip,hashlib,json,mmap,re,subprocess,sys
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+SOURCE=ROOT/'deploy/new-api/backend'
+FRONTEND=ROOT/'build/hamster-trim44-web/dist'
+VERSION='v1.0.0-rc.41-hamster.67'
+IMAGE='golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+def digest(p):
+    with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
+def records():
+    return [{'path':p.relative_to(FRONTEND).as_posix(),'bytes':p.stat().st_size,'sha256':digest(p)} for p in sorted(FRONTEND.rglob('*')) if p.is_file()]
+def main():
+    base=json.loads((HERE/'baseline.json').read_text(encoding='utf-8'))
+    assert base['byte_identical_to_production66'],'BASELINE66_NOT_REPRODUCED'
+    assert all(digest(SOURCE/item['file'])==item['sha256'] for item in base['runtime_source_files']),'GO_SOURCE_CHANGED'
+    merge=json.loads((HERE/'web67-merge-manifest.json').read_text(encoding='utf-8'))
+    current=records()
+    assert current==merge['new_files'] and merge['old_hashed_files_unchanged'] and merge['deleted_files']==0,'WEB_MERGE_DRIFT'
+    assert all(digest(SOURCE/'web/dist'/item['path'])==item['sha256'] for item in current),'EMBEDDED_SOURCE_DRIFT'
+    for item in base['files']:
+        if item['path'].startswith(('auth-lite/','account-lite/','examples/','portal-media/','portal-artwork/')):
+            assert digest(SOURCE/'web/dist'/item['path'])==item['sha256'],'PROTECTED_FIXED_RESOURCE_CHANGED'
+    binary=HERE/'backend67-new-api'
+    args=['docker','run','--rm','--network','none','--label','codex.task=relay-admin-theme-current',
+      '--mount','type=bind,source='+str(SOURCE)+',target=/workspace,readonly',
+      '--mount','type=bind,source='+str(HERE)+',target=/out',
+      '--mount','type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+      '--mount','type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+      '-w','/workspace','-e','CGO_ENABLED=0','-e','GOMAXPROCS=2',IMAGE,
+      'go','build','-p','2','-ldflags','-s -w -X github.com/QuantumNous/new-api/common.Version='+VERSION,'-o','/out/backend67-new-api']
+    result=subprocess.run(args,capture_output=True,timeout=240)
+    (HERE/'candidate67-build.log').write_bytes(result.stdout+result.stderr)
+    assert result.returncode==0,'CANDIDATE67_BUILD_FAILED'
+    assert all(digest(SOURCE/item['file'])==item['sha256'] for item in base['runtime_source_files']),'GO_SOURCE_DRIFT'
+    assert current==records(),'FRONTEND_DRIFT_DURING_BUILD'
+    with binary.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+        for item in current:assert b.find((FRONTEND/item['path']).read_bytes())>=0,'RESOURCE_BYTES_NOT_EMBEDDED'
+    (HERE/'web67-embed-verification.json').write_text(json.dumps({'passed':True,'checked_resource_count':len(current),
+      'all_exact_resource_bytes_in_binary':True,'resources':current,'production_mutations':0},indent=2)+'\n',encoding='utf-8')
+    compressed=HERE/'backend67-new-api.gz'
+    with binary.open('rb') as source,compressed.open('wb') as target:
+        with gzip.GzipFile(filename='',mode='wb',fileobj=target,mtime=0) as zipper:
+            while chunk:=source.read(1024*1024):zipper.write(chunk)
+    html=(FRONTEND/'index.html').read_text(encoding='utf-8')
+    refs=re.findall(r'(?:src|href)=["\']([^"\']+)["\']',html)
+    entry=next(p for p in refs if re.fullmatch(r'/static/js/index\.[a-zA-Z0-9]+\.js',p))
+    paths={p for p in refs if re.fullmatch(r'/[a-zA-Z0-9_./-]+\.(?:js|css|png|svg|ico)',p)}
+    themed=[item for item in current if item['path'].endswith(('.js','.css')) and b'data-admin-theme' in (FRONTEND/item['path']).read_bytes()]
+    assert any(item['path'].endswith('.css') for item in themed),'ADMIN_CSS_MISSING'
+    paths.update('/'+item['path'] for item in themed)
+    paths.update(['/portal-media/hero-v1.mp4','/portal-media/hero-poster-v1.webp','/auth-lite/index.html','/auth-lite/auth.css',
+      '/auth-lite/auth.mjs','/account-lite/index.html','/account-lite/account.mjs','/account-lite/account.css'])
+    mimes={'.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png',
+      '.svg':'image/svg+xml','.ico':'image/x-icon','.webp':'image/webp','.mp4':'video/mp4'}
+    assert len(paths)<=24,'RESOURCE_MANIFEST_TOO_LARGE'
+    resources=[{'path':p,'sha256':digest(FRONTEND/p.lstrip('/')),'content_type':mimes[Path(p).suffix]} for p in sorted(paths)]
+    value={'format':1,'status':'local_candidate_not_deployed','version':VERSION,'binary_sha256':digest(binary),'binary_bytes':binary.stat().st_size,
+      'gzip_file':compressed.name,'gzip_sha256':digest(compressed),'gzip_bytes':compressed.stat().st_size,'frontend_entry_script':entry,
+      'frontend_resources':resources,'public_paths':['/','/hub/models','/hub/dashboard','/channels','/users','/line-management','/settlement-admin','/system-settings'],
+      'production_source_files':base['runtime_source_files'],'business_runtime_source_changed':False,
+      'all_frontend_resources_embedded':True,'go_workdir':'/workspace','toolchain_image':IMAGE,'cgo_enabled':False,'trimpath':False,
+      'baseline66_production_verified':True,'admin_theme_resource_count':len(themed),'production_mutations':0}
+    (HERE/'build67.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+    smoke=subprocess.run([sys.executable,str(HERE/'smoke67-candidate.py')],capture_output=True,timeout=180)
+    (HERE/'candidate67-smoke-command.log').write_bytes(smoke.stdout+smoke.stderr)
+    assert smoke.returncode==0,'CANDIDATE67_SMOKE_FAILED'
+    print(json.dumps({'built':True,'version':VERSION,'binary_sha256':value['binary_sha256'],'frontend_resources_embedded':len(current),
+      'admin_theme_resource_count':len(themed),'isolated_http_smoke_passed':True,'production_mutations':0}))
+if __name__=='__main__':
+    try:main()
+    except Exception as error:
+        print(json.dumps({'built':False,'code':str(error) if isinstance(error,AssertionError) else 'BUILD67_FAILURE_DETAILS_WITHHELD'}));raise SystemExit(1)

@@ -1,0 +1,338 @@
+package model
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/pkg/piknocatalog"
+	"github.com/stretchr/testify/require"
+)
+
+func setupPiknoSyncTest(t *testing.T) (int, int64) {
+	t.Helper()
+	t.Setenv("PIKNO_LINE_SYNC_ENABLED", "true")
+	openPiknoLineTestDB(t)
+	require.NoError(t, MigratePiknoLineSync(DB))
+	require.NoError(t, MigratePiknoLineSync(DB))
+	require.NoError(t, DB.AutoMigrate(&TaskPlugin{}))
+	old := jsplugin.DefaultRegistry
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	t.Cleanup(func() { jsplugin.DefaultRegistry = old })
+	url := "https://see.ximeiedu.org"
+	setting := `{"task_plugin_key":"pikno-canseedream"}`
+	channel := Channel{Type: constant.ChannelTypeTaskPlugin, Key: "synthetic-only", Name: "sync-test", Status: common.ChannelStatusEnabled, BaseURL: &url, Setting: &setting}
+	require.NoError(t, channel.Insert())
+	return channel.Id, time.Now().Unix()
+}
+func syncModelBody(ids ...string) string {
+	items := []string{}
+	profiles := []string{}
+	for _, id := range ids {
+		items = append(items, fmt.Sprintf(`{"id":%q,"providerRoute":"provider_router","providerLine":%q,"pricingMode":"fixed","pointsCost":50,"allowedResolutions":["720p"],"allowedDurations":[4,5],"limits":{"maxImages":2}}`, id, id))
+		profiles = append(profiles, fmt.Sprintf(`{"id":%q,"profile":{"allowTextOnly":true,"allowAudioOnly":true}}`, id))
+	}
+	return `{"defaults":{"pointPricing":{"pointsPerYuan":100},"videoProviders":[` + strings.Join(items, ",") + `],"protocolLines":[` + strings.Join(profiles, ",") + `]}}`
+}
+func syncSeed(channel int, item piknocatalog.SyncItem) PiknoLineSeed {
+	entry := item.Entry
+	prices := []PiknoLinePrice{}
+	for _, p := range entry.Prices {
+		prices = append(prices, PiknoLinePrice{Resolution: p.Resolution, Unit: p.Unit, CostCNY: p.CostCNY, SuggestedCNY: p.RetailCNY})
+	}
+	return PiknoLineSeed{PublicModel: "pikno-video-cs-" + strings.TrimPrefix(entry.ID, "canseedream/video/"), SourceID: entry.ID, DisplayName: "Provider name", Kind: "video", Provider: "canseedream", UpstreamModel: entry.ID, PluginKey: "pikno-canseedream", ChannelID: channel, UpstreamAvailable: entry.Available, Resolutions: entry.Resolutions, Durations: entry.Durations, MaxImages: entry.MaxImages, MaxVideos: entry.MaxVideos, MaxAudio: entry.MaxAudio, MaxMediaTotal: entry.MaxMediaTotal, Prices: prices, PriceIssue: entry.PriceIssue, BillingUnit: entry.BillingUnit, CostIssueCode: entry.CostIssueCode, BillingIssueCode: entry.BillingIssueCode, FetchedAt: time.Now().UTC().Format(time.RFC3339)}
+}
+func applySyncTest(t *testing.T, channel int, now int64, body string, load bool) (string, error) {
+	t.Helper()
+	lease, old, err := AcquirePiknoSyncLease("canseedream", "test-worker", now)
+	if err != nil {
+		return "", err
+	}
+	snapshot, err := piknocatalog.ParseProviderSnapshot("canseedream", []byte(body), time.Unix(now, 0))
+	if err != nil {
+		return "", err
+	}
+	models, err := PiknoSyncRetainedModels(old)
+	if err != nil {
+		return "", err
+	}
+	seeds := []PiknoLineSeed{}
+	for _, item := range snapshot.Items {
+		seeds = append(seeds, syncSeed(channel, item))
+		if item.Adapter != nil {
+			models[item.Entry.ID] = *item.Adapter
+		}
+	}
+	source, version, hash, err := piknocatalog.GenerateSyncPlugin("canseedream", models)
+	if err != nil {
+		return "", err
+	}
+	err = ApplyPiknoSyncSnapshot(lease, snapshot, seeds, source, version, hash, models, now)
+	if err == nil && load {
+		_, err = jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+	}
+	return version, err
+}
+func syncOpenDraft(t *testing.T, id string) {
+	t.Helper()
+	view, err := GetPiknoLineAdmin(id, 0)
+	require.NoError(t, err)
+	prices := view.Draft.Prices
+	for i := range prices {
+		prices[i].RetailQuota = 1_700_000
+	}
+	enabled := true
+	name := "Operator customer name"
+	view, err = UpdatePiknoLineDraft(id, PiknoLinePatch{ExpectedVersion: view.Version, DisplayName: &name, Enabled: &enabled, Prices: &prices}, 7)
+	require.NoError(t, err)
+	_, err = PublishPiknoLine(id, view.Version, 7)
+	require.NoError(t, err)
+}
+
+func TestPiknoSyncNewDraftAndRuntimeReadiness(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), false)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.Nil(t, view.Published)
+	require.False(t, view.Draft.Enabled)
+	require.Zero(t, view.Draft.Prices[0].RetailQuota)
+	prices := view.Draft.Prices
+	prices[0].RetailQuota = 1_700_000
+	enabled := true
+	view, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices, Enabled: &enabled}, 7)
+	require.NoError(t, err)
+	_, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.Error(t, err, "DB generation must not publish before local runtime loads")
+	var plugin TaskPlugin
+	require.NoError(t, DB.Where(map[string]any{"key": "pikno-canseedream", "active": true}).First(&plugin).Error)
+	_, err = jsplugin.DefaultRegistry.Register(string(plugin.Source), jsplugin.Options{})
+	require.NoError(t, err)
+	syncOpenDraft(t, view.PublicModel)
+	line, err := GetPublishedPiknoLine(view.PublicModel)
+	require.NoError(t, err)
+	require.Equal(t, 1_700_000, line.Prices[0].RetailQuota)
+}
+func TestPiknoSyncNoChangeCostAndCustomerPrice(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	before, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	_, err = applySyncTest(t, channel, now+60, syncModelBody("a"), true)
+	require.NoError(t, err)
+	same, err := GetPiknoLineAdmin(before.PublicModel, 0)
+	require.NoError(t, err)
+	require.Equal(t, before.Version, same.Version)
+	require.Equal(t, before.Published.Revision, same.Published.Revision)
+	changed := strings.Replace(syncModelBody("a"), `"pointsCost":50`, `"pointsCost":70`, 1)
+	_, err = applySyncTest(t, channel, now+120, changed, true)
+	require.NoError(t, err)
+	after, err := GetPiknoLineAdmin(before.PublicModel, 0)
+	require.NoError(t, err)
+	require.Equal(t, "Operator customer name", after.Published.DisplayName)
+	require.Equal(t, 1_700_000, after.Published.Prices[0].RetailQuota)
+	require.True(t, after.Sync.CostChanged)
+	require.Greater(t, after.Published.Revision, before.Published.Revision)
+}
+func TestPiknoSyncDisabledMissingAndStale(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a", "b", "c"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	for i := 1; i <= 3; i++ {
+		_, err = applySyncTest(t, channel, now+int64(i*60), syncModelBody("b", "c"), true)
+		require.NoError(t, err)
+		state := PiknoLineSyncAdmin("pikno-video-cs-a")
+		require.Equal(t, i, state.MissingCount)
+		require.Equal(t, i >= 3, state.Paused)
+	}
+	_, err = GetPublishedPiknoLine("pikno-video-cs-a")
+	require.Error(t, err)
+	_, err = applySyncTest(t, channel, now+240, syncModelBody("a", "b", "c"), true)
+	require.NoError(t, err)
+	_, err = GetPublishedPiknoLine("pikno-video-cs-a")
+	require.NoError(t, err)
+	disabled := strings.Replace(syncModelBody("a", "b", "c"), `"id":"a",`, `"id":"a","disabled":true,`, 1)
+	_, err = applySyncTest(t, channel, now+300, disabled, true)
+	require.NoError(t, err)
+	require.Equal(t, "disabled", PiknoLineSyncAdmin("pikno-video-cs-a").PauseReason)
+	require.NoError(t, DB.Model(&PiknoSyncProvider{}).Where("provider = ?", "canseedream").Update("last_verified_at", time.Now().Unix()-600).Error)
+	require.Equal(t, "stale", PiknoLineSyncAdmin("pikno-video-cs-a").PauseReason)
+}
+func TestPiknoSyncLeaseCadenceAndFencing(t *testing.T) {
+	_, now := setupPiknoSyncTest(t)
+	lease, _, err := AcquirePiknoSyncLease("canseedream", "worker-a", now)
+	require.NoError(t, err)
+	_, _, err = AcquirePiknoSyncLease("canseedream", "worker-b", now+1)
+	require.ErrorIs(t, err, ErrPiknoSyncLease)
+	require.NoError(t, RecordPiknoSyncFailure(lease, "catalog_unverified", now+2))
+	_, _, err = AcquirePiknoSyncLease("canseedream", "worker-b", now+3)
+	require.ErrorIs(t, err, ErrPiknoSyncLease)
+	newer, _, err := AcquirePiknoSyncLease("canseedream", "worker-b", now+62)
+	require.NoError(t, err)
+	require.Greater(t, newer.Epoch, lease.Epoch)
+	require.ErrorIs(t, RecordPiknoSyncFailure(lease, "stale_worker", now+63), ErrPiknoSyncLease)
+}
+func TestPiknoSyncUnitChangeAndShrink(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a", "b", "c", "d"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	changed := strings.Replace(syncModelBody("a", "b", "c", "d"), `"pricingMode":"fixed","pointsCost":50`, `"pricingMode":"per_second","pointsPerSecond":50`, 1)
+	_, err = applySyncTest(t, channel, now+60, changed, true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.Zero(t, view.Draft.Prices[0].RetailQuota)
+	require.True(t, view.Sync.Paused)
+	require.Equal(t, "request", view.Published.Prices[0].Unit)
+	_, err = applySyncTest(t, channel, now+120, syncModelBody("a"), true)
+	require.Error(t, err)
+	require.Equal(t, 0, PiknoLineSyncAdmin("pikno-video-cs-b").MissingCount)
+}
+func TestPiknoSyncManualSchemaRecovery(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	changed := strings.Replace(syncModelBody("a"), `"allowedResolutions":["720p"]`, `"allowedResolutions":["480p","720p"]`, 1)
+	_, err = applySyncTest(t, channel, now+60, changed, true)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	require.Equal(t, "schema_changed", view.Sync.PauseReason)
+	require.Zero(t, view.Draft.Prices[0].RetailQuota)
+	_, err = applySyncTest(t, channel, now+120, changed, true)
+	require.NoError(t, err)
+	view, err = GetPiknoLineAdmin(view.PublicModel, 0)
+	require.NoError(t, err)
+	require.True(t, view.Sync.Paused)
+	require.Equal(t, "schema_changed", view.Sync.PauseReason)
+	prices := view.Draft.Prices
+	prices[0].RetailQuota = 900_000
+	view, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 7)
+	require.NoError(t, err)
+	view, err = PublishPiknoLine(view.PublicModel, view.Version, 7)
+	require.NoError(t, err)
+	require.False(t, view.Sync.Paused)
+	line, err := GetPublishedPiknoLine(view.PublicModel)
+	require.NoError(t, err)
+	require.Equal(t, 900_000, line.Prices[0].RetailQuota)
+	require.Equal(t, 1_700_000, line.Prices[1].RetailQuota)
+}
+func TestPiknoSyncEntireUnknownSnapshotStaysPending(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	body := strings.Replace(syncModelBody("unknown"), `"provider_router"`, `"unreviewed_protocol"`, 1)
+	_, err := applySyncTest(t, channel, now, body, false)
+	require.NoError(t, err)
+	view, err := GetPiknoLineAdmin("pikno-video-cs-unknown", 0)
+	require.NoError(t, err)
+	require.Nil(t, view.Published)
+	require.Equal(t, "protocol_not_supported", view.Sync.AdapterIssue)
+	require.True(t, view.Sync.Paused)
+}
+func TestPiknoSyncPreservesDisabledChannel(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", channel).Update("status", common.ChannelStatusManuallyDisabled).Error)
+	body := strings.Replace(syncModelBody("a"), `"pointsCost":50`, `"pointsCost":70`, 1)
+	_, err = applySyncTest(t, channel, now+60, body, true)
+	require.NoError(t, err)
+	var stored Channel
+	require.NoError(t, DB.First(&stored, "id = ?", channel).Error)
+	require.Equal(t, common.ChannelStatusManuallyDisabled, stored.Status)
+	var abilities []Ability
+	require.NoError(t, DB.Where("channel_id = ?", channel).Find(&abilities).Error)
+	for _, ability := range abilities {
+		require.False(t, ability.Enabled)
+	}
+}
+func TestPiknoSyncPreservesUnpublishedCustomerPrice(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	view, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	prices := append([]PiknoLinePrice(nil), view.Published.Prices...)
+	prices[0].RetailQuota = 2_300_000
+	_, err = UpdatePiknoLineDraft(view.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 7)
+	require.NoError(t, err)
+	changed := strings.Replace(syncModelBody("a"), `"pointsCost":50`, `"pointsCost":70`, 1)
+	_, err = applySyncTest(t, channel, now+60, changed, true)
+	require.NoError(t, err)
+	after, err := GetPiknoLineAdmin(view.PublicModel, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1_700_000, after.Published.Prices[0].RetailQuota)
+	require.Equal(t, 2_300_000, after.Draft.Prices[0].RetailQuota)
+}
+
+func TestPiknoSyncUpgradeRetainsExistingPublication(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	_, err := applySyncTest(t, channel, now, syncModelBody("a", "b", "c"), true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	before, err := GetPiknoLineAdmin("pikno-video-cs-a", 0)
+	require.NoError(t, err)
+	old := *before.Published
+	old.SyncHash = ""
+	old.AdapterVersion = ""
+	raw, err := encodePiknoLineConfig(&old)
+	require.NoError(t, err)
+	require.NoError(t, DB.Model(&PiknoLine{}).Where("public_model = ?", old.PublicModel).Update("published_config", raw).Error)
+	require.NoError(t, DB.Where("provider = ?", "canseedream").Delete(&PiknoLineSyncState{}).Error)
+	require.NoError(t, DB.Model(&PiknoSyncProvider{}).Where("provider = ?", "canseedream").Updates(map[string]any{"snapshot_hash": "", "last_verified_at": 0, "adapter_models": "", "plugin_version": "", "started_at": now, "next_attempt_at": 0, "lease_until": 0}).Error)
+	require.NoError(t, MigratePiknoLineSync(DB))
+	require.NoError(t, MigratePiknoLineSync(DB))
+	line, err := GetPublishedPiknoLine(old.PublicModel)
+	require.NoError(t, err)
+	require.Equal(t, old.DisplayName, line.DisplayName)
+	require.Equal(t, old.Prices, line.Prices)
+	require.True(t, line.Enabled)
+	for i := 1; i <= 2; i++ {
+		_, err = applySyncTest(t, channel, now+int64(i*60), syncModelBody("b", "c"), true)
+		require.NoError(t, err)
+		_, err = GetPublishedPiknoLine(old.PublicModel)
+		require.NoError(t, err)
+		require.Equal(t, i, PiknoLineSyncAdmin(old.PublicModel).MissingCount)
+	}
+	require.NoError(t, DB.Model(&PiknoSyncProvider{}).Where("provider = ?", "canseedream").Updates(map[string]any{"last_verified_at": 0, "started_at": time.Now().Unix() - 601}).Error)
+	require.NoError(t, MigratePiknoLineSync(DB))
+	_, err = GetPublishedPiknoLine(old.PublicModel)
+	require.Error(t, err, "restart cannot reset the unverified catalogue deadline")
+}
+
+func TestPiknoSyncAggregateLimitPreservesRetail(t *testing.T) {
+	channel, now := setupPiknoSyncTest(t)
+	body := strings.Replace(syncModelBody("a"), `"maxImages":2`, `"maxImages":30,"maxVideos":10,"maxAudio":10,"maxAssets":50`, 1)
+	_, err := applySyncTest(t, channel, now, body, true)
+	require.NoError(t, err)
+	syncOpenDraft(t, "pikno-video-cs-a")
+	line, err := GetPublishedPiknoLine("pikno-video-cs-a")
+	require.NoError(t, err)
+	require.Equal(t, 50, line.MediaTotalLimit())
+	require.Equal(t, 30, line.MaxImages)
+	before := line.Revision
+	quote, err := QuotePublishedPiknoLine(line.PublicModel, channel, PiknoLineUsage{Resolution: "720p", Seconds: 4, ReferenceImages: 30})
+	require.NoError(t, err)
+	require.Equal(t, 1_700_000, quote.Quota)
+	body = strings.Replace(body, `"maxAssets":50`, `"maxAssets":12`, 1)
+	_, err = applySyncTest(t, channel, now+61, body, true)
+	require.NoError(t, err)
+	line, err = GetPublishedPiknoLine(line.PublicModel)
+	require.NoError(t, err)
+	require.Equal(t, 12, line.MediaTotalLimit())
+	require.Greater(t, line.Revision, before)
+	require.Equal(t, 1_700_000, line.Prices[0].RetailQuota)
+	_, err = QuotePublishedPiknoLine(line.PublicModel, channel, PiknoLineUsage{Resolution: "720p", Seconds: 4, ReferenceImages: 13})
+	require.Error(t, err)
+}

@@ -1,0 +1,66 @@
+// Illustrations only. This guide never creates accounts, payments or tasks.
+const logo = '<img src="/assets/hamster-logo.png" alt="" width="44" height="44">';
+const steps = [
+  { name: '下载', title: '把仓鼠AI带到桌面。', copy: '', scene: `<div class="qs-download"><div class="qs-file">${logo}<div><strong>仓鼠AI-1.7.72.exe</strong><span>Windows 便携版</span></div><span class="qs-file-check">↓</span></div><div class="qs-transfer"><span></span></div><div class="qs-download-choices"><span>官网下载</span></div></div>` },
+  { name: '点击打开', title: '双击打开，轻松出发。', copy: '找到下载的仓鼠AI程序，双击打开，进入本地账户主页。', scene: `<div class="qs-desktop"><div class="qs-desktop-file">${logo}<strong>仓鼠AI-1.7.72.exe</strong><span class="qs-click-ring"></span><svg class="qs-cursor" viewBox="0 0 24 28" aria-hidden="true"><path d="m3 2 17 14-8 1-4 8z" fill="#263a30" stroke="white" stroke-width="2"/></svg></div><div class="qs-mini-app"><div class="qs-mini-brand">${logo}<strong>仓鼠AI</strong></div><span>账户</span><div class="qs-mini-line"></div><div class="qs-mini-line short"></div><div class="qs-mini-action">注册账户</div></div></div>` },
+  { name: '注册', title: '一个账户，连接你的创作。', copy: '点击「注册账户」，在应用内填写信息、完成图形验证码与邮箱验证，然后登录。', scene: `<div class="qs-account"><div class="qs-form-header">${logo}<div><strong>注册账户</strong><span>欢迎来到仓鼠AI</span></div></div><div class="qs-field">邮箱<span>你的邮箱</span></div><div class="qs-field">密码<span>••••••••</span></div><div class="qs-field">验证码<span>完成安全验证</span></div><div class="qs-form-action">创建账户 <span>→</span></div></div>` },
+  { name: '充值', title: '按需充值，费用心中有数。', copy: '在账户主页点击「充值」，核对当前充值账户、选择金额与支付方式，确认创建订单后再进入安全收银台，完成后核对订单与账户余额。', scene: `<div class="qs-wallet"><span class="qs-wallet-label">我的账户</span><div class="qs-wallet-balance"><small>账户余额</small><strong>¥ <span>—</span></strong></div><div class="qs-wallet-flow"><span>选择金额</span><i>→</i><span>确认付款</span></div><div class="qs-form-action">充值</div><div class="qs-wallet-receipt"><span>✓</span> 付款完成后核对余额</div></div>` },
+  { name: '开始使用', title: '启用所需功能，开始创作。', copy: '按用途点击「开通并启用」，免费检测通过后进入对应功能，无需一次开通全部功能。', scene: `<div class="qs-create"><div class="qs-create-head">${logo}<div><strong>你的创作空间</strong><span>从一个好想法开始</span></div><span class="qs-ready-dot"></span></div><div class="qs-feature-grid"><span class="selected">▧<b>图片</b></span><span>▷<b>视频</b></span><span>◉<b>工具</b></span><span>☷<b>对话</b></span></div><div class="qs-enable"><strong>开通并启用</strong><span>✓ 免费检测通过</span></div><div class="qs-form-action">开始使用 <span>↗</span></div></div>` },
+];
+
+function mountGuide(root) {
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  let index = 0, playing = false, timer;
+  root.innerHTML = `<div class="qs-topline"><span><i></i> 仓鼠AI · 新手上路</span><span>操作示意 / 约 35 秒</span></div>
+    <nav class="qs-steps" aria-label="使用教程步骤">${steps.map((step, i) => `<button type="button" data-step="${i}" aria-pressed="${i === 0}"><span>0${i + 1}</span><b>${step.name}</b></button>`).join('')}</nav>
+    <div class="qs-main"><div class="qs-text"><span class="qs-chapter"></span><h3></h3><p class="qs-description" hidden></p><a href="/#download" class="qs-download-link">前往下载 <span aria-hidden="true">↗</span></a></div>
+      <div class="qs-stage"><div class="qs-window"><div class="qs-window-bar"><span><i></i><i></i><i></i></span><span>HAMSTER AI</span><span>✦</span></div><div class="qs-scene" aria-hidden="true"></div></div><span class="qs-stage-label">ILLUSTRATED WALKTHROUGH</span></div></div>
+    <div class="qs-controls"><button type="button" class="qs-play">播放教程 <span aria-hidden="true">▷</span></button><div class="qs-progress" aria-hidden="true"><span></span></div><span class="qs-counter" aria-live="polite"></span><button type="button" class="qs-replay" aria-label="从第一步重新播放教程">重播 ↻</button></div>`;
+  const play = root.querySelector('.qs-play'), scene = root.querySelector('.qs-scene');
+  const buttons = [...root.querySelectorAll('[data-step]')];
+  const clear = () => { clearTimeout(timer); timer = undefined; };
+  function schedule() {
+    clear();
+    if (playing) timer = setTimeout(() => {
+      if (index < steps.length - 1) { index++; render(); }
+      else { playing = false; updatePlayback(); }
+    }, 7000);
+  }
+  function updatePlayback() {
+    root.classList.toggle('is-playing', playing);
+    root.classList.toggle('is-animated', playing && !motion.matches);
+    play.innerHTML = playing ? '暂停教程 <span aria-hidden="true">Ⅱ</span>' : index === 4 ? '再次播放 <span aria-hidden="true">▷</span>' : '播放教程 <span aria-hidden="true">▷</span>';
+    play.setAttribute('aria-label', playing ? '暂停教程' : '播放教程');
+    schedule();
+  }
+  function render() {
+    const step = steps[index];
+    root.dataset.currentStep = String(index);
+    root.querySelector('.qs-chapter').textContent = `STEP 0${index + 1} / ${step.name}`;
+    root.querySelector('h3').textContent = step.title;
+    const description = root.querySelector('.qs-description');
+    description.textContent = step.copy;
+    description.hidden = !step.copy;
+    root.querySelector('.qs-counter').textContent = `${index + 1} / 5`;
+    buttons.forEach((button, i) => { button.setAttribute('aria-pressed', String(i === index)); button.classList.toggle('is-complete', i < index); });
+    // Replace only the illustration: the focused control always stays in place.
+    scene.innerHTML = step.scene;
+    updatePlayback();
+  }
+  const pause = () => { playing = false; updatePlayback(); };
+  buttons.forEach((button, i) => button.addEventListener('click', () => { index = i; playing = false; render(); }));
+  play.addEventListener('click', () => { if (!playing && index === 4) index = 0; playing = !playing; render(); });
+  root.querySelector('.qs-replay').addEventListener('click', () => { index = 0; playing = true; render(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  const visibility = new IntersectionObserver(entries => { if (!entries[0].isIntersecting) pause(); }, { threshold: 0 });
+  visibility.observe(root);
+  motion.addEventListener('change', () => updatePlayback());
+  render();
+}
+
+document.querySelectorAll('[data-quickstart]').forEach(mountGuide);
+document.querySelectorAll('[data-copy-code]').forEach(button => button.addEventListener('click', async () => {
+  const status = button.parentElement.querySelector('[data-copy-code-status]');
+  try { await navigator.clipboard.writeText(button.dataset.copyCode); status.textContent = '已复制'; }
+  catch { status.textContent = '请手动复制：' + button.dataset.copyCode; }
+}));

@@ -1,0 +1,127 @@
+"""Isolated release boundary checks; no SSH, Docker, database, or payment calls."""
+import ast
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+import types
+
+HERE = Path(__file__).resolve().parent
+file = HERE / 'release72-remote.py'
+tree = ast.parse(file.read_text(encoding='utf-8'))
+functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+namespace = {'copy': copy, 'hashlib': hashlib, 'json': json, 'Path': Path, 're': re, 'os': os}
+exec(compile(ast.Module(body=functions, type_ignores=[]), str(file), 'exec'), namespace)
+checks = []
+
+
+def check(name, run, error=None):
+    try:
+        run()
+    except RuntimeError as caught:
+        assert error is not None and str(caught) == error
+    else:
+        assert error is None
+    checks.append(name)
+
+
+base = {'Config': {'Image': 'old', 'Hostname': 'old', 'Env': ['B=2', 'A=1'], 'Labels': {}},
+        'HostConfig': {'Mounts': [{'Source': 'a', 'Target': '/a', 'ReadOnly': True},
+                                  {'Source': 'b', 'Target': '/b', 'ReadOnly': False}]},
+        'Mounts': [], 'NetworkSettings': {'Networks': {'current': {}}}}
+changed = copy.deepcopy(base)
+changed['Config'].update(Image='new', Hostname='new')
+changed['HostConfig']['Mounts'].reverse()
+assert namespace['runtime'](base) == namespace['runtime'](changed)
+checks.append('mount_order_and_docker_identity_do_not_change_runtime')
+for field, value in [('Source', 'changed'), ('Target', '/other'), ('ReadOnly', True)]:
+    altered = copy.deepcopy(changed)
+    altered['HostConfig']['Mounts'][0][field] = value
+    assert namespace['runtime'](base) != namespace['runtime'](altered)
+    checks.append('mount_' + field + '_change_detected')
+duplicate = copy.deepcopy(base)
+duplicate['HostConfig']['Mounts'][1]['Target'] = '/a'
+check('duplicate_mount_targets_rejected', lambda: namespace['runtime'](duplicate), 'DUPLICATE_HOST_MOUNT_TARGET')
+
+activity = dict.fromkeys(('active_tasks', 'active_settlements', 'active_llm', 'recent_payments', 'unaccepted_reverse'), 0)
+activity.update(unknown_count=2, reverse_count=1, accepted_tasks=3)
+check('durable_old_unknown_and_accepted_provider_jobs_permitted', lambda: namespace['no_new_work'](activity))
+for key in ('active_tasks', 'active_settlements', 'active_llm', 'recent_payments', 'unaccepted_reverse'):
+    check(key + '_blocks_cutover', lambda key=key: namespace['no_new_work']({**activity, key: 1}), 'CURRENT_INLINE_OR_PAYMENT_WORK_ACTIVE')
+protected = dict.fromkeys(('options', 'unknown_count', 'unknown_digest', 'reservation_digest', 'reverse_count', 'reverse_digest'), 'same')
+check('billing_options_drift_blocks', lambda: namespace['preserved_database'](protected, {**protected, 'options': 'changed'}), 'PROTECTED_DATABASE_OPTIONS_CHANGED')
+check('normal_live_progress_not_frozen', lambda: namespace['preserved_database'](protected, {**protected, 'reservation_digest': 'normally_settled', 'unknown_count': 0}))
+identities = {'tasks': [{'id': '1', 'fingerprint': 'bound-owner-provider'}],
+              'settlements': [{'id': 'order', 'fingerprint': 'fixed-owner-provider-quote'}],
+              'reverse': [{'id': 'reverse', 'fingerprint': 'fixed-owner-provider-request'}]}
+check('persisted_rows_with_stable_identity_survive_progress', lambda: namespace['preserved_durable_rows'](identities, copy.deepcopy(identities)))
+for category in identities:
+    removed = copy.deepcopy(identities);removed[category] = []
+    check(category + '_deletion_blocks', lambda removed=removed: namespace['preserved_durable_rows'](identities, removed), 'PERSISTED_TASK_OR_QUOTE_IDENTITY_CHANGED')
+    retargeted = copy.deepcopy(identities);retargeted[category][0]['fingerprint'] = 'changed-owner-provider-or-quote'
+    check(category + '_retarget_or_reprice_blocks', lambda retargeted=retargeted: namespace['preserved_durable_rows'](identities, retargeted), 'PERSISTED_TASK_OR_QUOTE_IDENTITY_CHANGED')
+
+with tempfile.TemporaryDirectory(prefix='gif72-guard-') as folder:
+    namespace['ROOT'] = Path(folder)
+    compose = Path(folder) / 'compose.yaml'
+    compose.write_text('services:\n  new-api:\n    image: old\n  lanjing-bridge:\n    image: stable-bridge\n', encoding='utf-8')
+    namespace['replace_image']('old', 'new')
+    assert compose.read_text(encoding='utf-8') == 'services:\n  new-api:\n    image: new\n  lanjing-bridge:\n    image: stable-bridge\n'
+    checks.append('only_backend_image_reference_changes')
+
+commands = []
+
+
+class Recreate:
+    def __init__(self, args, **kwargs):
+        commands.append(args)
+
+    def poll(self):
+        return 0
+
+    def wait(self, timeout):
+        return 0
+
+
+namespace.update(APP='app', OLD_IMAGE='old', COMPOSE=['docker', 'compose'],
+                 inspect=lambda name: {'Image': 'new', 'State': {'Running': True, 'Health': {'Status': 'healthy'}}},
+                 subprocess=types.SimpleNamespace(Popen=Recreate, DEVNULL=-3, TimeoutExpired=subprocess.TimeoutExpired),
+                 time=types.SimpleNamespace(sleep=lambda value: None, monotonic=lambda: 0))
+namespace['recreate']('new', 'new')
+assert commands == [['docker', 'compose', 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--timeout', '120', 'new-api']]
+checks.append('recreate_never_targets_bridge_or_database')
+
+class FastRecreate(Recreate):
+    def poll(self):
+        return None
+
+
+old = {'Id': 'old-container', 'Image': 'old', 'State': {'Running': True, 'Pid': 123}}
+new = {'Id': 'new-container', 'Image': 'new', 'State': {'Running': True, 'Health': {'Status': 'healthy'}}}
+observations = iter([old, old, new])
+identity_calls = [0]
+
+
+def fast_identity(value):
+    identity_calls[0] += 1
+    if identity_calls[0] == 2:
+        raise FileNotFoundError()
+    return {'id': 'old-container', 'image': 'old', 'pid': 123, 'start': 'known'}
+
+
+signals = []
+namespace.update(inspect=lambda name: next(observations), process_identity=fast_identity,
+                 os=types.SimpleNamespace(kill=lambda *args: signals.append(args)),
+                 subprocess=types.SimpleNamespace(Popen=FastRecreate, DEVNULL=-3, TimeoutExpired=subprocess.TimeoutExpired))
+value, lifecycle = namespace['recreate']('new', 'new')
+assert value['Image'] == 'new' and not signals and not lifecycle['direct_term_delivered']
+checks.append('fast_old_process_exit_does_not_fail_or_signal_reused_pid')
+value = {'passed': True, 'checks': checks, 'count': len(checks),
+         'remote_source_sha256': hashlib.sha256(file.read_bytes()).hexdigest(),
+         'network_calls': 0, 'production_mutations': 0}
+(HERE / 'release72-guard-tests.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+print(json.dumps({'passed': True, 'count': len(checks), 'production_mutations': 0}))

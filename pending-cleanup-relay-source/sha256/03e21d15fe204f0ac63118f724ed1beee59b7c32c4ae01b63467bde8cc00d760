@@ -1,0 +1,34 @@
+async (page) => {
+  const base = 'http://127.0.0.1:48276';
+  const observed = { externalBlocked: 0, authenticationWrites: 0, cases: [] };
+  await page.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.origin !== base) { observed.externalBlocked++; return route.abort(); }
+    if (url.pathname === '/api/status') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { password_login_enabled: true, register_enabled: true, password_register_enabled: true, email_verification: true, user_agreement_enabled: true, privacy_policy_enabled: true, passkey_login: true } }) });
+    if (url.pathname.startsWith('/api/')) { observed.authenticationWrites++; return route.abort(); }
+    return route.continue();
+  });
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
+    for (const mode of ['login', 'register', 'forgot', 'reset']) {
+      const reset = mode === 'reset' ? '&email=synthetic%40example.test&token=synthetic-reset-token' : '';
+      await page.goto(`${base}/auth-lite/index.html?mode=${mode}${reset}`);
+      await page.locator('#boot-status').waitFor({ state: 'hidden' });
+      await page.locator('.auth-art img').evaluate(image => image.decode());
+      const metrics = await page.evaluate(() => {
+        const card = document.querySelector('.auth-card').getBoundingClientRect();
+        const controls = [...document.querySelectorAll('form input, form button, #confirm-reset, .auth-links a')].filter(node => node.getClientRects().length && !node.hidden);
+        const bounds = controls.map(node => { const r = node.getBoundingClientRect(); return { id: node.id, x: r.x, right: r.right, width: r.width, height: r.height }; });
+        return { viewport: innerWidth, document: document.documentElement.scrollWidth, card: { x: card.x, right: card.right }, controls: bounds, visibleFields: [...document.querySelectorAll('#auth-form > label, #verification-field, #legal, #reset-panel')].filter(node => node.getClientRects().length && !node.hidden).map(node => node.id), brandImageCount: document.querySelectorAll('.brand img').length, artworkLoaded: [...document.querySelectorAll('.auth-art img')].every(node => node.complete && node.naturalWidth > 0), resetCredentialsRemoved: !location.search.includes('token=') && !location.search.includes('email=') };
+      });
+      if (metrics.document > width || metrics.card.x < 0 || metrics.card.right > width) throw new Error(`Overflow ${width} ${mode}`);
+      if (metrics.controls.some(control => control.x < 0 || control.right > width)) throw new Error(`Control overflow ${width} ${mode}`);
+      if (mode === 'register' && !['username-field', 'email-field', 'password-field', 'confirm-field', 'verification-field', 'legal'].every(id => metrics.visibleFields.includes(id))) throw new Error(`Registration field missing ${width}`);
+      if (!metrics.resetCredentialsRemoved || metrics.brandImageCount || !metrics.artworkLoaded) throw new Error(`Brand or reset presentation ${width} ${mode}`);
+      await page.screenshot({ path: `D:/PIKNO/output/playwright/relay-hero-auth-current/auth-${mode}-${width}.png`, fullPage: true });
+      observed.cases.push({ width, mode, ...metrics });
+    }
+  }
+  if (observed.authenticationWrites || observed.externalBlocked) throw new Error('Unexpected transport');
+  return observed;
+}

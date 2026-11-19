@@ -1,0 +1,153 @@
+"""Prepare offline by default. Run public GETs only after the 65 switch."""
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import re
+import urllib.error
+import urllib.request
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+DIST = ROOT / 'build/hamster-trim44-web/dist'
+EMBEDDED = ROOT / 'deploy/new-api/backend/web/dist'
+ORIGIN = 'https://www.piknoai.com'
+PLAN = HERE / 'public65-check-plan.json'
+MIMES = {'.js': ['text/javascript', 'application/javascript'], '.mjs': ['text/javascript', 'application/javascript'],
+         '.css': ['text/css'], '.png': ['image/png'], '.webp': ['image/webp'], '.jpg': ['image/jpeg'],
+         '.jpeg': ['image/jpeg'], '.avif': ['image/avif'], '.svg': ['image/svg+xml'], '.ico': ['image/x-icon', 'image/vnd.microsoft.icon']}
+
+
+def digest(path):
+    with path.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, newurl):
+        raise urllib.error.HTTPError(request.full_url, code, 'PUBLIC_REDIRECT_REJECTED', headers, None)
+
+
+def prepare():
+    build_file = HERE / 'build65.json'
+    build = json.loads(build_file.read_text(encoding='utf-8'))
+    assert build['version'] == 'v1.0.0-rc.41-hamster.65', 'LOCAL_VERSION_NOT_65'
+    assert digest(HERE / 'backend65-new-api') == build['binary_sha256'], 'CANDIDATE_BINARY_HASH_DRIFT'
+    assert digest(HERE / build['gzip_file']) == build['gzip_sha256'], 'CANDIDATE_GZIP_HASH_DRIFT'
+    assert all(digest(ROOT / 'deploy/new-api/backend' / item['file']) == item['sha256'] for item in build['production_source_files']), 'RUNTIME_SOURCE_HASH_DRIFT'
+    merge = json.loads((HERE / 'web65-merge-manifest.json').read_text(encoding='utf-8'))
+    records = {item['path']: item for item in merge['new_files']}
+    assert merge['old_hashed_files_unchanged'] and merge['deleted_files'] == 0, 'OLD_RESOURCE_PRESERVATION_NOT_VERIFIED'
+    assert set(records) == {path.relative_to(DIST).as_posix() for path in DIST.rglob('*') if path.is_file()}, 'FRONTEND_FILE_SET_DRIFT'
+    for name, item in records.items():
+        assert digest(DIST / name) == item['sha256'] == digest(EMBEDDED / name), 'FRONTEND_OR_EMBEDDED_HASH_DRIFT'
+    baseline = json.loads((HERE / 'backend-web-baseline64-manifest.json').read_text(encoding='utf-8'))
+    old_hashes = [item for item in baseline['files'] if re.search(r'\.[0-9a-f]{8,}\.', Path(item['path']).name)]
+    assert all(digest(EMBEDDED / item['path']) == item['sha256'] for item in old_hashes), 'OLD_HASHED_RESOURCE_DRIFT'
+    entry = build['frontend_entry_script']
+    entry_code = (DIST / entry.lstrip('/')).read_text(encoding='utf-8')
+    portal_ids = set()
+    for file in (DIST / 'static/js/async').glob('*.js'):
+        if any(marker in file.read_text(encoding='utf-8') for marker in ('/hub/models', 'portal-shell', 'portal-home')):
+            portal_ids.add(file.name.split('.', 1)[0])
+    assert portal_ids, 'PORTAL_LAZY_CHUNK_NOT_IDENTIFIED'
+    selected = set(portal_ids)
+    for group in re.findall(r'Promise\.all\(\[([^\]]{1,3000})\]\)', entry_code):
+        ids = set(re.findall(r'\.e\((\d+)\)', group))
+        if ids & portal_ids:
+            selected.update(ids)
+    lazy = set()
+    for folder, extension in [('static/js/async', '.js'), ('static/css/async', '.css')]:
+        lazy.update('/' + file.relative_to(DIST).as_posix() for file in (DIST / folder).glob('*' + extension)
+                    if file.name.split('.', 1)[0] in selected)
+    artwork = set(build['artwork_resources'])
+    assert len(artwork) == 7 and all(path.endswith('.webp') for path in artwork), 'ARTWORK_MANIFEST_SHAPE'
+    paths = set(build['public_paths']) | lazy | artwork | {item['path'] for item in build['frontend_resources']}
+    assert len(paths) <= 60 and all(re.fullmatch(r'/[A-Za-z0-9_./-]*', path) and '..' not in path for path in paths), 'PUBLIC_PATH_WHITELIST_INVALID'
+    checks = []
+    for path in sorted(paths):
+        html = path in build['public_paths']
+        item = {'path': path, 'kind': 'route' if html else 'artwork' if path in artwork else 'lazy' if path in lazy else 'resource',
+                'expected_status': 200, 'allowed_content_types': ['text/html'] if html else MIMES[Path(path).suffix.lower()]}
+        if html:
+            item['expected_entry'] = entry
+        else:
+            item['expected_sha256'] = digest(DIST / path.lstrip('/'))
+            item['expected_bytes'] = (DIST / path.lstrip('/')).stat().st_size
+        checks.append(item)
+    value = {'format': 1, 'prepared_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'status': 'prepared_not_executed',
+             'version': build['version'], 'binary_sha256': build['binary_sha256'], 'build_manifest_sha256': digest(build_file),
+             'frontend_entry_script': entry, 'checks': checks, 'checked_new_dist_file_count': len(records),
+             'preserved_old_hashed_file_count': len(old_hashes), 'runtime7_source_hashes_match': True,
+             'lazy_portal_paths': sorted(lazy), 'artwork_count': len(artwork),
+             'artwork_total_bytes': sum((DIST / path.lstrip('/')).stat().st_size for path in artwork),
+             'production_requests': 0, 'production_mutations': 0, 'credentials_supplied': False}
+    PLAN.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'prepared': True, 'checks': len(checks), 'new_dist_hashes_verified': len(records),
+                      'old_hashed_assets_preserved': len(old_hashes), 'artwork_count': len(artwork),
+                      'artwork_total_bytes': value['artwork_total_bytes'], 'production_requests': 0, 'production_mutations': 0}))
+
+
+def run():
+    plan = json.loads(PLAN.read_text(encoding='utf-8'))
+    assert digest(HERE / 'build65.json') == plan['build_manifest_sha256'], 'BUILD65_CHANGED_SINCE_PREPARATION'
+    applied = []
+    for file in HERE.glob('release65-apply-*.json'):
+        value = json.loads(file.read_text(encoding='utf-8'))
+        if value.get('ok') and value.get('result', {}).get('verified') and value['result'].get('version') == plan['version']:
+            applied.append(file)
+    assert applied, 'AWAIT_65_SWITCH_NO_PUBLIC_REQUESTS_SENT'
+
+    def check(item):
+        result = {'path': item['path'], 'kind': item['kind'], 'status': None, 'bytes': 0, 'sha256': None,
+                  'content_type': None, 'passed': False, 'code': 'PUBLIC_NETWORK_FAILED'}
+        try:
+            request = urllib.request.Request(ORIGIN + item['path'], headers={'Accept-Encoding': 'identity',
+                'Accept': 'text/html' if item['kind'] == 'route' else '*/*', 'User-Agent': 'PIKNO-public-readonly-check/1'})
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=45) as response:
+                result['status'] = response.status
+                result['content_type'] = response.headers.get_content_type()
+                body = response.read(10 * 1024 * 1024 + 1)
+            result['bytes'], result['sha256'] = len(body), hashlib.sha256(body).hexdigest()
+            if len(body) > 10 * 1024 * 1024:
+                result['code'] = 'PUBLIC_RESOURCE_SIZE_LIMIT'
+                return result
+            matches = item['expected_entry'].encode() in body if item['kind'] == 'route' else result['sha256'] == item['expected_sha256'] and len(body) == item['expected_bytes']
+            result['passed'] = result['status'] == item['expected_status'] and result['content_type'] in item['allowed_content_types'] and matches
+            result['code'] = 'PUBLIC_HTTP_AND_CONTENT_VERIFIED' if result['passed'] else 'PUBLIC_CONTENT_OR_MIME_MISMATCH'
+        except urllib.error.HTTPError as error:
+            result['status'], result['code'] = error.code, 'PUBLIC_HTTP_ERROR'
+        except TimeoutError:
+            result['code'] = 'PUBLIC_NETWORK_TIMEOUT'
+        except Exception:
+            pass
+        return result
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        rows = list(pool.map(check, plan['checks']))
+    value = {'format': 1, 'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'version': plan['version'],
+             'binary_sha256': plan['binary_sha256'], 'passed': all(row['passed'] for row in rows),
+             'checked_count': len(rows), 'artwork_count': plan['artwork_count'], 'artwork_total_bytes': plan['artwork_total_bytes'],
+             'lazy_portal_paths': plan['lazy_portal_paths'], 'resources': rows, 'credentials_supplied': False,
+             'response_bodies_saved': False, 'production_mutations': 0, 'generation_requests': 0,
+             'scope': 'public HTTP routes and fixed/frozen-code-selected resources; browser execution separate'}
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')
+    for file in [HERE / ('live-public-assets-' + stamp + '.json'), HERE / 'live-public-assets-verification.json']:
+        file.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'passed': value['passed'], 'checks': len(rows), 'passed_checks': sum(row['passed'] for row in rows),
+                      'artwork_checks_passed': sum(row['passed'] for row in rows if row['kind'] == 'artwork'),
+                      'production_mutations': 0}))
+    return 0 if value['passed'] else 1
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['prepare', 'run'], nargs='?', default='prepare')
+    options = parser.parse_args()
+    try:
+        raise SystemExit(prepare() if options.action == 'prepare' else run())
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, AssertionError) else 'PUBLIC65_ASSET_CHECK_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

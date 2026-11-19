@@ -1,0 +1,128 @@
+package model
+
+import (
+	"errors"
+	"slices"
+	"time"
+
+	"github.com/QuantumNous/new-api/pkg/piknocatalog"
+	"gorm.io/gorm"
+)
+
+// ApplyPiknoSyncClosures commits only explicit shutdowns from the same leased
+// directory response. It does not complete that lease or validate a full catalog.
+func ApplyPiknoSyncClosures(lease PiknoSyncLease, closures *piknocatalog.AvailabilityClosures, now int64) (int, error) {
+	if !PiknoLineSyncEnabled() || !piknocatalog.ValidAvailabilityClosures(closures) || closures.Provider != lease.Provider {
+		return 0, errors.New("availability_contract")
+	}
+	if len(closures.ClosedIDs) == 0 {
+		return 0, nil
+	}
+	closed := map[string]bool{}
+	for _, id := range closures.ClosedIDs {
+		closed[id] = true
+	}
+	changed := 0
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := syncLeaseProvider(tx, lease, max(now, time.Now().Unix())); err != nil {
+			return err
+		}
+		var rows []PiknoLine
+		if err := lockForUpdate(tx).Order("public_model").Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			config, err := decodePiknoLineConfig(row.PublishedConfig)
+			if err != nil {
+				return err
+			}
+			if config == nil {
+				config, err = decodePiknoLineConfig(row.DraftConfig)
+				if err != nil {
+					return err
+				}
+			}
+			if config == nil || config.Provider != closures.Provider || !closed[config.UpstreamModel] {
+				continue
+			}
+			if err := retirePiknoLine(tx, row, closures.Provider, "disabled"); err != nil {
+				return err
+			}
+			changed++
+		}
+		// A close-only response may fail full validation. Its next request must
+		// fetch a complete 200 body: replaying an older, enabled snapshot after
+		// a 304 must never undo the independently verified shutdown. Clear even
+		// for repeated shutdowns and IDs that have no published line yet.
+		if err := tx.Model(&PiknoSyncProvider{}).Where("provider = ?", lease.Provider).Updates(map[string]any{"e_tag": "", "last_modified": ""}).Error; err != nil {
+			return err
+		}
+		// The provider row remains locked, and real time is checked again just
+		// before commit so an expired worker cannot publish a shutdown.
+		_, err := syncLeaseProvider(tx, lease, max(now, time.Now().Unix()))
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	if changed > 0 {
+		refreshPiknoRoutingCaches()
+	}
+	return changed, nil
+}
+
+// Retirement removes only current configuration and callable projections.
+// The small state marker prevents a reappearing identity from reusing an old
+// quote revision; accepted task, settlement and query-adapter snapshots remain.
+func retirePiknoLine(tx *gorm.DB, row PiknoLine, provider, reason string) error {
+	var previous PiknoLineSyncState
+	lookup := lockForUpdate(tx).First(&previous, "public_model = ?", row.PublicModel).Error
+	if lookup != nil && !errors.Is(lookup, gorm.ErrRecordNotFound) {
+		return lookup
+	}
+	if lookup == nil && previous.Provider != provider {
+		return errors.New("availability_state_provider")
+	}
+	ids := []int{}
+	for _, raw := range []string{row.PublishedConfig, row.DraftConfig, row.PreviousConfig} {
+		config, err := decodePiknoLineConfig(raw)
+		if err != nil {
+			return err
+		}
+		if config != nil && config.ChannelID > 0 && !slices.Contains(ids, config.ChannelID) {
+			ids = append(ids, config.ChannelID)
+		}
+	}
+	slices.Sort(ids)
+	var channels []Channel
+	if len(ids) > 0 {
+		if err := lockForUpdate(tx).Select("id").Where("id IN ?", ids).Order("id").Find(&channels).Error; err != nil {
+			return err
+		}
+	}
+	for _, channel := range channels {
+		projection := &PiknoLineConfig{PublicModel: row.PublicModel, ChannelID: channel.Id, Enabled: true}
+		if err := applyPiknoSyncProjection(tx, projection, nil); err != nil {
+			return err
+		}
+	}
+	retired := PiknoLineSyncState{
+		PublicModel: row.PublicModel, Provider: provider,
+		RetiredRevision: max(previous.RetiredRevision, row.Version),
+		LastSeenAt:      previous.LastSeenAt, Paused: true, PauseReason: reason,
+	}
+	if reason == "missing" {
+		retired.MissingCount = 1
+	}
+	if err := tx.Save(&retired).Error; err != nil {
+		return err
+	}
+	result := tx.Where("public_model = ? AND version = ?", row.PublicModel, row.Version).Delete(&PiknoLine{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrPiknoLineConflict
+	}
+	return nil
+}

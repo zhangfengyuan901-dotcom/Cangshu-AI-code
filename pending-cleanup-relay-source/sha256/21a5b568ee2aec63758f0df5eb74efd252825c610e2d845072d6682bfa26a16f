@@ -1,0 +1,210 @@
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SOURCE = ROOT / 'deploy/new-api/backend'
+TASK = 'relay-portal-current'
+NETWORK = 'relay-portal-test'
+GO_IMAGE = 'golang:1.26.1-alpine'
+CACHES = ('relay-portal-gomod', 'relay-portal-gobuild')
+DATABASES = {
+    'mysql': ('relay-portal-mysql', 'mysql:8.0', '/var/lib/mysql'),
+    'postgres': ('relay-portal-postgres', 'postgres:16-alpine', '/var/lib/postgresql/data'),
+}
+PRIVATE = []
+
+
+def command(args, *, env=None, check=True):
+    result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
+    if check and result.returncode:
+        raise RuntimeError('command_failed_' + args[0])
+    return result
+
+
+def inspect(kind, name):
+    result = command(['docker', kind, 'inspect', name], check=False)
+    return json.loads(result.stdout)[0] if result.returncode == 0 else None
+
+
+def assert_owned(item):
+    labels = item.get('Config', {}).get('Labels', item.get('Labels', {})) or {}
+    if labels.get('codex.task') != TASK:
+        raise RuntimeError('existing_resource_not_owned_by_this_task')
+
+
+def save(name, data):
+    (HERE / name).write_text(json.dumps(data, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+
+
+def sql(driver, query):
+    name = DATABASES[driver][0]
+    if driver == 'mysql':
+        return command(['docker', 'exec', name, 'sh', '-c',
+                        'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot --batch --skip-column-names --execute "$1"', 'sh', query]).stdout.strip()
+    return command(['docker', 'exec', name, 'psql', '-U', 'postgres', '-d', 'postgres', '-At', '-v', 'ON_ERROR_STOP=1', '-c', query]).stdout.strip()
+
+
+def prepare():
+    save('validation-resource-plan.json', {'task': TASK, 'network': NETWORK, 'internal': True,
+         'containers': [{'name': name, 'image': image, 'data': 'tmpfs', 'host_ports': []} for name, image, _ in DATABASES.values()],
+         'new_caches': list(CACHES), 'existing_containers_or_volumes_targeted': False})
+    network = inspect('network', NETWORK)
+    if network:
+        assert_owned(network)
+        if not network['Internal']:
+            raise RuntimeError('task_network_is_not_internal')
+    else:
+        command(['docker', 'network', 'create', '--internal', '--label', 'codex.task=' + TASK, NETWORK])
+    for cache in CACHES:
+        item = inspect('volume', cache)
+        if item:
+            assert_owned(item)
+        else:
+            command(['docker', 'volume', 'create', '--label', 'codex.task=' + TASK, cache])
+    for driver, (name, image, target) in DATABASES.items():
+        item = inspect('container', name)
+        if item:
+            assert_owned(item)
+            if not item['State']['Running']:
+                raise RuntimeError('existing_task_database_not_running')
+            continue
+        password = secrets.token_hex(24)
+        PRIVATE.append(password)
+        args = ['docker', 'run', '-d', '--name', name, '--network', NETWORK, '--label', 'codex.task=' + TASK,
+                '--memory', '1536m' if driver == 'mysql' else '768m', '--cpus', '1.5',
+                '--tmpfs', target + ':rw,nosuid,size=768m']
+        if driver == 'mysql':
+            args += ['-e', 'MYSQL_DATABASE=relay_portal', '-e', 'MYSQL_ROOT_PASSWORD=' + password,
+                     '-e', 'MYSQL_ROOT_HOST=%', image, '--max-connections=50', '--innodb-buffer-pool-size=128M']
+        else:
+            args += ['--shm-size', '128m', '-e', 'POSTGRES_DB=relay_portal', '-e', 'POSTGRES_PASSWORD=' + password, image]
+        command(args)
+    deadline = time.monotonic() + 150
+    pending = set(DATABASES)
+    while pending and time.monotonic() < deadline:
+        for driver in list(pending):
+            try:
+                sql(driver, 'SELECT 1')
+                pending.remove(driver)
+            except RuntimeError:
+                pass
+        if pending:
+            time.sleep(2)
+    if pending:
+        raise RuntimeError('synthetic_database_readiness_timeout')
+    records = []
+    for driver, (name, image, _) in DATABASES.items():
+        item = inspect('container', name)
+        records.append({'driver': driver, 'name': name, 'container_id': item['Id'], 'image': image,
+                        'image_id': item['Image'], 'version': sql(driver, 'SELECT VERSION()' if driver == 'mysql' else 'SHOW server_version'),
+                        'host_ports': item['HostConfig']['PortBindings'] or {}, 'data': 'tmpfs', 'running': item['State']['Running']})
+    result = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'task': TASK,
+              'network': NETWORK, 'network_internal': True, 'databases': records, 'existing_resources_modified': False}
+    save('validation-environment.json', result)
+    print(json.dumps({'prepared': True, 'network_internal': True, 'databases': [{'driver': r['driver'], 'version': r['version']} for r in records]}))
+
+
+def go_arguments(network):
+    return ['docker', 'run', '--rm', '--network', network,
+            '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+            '--mount', 'type=volume,source=' + CACHES[0] + ',target=/go/pkg/mod',
+            '--mount', 'type=volume,source=' + CACHES[1] + ',target=/root/.cache/go-build',
+            '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2']
+
+
+def clean_log(text):
+    for secret in sorted(PRIVATE, key=len, reverse=True):
+        if secret:
+            text = text.replace(secret, '[SYNTHETIC_CREDENTIAL]')
+    return text
+
+
+def dependencies():
+    result = command(go_arguments('bridge') + [GO_IMAGE, 'go', 'mod', 'download'], check=False)
+    (HERE / 'go-dependencies.log').write_text(clean_log(result.stdout + result.stderr), encoding='utf-8')
+    save('go-dependencies.json', {'exit_code': result.returncode, 'image': GO_IMAGE, 'source_readonly': True, 'task_caches': list(CACHES)})
+    print(json.dumps({'dependencies_exit_code': result.returncode}))
+    return result.returncode
+
+
+def run_test(driver, pattern, package, tag):
+    env = dict(os.environ)
+    args = go_arguments('none' if driver == 'sqlite' else NETWORK)
+    db_name = 'rp_' + secrets.token_hex(10)
+    if driver != 'sqlite':
+        if not re.fullmatch(r'rp_[a-f0-9]{20}', db_name):
+            raise RuntimeError('invalid_synthetic_database_name')
+        item = inspect('container', DATABASES[driver][0])
+        assert_owned(item)
+        entries = dict(value.split('=', 1) for value in item['Config']['Env'] if '=' in value)
+        if driver == 'mysql':
+            password = entries['MYSQL_ROOT_PASSWORD']
+            sql(driver, 'CREATE DATABASE ' + db_name + ' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+            dsn = 'root:' + password + '@tcp(' + DATABASES[driver][0] + ':3306)/' + db_name + '?charset=utf8mb4&parseTime=True&loc=Local'
+        else:
+            password = entries['POSTGRES_PASSWORD']
+            sql(driver, 'CREATE DATABASE ' + db_name)
+            dsn = 'host=' + DATABASES[driver][0] + ' port=5432 user=postgres password=' + password + ' dbname=' + db_name + ' sslmode=disable'
+        PRIVATE.extend((password, dsn))
+        env['PIKNO_SETTLEMENT_TEST_DRIVER'] = driver
+        env['PIKNO_SETTLEMENT_TEST_DSN'] = dsn
+        args += ['-e', 'PIKNO_SETTLEMENT_TEST_DRIVER', '-e', 'PIKNO_SETTLEMENT_TEST_DSN']
+    args += [GO_IMAGE, 'go', 'test', '-p', '2', package, '-run', pattern, '-count=1', '-json', '-timeout=5m']
+    result = command(args, env=env, check=False)
+    safe = clean_log(result.stdout + result.stderr)
+    filename = 'go-' + driver + '-' + tag
+    (HERE / (filename + '.log')).write_text(safe, encoding='utf-8')
+    events = []
+    for line in result.stdout.splitlines():
+        try:
+            value = json.loads(line)
+            if value.get('Action') in ('pass', 'fail', 'skip') and value.get('Test'):
+                events.append({'test': value['Test'], 'action': value['Action'], 'elapsed': value.get('Elapsed')})
+        except json.JSONDecodeError:
+            pass
+    data = {'driver': driver, 'exit_code': result.returncode, 'package': package, 'run_pattern': pattern,
+            'fresh_database': True, 'events': events, 'source_readonly': True, 'existing_data_targeted': False}
+    save(filename + '.json', data)
+    print(json.dumps({'driver': driver, 'exit_code': result.returncode, 'test_events': len(events), 'log': filename + '.log'}))
+    return result.returncode
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['prepare', 'deps', 'run', 'matrix'])
+    parser.add_argument('--driver', choices=['sqlite', 'mysql', 'postgres'], default='sqlite')
+    parser.add_argument('--run', default='^TestPiknoSyncRetirementLifecycle$')
+    parser.add_argument('--package', default='./model')
+    parser.add_argument('--tag', default='lifecycle')
+    args = parser.parse_args()
+    if not re.fullmatch(r'[a-z0-9-]+', args.tag):
+        raise RuntimeError('invalid_test_output_tag')
+    if args.action == 'prepare':
+        prepare()
+        return 0
+    if args.action == 'deps':
+        return dependencies()
+    if args.action == 'run':
+        return run_test(args.driver, args.run, args.package, args.tag)
+    failed = 0
+    for cycle in (1, 2):
+        for driver in ('sqlite', 'mysql', 'postgres'):
+            failed |= run_test(driver, args.run, args.package, args.tag + '-' + str(cycle))
+    return failed
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as error:
+        print(json.dumps({'validation_error': type(error).__name__, 'code': str(error) if isinstance(error, RuntimeError) else 'validation_failed'}))
+        sys.exit(1)

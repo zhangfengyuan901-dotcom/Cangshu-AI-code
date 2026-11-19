@@ -1,0 +1,20 @@
+import subprocess,time
+
+def request(path,method='GET',headers=None):
+    args=['curl.exe','--http1.1','--suppress-connect-headers','--silent','--show-error','--fail',
+      '--connect-timeout','10','--max-time','40','--head' if method=='HEAD' else '--include',
+      '--header','Cache-Control: no-cache']
+    for name,value in (headers or {}).items():args+=['--header',name+': '+value]
+    args+=['https://www.piknoai.com'+path]
+    for attempt in range(3):
+        result=subprocess.run(args,capture_output=True,timeout=50)
+        if result.returncode==0:break
+        time.sleep(0.5)
+    assert result.returncode==0,'PUBLIC_HTTPS_TRANSPORT_FAILED'
+    block,body=result.stdout.split(b'\r\n\r\n',1)
+    lines=block.split(b'\r\n');status=int(lines[0].split()[1])
+    response_headers={}
+    for line in lines[1:]:
+        if b':' in line:
+            key,value=line.split(b':',1);response_headers[key.decode('ascii').strip().title()]=value.decode('latin1').strip()
+    return status,response_headers,body

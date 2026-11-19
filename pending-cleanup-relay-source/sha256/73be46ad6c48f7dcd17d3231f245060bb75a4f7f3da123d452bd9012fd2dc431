@@ -1,0 +1,103 @@
+import argparse
+import datetime
+import gzip
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+REMOTE_STAGE='/opt/piknoai-relay/account71-20261112'
+
+
+def require(value,code):
+    if not value:
+        raise RuntimeError(code)
+
+
+def digest(file):
+    with Path(file).open('rb') as source:
+        return hashlib.file_digest(source,'sha256').hexdigest()
+
+
+def transport():
+    spec=importlib.util.spec_from_file_location('release71_transport',ROOT/'output/direct-media-production-current/transport.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+
+
+def scp_arguments(module):
+    executable=Path(module.SSH[0])
+    name='scp.exe' if executable.suffix.lower()=='.exe' else 'scp'
+    command=str(executable.with_name(name)) if executable.parent!=Path('.') else name
+    return [command,*[('-P' if item=='-p' else item) for item in module.SSH[1:-1] if item!='-T']]
+
+
+def prepare_payload(module):
+    original=json.loads((HERE/'candidate-build.json').read_text())
+    require(original['version']=='v1.0.0-rc.41-hamster.71','CANDIDATE_VERSION_INVALID')
+    binary=HERE/'backend71-new-api'
+    bridge=ROOT/'deploy/lanjing-bridge/server.mjs'
+    require(digest(binary)==original['binary_sha256']=='2a2409a86bdd407e038eb2c3ee7aa83882b3a066c3bd44849928a13120346652','LOCAL_BINARY_DRIFT')
+    require(digest(bridge)=='31654814e4423c6cb43ab613781d6ad32ad8c35d4549fc4375a10f0fd1a33120','LOCAL_BRIDGE_DRIFT')
+    matrix=json.loads((HERE/'go-database-matrix.json').read_text())
+    http=json.loads((HERE/'http-integration-verification.json').read_text())
+    browser=json.loads((HERE/'web-browser-verification.json').read_text())
+    electron=json.loads((HERE/'electron-enrollment-verification.json').read_text())
+    require(len(matrix)==2 and all(item['exit_code']==0 for item in matrix),'DATABASE_MATRIX_FAILED')
+    require(http.get('passed') is True and browser.get('passed') is True and electron.get('ok') is True,'CANDIDATE_VALIDATION_FAILED')
+    compressed=HERE/'backend71-new-api.gz'
+    if not compressed.exists():
+        with binary.open('rb') as source,compressed.open('xb') as raw:
+            with gzip.GzipFile(fileobj=raw,mode='wb',mtime=0) as target:
+                while chunk:=source.read(1024*1024):
+                    target.write(chunk)
+    with gzip.open(compressed,'rb') as content:
+        require(hashlib.file_digest(content,'sha256').hexdigest()==original['binary_sha256'],'LOCAL_COMPRESSED_PAYLOAD_DRIFT')
+    manifest={'version':original['version'],'binary_sha256':original['binary_sha256'],'gzip_sha256':digest(compressed),
+              'binary_bytes':binary.stat().st_size,'bridge_source_sha256':digest(bridge),
+              'validation':{'passed':True,'http_fixture':http.get('passed'),
+                            'matrix_file_sha256':digest(HERE/'go-database-matrix.json'),
+                            'browser_fixture_file_sha256':digest(HERE/'web-browser-verification.json'),
+                            'desktop_fixture_file_sha256':digest(HERE/'electron-enrollment-verification.json')}}
+    local_manifest=HERE/'stage-manifest.json'
+    local_manifest.write_text(json.dumps(manifest,sort_keys=True)+'\n')
+    payloads=[(HERE/'release71-candidate.py','release71-candidate.py'),(local_manifest,'stage-manifest.json'),
+              (compressed,'backend71-new-api.gz'),(bridge,'server.mjs')]
+    require(all(file.is_file() and not file.is_symlink() for file,_ in payloads),'LOCAL_PAYLOAD_INVALID')
+    hashes={name:digest(file) for file,name in payloads}
+    module.remote("import json,pathlib,os\np=pathlib.Path("+repr(REMOTE_STAGE)+")\nassert p.parent.resolve()==p.parent and not p.is_symlink()\nassert not (p/'private'/'stage.json').exists()\np.mkdir(mode=0o700,exist_ok=True)\nos.chmod(p,0o700)\nprint(json.dumps({'stage_directory_ready':True}))")
+    command=scp_arguments(module)
+    for file,name in payloads:
+        result=subprocess.run([*command,str(file),module.SSH[-1]+':'+REMOTE_STAGE+'/'+name],capture_output=True,timeout=300)
+        require(result.returncode==0,'STAGE_PAYLOAD_TRANSFER_FAILED')
+    checked=module.remote("import json,pathlib,hashlib,os\np=pathlib.Path("+repr(REMOTE_STAGE)+")\nfor name,expected in "+repr(hashes)+".items():\n f=p/name\n assert f.is_file() and not f.is_symlink()\n assert hashlib.sha256(f.read_bytes()).hexdigest()==expected\n os.chmod(f,0o600)\nprint(json.dumps({'payload_hashes_verified':True}))")
+    require(checked.get('payload_hashes_verified'),'REMOTE_PAYLOAD_DRIFT')
+
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('action',choices=['preflight','stage'],default='preflight',nargs='?')
+    action=parser.parse_args().action
+    module=transport()
+    if action=='stage':
+        prepare_payload(module)
+        source="import importlib.util,json,pathlib\np=pathlib.Path("+repr(REMOTE_STAGE)+")\ns=importlib.util.spec_from_file_location('release71',p/'release71-candidate.py')\nm=importlib.util.module_from_spec(s)\ns.loader.exec_module(m)\nprint(json.dumps(m.main('stage')))"
+    else:
+        source=(HERE/'release71-candidate.py').read_text()+"\nprint(json.dumps(main('preflight')))\n"
+    value=module.remote(source,timeout=720 if action=='stage' else 90)
+    stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')
+    result=HERE/('release71-'+action+'-'+stamp+'.json')
+    result.write_text(json.dumps(value,indent=2)+'\n')
+    print(json.dumps({'evidence':result.name,**value}))
+
+
+if __name__=='__main__':
+    try:
+        main()
+    except Exception as error:
+        code=str(error) if isinstance(error,RuntimeError) else 'STAGE_FAILED_PRIVATE_DETAILS_WITHHELD'
+        print(json.dumps({'staged':False,'code':code,'live_services_switched':False,'production_business_mutations':0}))
+        raise SystemExit(1)

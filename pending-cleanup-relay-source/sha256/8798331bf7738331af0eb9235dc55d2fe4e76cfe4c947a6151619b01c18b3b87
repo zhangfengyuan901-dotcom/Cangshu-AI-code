@@ -1,0 +1,49 @@
+package main
+
+import (
+ "bytes"
+ "encoding/json"
+ "fmt"
+ "io"
+ "net/http"
+ "os"
+ "strconv"
+ "time"
+)
+
+func main() {
+ expected, err := os.ReadFile(os.Args[2]); if err != nil { panic("fixture_unavailable") }
+ size:=len(expected)
+ client:=&http.Client{Timeout:15*time.Second,Transport:&http.Transport{DisableCompression:true}}
+ type check struct {Name,Method,Encoding,Range string; Status int; Start,End int}
+ cases:=[]check{
+  {"get_identity","GET","identity","",200,0,size-1},
+  {"get_gzip","GET","gzip","",200,0,size-1},
+  {"head_identity","HEAD","identity","",200,0,-1},
+  {"head_gzip","HEAD","gzip","",200,0,-1},
+  {"prefix_identity","GET","identity","bytes=0-1023",206,0,1023},
+  {"prefix_gzip","GET","gzip","bytes=0-1023",206,0,1023},
+  {"middle_gzip","GET","gzip","bytes=2048-4095",206,2048,4095},
+  {"suffix_gzip","GET","gzip","bytes=-512",206,size-512,size-1},
+  {"open_tail_gzip","GET","gzip","bytes="+strconv.Itoa(size-512)+"-",206,size-512,size-1},
+  {"invalid_range","GET","gzip","bytes="+strconv.Itoa(size)+"-",416,0,-1},
+ }
+ rows:=[]map[string]any{}; all:=true
+ for _,test:=range cases {
+  request,_:=http.NewRequest(test.Method,os.Args[1],nil)
+  request.Header.Set("Accept-Encoding",test.Encoding); if test.Range!="" {request.Header.Set("Range",test.Range)}
+  response,err:=client.Do(request)
+  passed:=err==nil; status:=0; count:=0
+  if err==nil {
+   status=response.StatusCode
+   body,readErr:=io.ReadAll(response.Body);response.Body.Close();count=len(body)
+   passed=readErr==nil&&status==test.Status&&response.Header.Get("Content-Encoding")==""
+   if status==200&&test.Method=="GET" {passed=passed&&bytes.Equal(body,expected)&&response.ContentLength==int64(size)}
+   if test.Method=="HEAD" {passed=passed&&len(body)==0&&response.ContentLength==int64(size)}
+   if status==206 {passed=passed&&bytes.Equal(body,expected[test.Start:test.End+1])&&response.Header.Get("Content-Range")==fmt.Sprintf("bytes %d-%d/%d",test.Start,test.End,size)}
+  }
+  all=all&&passed;rows=append(rows,map[string]any{"case":test.Name,"passed":passed,"status":status,"bytes":count})
+ }
+ json.NewEncoder(os.Stdout).Encode(map[string]any{"passed":all,"checks":rows,"resource_bytes":size})
+ if !all {os.Exit(1)}
+}

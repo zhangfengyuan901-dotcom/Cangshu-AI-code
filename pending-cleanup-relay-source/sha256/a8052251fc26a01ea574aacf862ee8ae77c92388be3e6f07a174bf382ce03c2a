@@ -1,0 +1,189 @@
+import hashlib
+import io
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+from datetime import datetime, timezone
+
+ROOT = Path('D:/PIKNO').resolve()
+OUT = Path(__file__).resolve().parent
+PRIVATE = ROOT / '仓鼠AI/output/billing-private/docker-retained-data'
+EXTRA = {
+    'pikno-client22-smoke-20261010-b',
+    'pikno-client22-smoke-20261010',
+    'pikno-settlement16-qa',
+    'pikno-wallet7-fresh-mysql',
+    'pikno-wallet7-fresh-pg',
+}
+
+
+def run(*args, binary=False, timeout=120, allow_missing=False):
+    value = subprocess.run(['docker', *args], capture_output=True, timeout=timeout)
+    if value.returncode and not allow_missing:
+        raise RuntimeError('DOCKER_OPERATION_FAILED_' + args[0])
+    return value if binary else value.stdout.decode('utf-8')
+
+
+def read(path):
+    return json.loads(path.read_text(encoding='utf-8-sig'))
+
+
+def save(name, value, private=False):
+    target = (PRIVATE if private else OUT) / name
+    assert target.resolve().is_relative_to(ROOT)
+    target.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
+def sha(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def inspect(kind, name):
+    value = run(kind, 'inspect', name, binary=True, allow_missing=True)
+    return json.loads(value.stdout)[0] if value.returncode == 0 else None
+
+
+def containers():
+    ids = run('ps', '-aq', '--no-trunc').split()
+    return json.loads(run('inspect', *ids)) if ids else []
+
+
+def fingerprint(container):
+    # Private runtime settings stay in private storage; only their digest enters the plan.
+    value = {key: container[key] for key in ['Image', 'Config', 'HostConfig', 'Mounts']}
+    return sha(json.dumps(value, sort_keys=True).encode())
+
+
+def volume_digest():
+    names = sorted(run('volume', 'ls', '--format', '{{.Name}}').split())
+    return {'count': len(names), 'sha256': sha('\n'.join(names).encode())}
+
+
+def usage():
+    return [json.loads(line) for line in run('system', 'df', '--format', '{{json .}}').splitlines() if line]
+
+
+def prepare():
+    assert run('context', 'show').strip() == 'desktop-linux'
+    assert PRIVATE.is_dir() and PRIVATE.resolve().is_relative_to(ROOT)
+    state = read(ROOT / '.agents/project-state.json')['maintenance']['docker_dependencies']
+    protected_tags = state['keep_local'] + state['separate_project_in_use_at_inspection'] + ['postgres:16']
+    protected = []
+    for tag in protected_tags:
+        image = inspect('image', tag)
+        if image:
+            protected.append({'tag': tag, 'id': image['Id']})
+    images = []
+    for tag in state['retired_local']:
+        image = inspect('image', tag)
+        if image:
+            assert image['Id'] not in {x['id'] for x in protected}
+            images.append({'tag': tag, 'id': image['Id'], 'repo_tags': image.get('RepoTags') or []})
+    target_ids = {x['id'] for x in images}
+    target_tags = {x['tag'] for x in images}
+    selected = []
+    retained = []
+    for container in containers():
+        name = container['Name'].lstrip('/')
+        target = container['Image'] in target_ids or container['Config'].get('Image') in target_tags or name in EXTRA
+        if not target:
+            retained.append({'id': container['Id'], 'name': name, 'fingerprint': fingerprint(container)})
+            continue
+        assert container['State']['Status'] in ['created', 'exited'], 'TARGET_IS_NOT_STOPPED'
+        assert container['Image'] not in {x['id'] for x in protected}, 'PROTECTED_CONTAINER'
+        diff = run('diff', container['Id']).splitlines()
+        paths = [line[2:] for line in diff if len(line) > 2]
+        assert all(p == '/data' or p.startswith('/data/') or p == '/tmp' or p.startswith('/tmp/')
+                   or p in ['/run', '/run/secrets'] or p.startswith('/run/secrets/') for p in paths), 'UNREVIEWED_WRITABLE_CHANGES'
+        mounts = container['Mounts']
+        saved = []
+        for directory in ['/data', '/tmp']:
+            if not any(p == directory or p.startswith(directory + '/') for p in paths):
+                continue
+            if any(directory == m['Destination'] or directory.startswith(m['Destination'].rstrip('/') + '/') for m in mounts):
+                continue
+            raw = run('cp', container['Id'] + ':' + directory + '/.', '-', binary=True).stdout
+            with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+                files = [x for x in archive.getmembers() if x.isfile()]
+                for item in files:
+                    assert len(archive.extractfile(item).read()) == item.size
+            filename = container['Id'][:12] + '-' + directory.lstrip('/') + '.tar'
+            (PRIVATE / filename).write_bytes(raw)
+            saved.append({'name': filename, 'bytes': len(raw), 'sha256': sha(raw), 'files': len(files)})
+        settings_file = container['Id'][:12] + '-settings.private.json'
+        save(settings_file, container, private=True)
+        selected.append({'id': container['Id'], 'name': name, 'state': container['State']['Status'],
+                         'image_id': container['Image'], 'fingerprint': fingerprint(container),
+                         'private_settings': settings_file, 'private_settings_sha256': sha((PRIVATE / settings_file).read_bytes()),
+                         'saved_writable_data': saved, 'mount_count': len(mounts)})
+    plan = {'format': 1, 'created_at': datetime.now(timezone.utc).isoformat(), 'images': images,
+            'containers': selected, 'protected_images': protected, 'retained_containers': retained,
+            'volumes': volume_digest(), 'usage_before': usage(), 'delete_volumes': False,
+            'force_remove': False, 'private_storage': '仓鼠AI/output/billing-private/docker-retained-data'}
+    save('plan.json', plan)
+    print(json.dumps({'prepared': True, 'images': len(images), 'stopped_containers': len(selected),
+                      'preserved_volumes': plan['volumes']['count'],
+                      'private_data_archives': sum(len(c['saved_writable_data']) for c in selected)}), flush=True)
+
+
+def apply():
+    plan = read(OUT / 'plan.json')
+    assert run('context', 'show').strip() == 'desktop-linux'
+    assert volume_digest() == plan['volumes'], 'VOLUME_INVENTORY_CHANGED'
+    for item in plan['protected_images'] + plan['images']:
+        assert inspect('image', item['tag'])['Id'] == item['id'], 'IMAGE_CHANGED'
+    live = {x['Id']: x for x in containers()}
+    for item in plan['retained_containers']:
+        assert item['id'] in live and fingerprint(live[item['id']]) == item['fingerprint'], 'RETAINED_CONTAINER_CHANGED_' + item['name']
+    for item in plan['containers']:
+        current = live[item['id']]
+        assert current['State']['Status'] in ['created', 'exited'] and fingerprint(current) == item['fingerprint'], 'TARGET_CHANGED'
+        assert sha((PRIVATE / item['private_settings']).read_bytes()) == item['private_settings_sha256']
+        for archive in item['saved_writable_data']:
+            assert sha((PRIVATE / archive['name']).read_bytes()) == archive['sha256'], 'DATA_BACKUP_CHANGED'
+    selected = {x['id'] for x in plan['containers']}
+    for image in plan['images']:
+        references = set(run('ps', '-aq', '--no-trunc', '--filter', 'ancestor=' + image['tag']).split())
+        assert references <= selected, 'IMAGE_HAS_UNPLANNED_CONTAINER'
+    results = {'containers_removed': [], 'images_removed': []}
+    save('applied.json', results)
+    for item in plan['containers']:
+        current = inspect('container', item['id'])
+        assert current and current['State']['Status'] in ['created', 'exited'], 'TARGET_STARTED'
+        run('container', 'rm', item['id'])
+        results['containers_removed'].append(item['id'])
+        save('applied.json', results)
+    print(json.dumps({'stopped_containers_removed': len(results['containers_removed'])}), flush=True)
+    for item in plan['images']:
+        run('image', 'rm', item['tag'])
+        results['images_removed'].append(item['tag'])
+        save('applied.json', results)
+        print(json.dumps({'images_removed': len(results['images_removed'])}), flush=True)
+    verify()
+
+
+def verify():
+    plan = read(OUT / 'plan.json')
+    assert volume_digest() == plan['volumes'], 'VOLUMES_CHANGED'
+    live = {x['Id']: x for x in containers()}
+    for item in plan['retained_containers']:
+        assert item['id'] in live and fingerprint(live[item['id']]) == item['fingerprint'], 'RETAINED_CONTAINER_CHANGED'
+    assert not ({x['id'] for x in plan['containers']} & set(live)), 'TARGET_CONTAINER_REMAINS'
+    for item in plan['protected_images']:
+        assert inspect('image', item['tag'])['Id'] == item['id'], 'PROTECTED_IMAGE_CHANGED'
+    assert all(inspect('image', x['tag']) is None for x in plan['images']), 'OLD_IMAGE_REMAINS'
+    result = {'format': 1, 'status': 'completed_verified', 'checked_at': datetime.now(timezone.utc).isoformat(),
+              'images_removed': len(plan['images']), 'stopped_containers_removed': len(plan['containers']),
+              'protected_images_preserved': len(plan['protected_images']), 'volumes_preserved': plan['volumes']['count'],
+              'volume_inventory_unchanged': True, 'retained_container_settings_unchanged': True,
+              'writable_data_saved_privately': True, 'existing_volumes_deleted': 0,
+              'usage_before': plan['usage_before'], 'usage_after': usage(), 'production_mutations': 0}
+    save('verification.json', result)
+    print(json.dumps({k: v for k, v in result.items() if not k.startswith('usage')}), flush=True)
+
+
+if __name__ == '__main__':
+    assert len(sys.argv) == 2 and sys.argv[1] in ['prepare', 'apply', 'verify']
+    {'prepare': prepare, 'apply': apply, 'verify': verify}[sys.argv[1]]()

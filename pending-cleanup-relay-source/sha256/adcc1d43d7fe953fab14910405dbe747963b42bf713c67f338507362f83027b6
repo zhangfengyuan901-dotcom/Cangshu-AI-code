@@ -1,0 +1,61 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = 'D:/PIKNO/build/hamster-trim44-web/dist';
+const port = 48276;
+const events = new Set();
+let revision = 1, failCatalog = false;
+const stats = {catalogReads: 0, generationCalls: 0, accountReads: 0};
+const original = Array.from({length: 15}, (_, i) => ({
+  id: `pikno-qa-${i % 2 ? 'video' : 'image'}-${String(i + 1).padStart(2, '0')}`,
+  name: `合成验证${i % 2 ? '视频' : '图片'}线路 ${String(i + 1).padStart(2, '0')}`,
+  kind: i % 2 ? 'video' : 'image',
+  resolutions: i % 2 ? ['720p', '1080p'] : ['1024x1024', '1536x1024'],
+  ratios: ['16:9', '1:1'], qualities: ['auto', 'high'], durations: i % 2 ? [5, 10] : [],
+  max_images: 9, max_videos: i % 2 ? 3 : 0, max_audio: i % 2 ? 3 : 0, max_media_total: 12,
+  reference_surcharge_cny: i % 2 ? '0.123456' : '0',
+  prices: [{resolution: i % 2 ? '720p' : '1024x1024', unit: i % 2 ? 'second' : 'image', retail_cny: '0.123456'}],
+}));
+let models = [...original];
+const currentRevision = () => revision.toString(16).padStart(64, '0');
+const json = (res, body, status = 200) => {res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}); res.end(JSON.stringify(body));};
+const ok = (res, data) => json(res, {success: true, data});
+const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.svg':'image/svg+xml','.woff2':'font/woff2','.md':'text/markdown; charset=utf-8','.txt':'text/plain; charset=utf-8'};
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://127.0.0.1:${port}`);
+  if (url.pathname === '/__qa/state') return json(res, {synthetic: true, revision, modelCount: models.length, ...stats});
+  if (url.pathname === '/__qa/catalog' && req.method === 'PUT') {
+    let bytes = ''; for await (const chunk of req) bytes += chunk; const input = JSON.parse(bytes || '{}');
+    models = input.reset ? [...original] : models.filter(model => model.id !== input.remove);
+    failCatalog = input.fail === true; revision++;
+    for (const output of events) output.write(`event: catalog-change\ndata: ${JSON.stringify({revision:currentRevision()})}\n\n`);
+    return json(res, {changed: true});
+  }
+  if (url.pathname === '/api/pikno/catalog/events') {
+    res.writeHead(200, {'Content-Type':'text/event-stream', 'Cache-Control':'no-store','Connection':'keep-alive'});
+    res.write(`event: catalog-change\ndata: ${JSON.stringify({revision:currentRevision()})}\n\n`);
+    events.add(res);req.once('close', () => events.delete(res));return;
+  }
+  if (url.pathname === '/api/pikno/catalog') {stats.catalogReads++;return failCatalog ? json(res,{success:false},503) : ok(res,{revision:currentRevision(),models});}
+  if (url.pathname === '/api/status') return ok(res, {quota_per_unit:7300000,usd_exchange_rate:7.3});
+  if (url.pathname === '/api/user/auth/refresh') return ok(res, {access_token:'synthetic-browser-session',access_expires_at:Math.floor(Date.now()/1000)+300,user:{id:900001,username:'界面验证账户',role:1},session:{sid:'synthetic-session'}});
+  if (url.pathname === '/api/user/auth/logout') return ok(res, {});
+  if (url.pathname === '/api/user/self') {stats.accountReads++;return ok(res, {id:900001,quota:123450000,used_quota:6789000,request_count:42});}
+  if (url.pathname === '/api/user/self/groups') return ok(res, {'image-standard':{},'video-standard':{},'tool-standard':{},'chat-standard':{}});
+  if (url.pathname === '/api/token/' && req.method === 'GET') return ok(res, {items:[],total:0});
+  if (url.pathname === '/api/log/self' || url.pathname === '/api/pikno/settlements/self' || url.pathname === '/api/user/topup/self') return ok(res, {items:[],total:0});
+  if (url.pathname === '/api/user/topup/info') return ok(res, {fixed_cny_topup:true,enable_online_topup:true,payment_compliance_confirmed:true,amount_options:[50,100,200],pay_methods:[{type:'alipay'},{type:'wxpay'}]});
+  if (url.pathname === '/api/user/amount' && req.method === 'POST') {let bytes='';for await (const chunk of req) bytes += chunk;return ok(res, Number(JSON.parse(bytes).amount));}
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/v1/')) {if(req.method!=='GET') stats.generationCalls++;return json(res,{success:false,message:'Synthetic endpoint unavailable'},404);}
+  const name = decodeURIComponent(url.pathname);
+  let file = path.resolve(root, '.' + name);
+  if (file !== path.resolve(root) && !file.startsWith(path.resolve(root) + path.sep)) return json(res, {error:'invalid path'},400);
+  if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file=path.join(file,'index.html');
+  if (!fs.existsSync(file) && !path.extname(name)) file=path.join(root,'index.html');
+  if (!fs.existsSync(file)) return json(res,{error:'not found'},404);
+  res.writeHead(200,{'Content-Type':types[path.extname(file)] || 'application/octet-stream'});fs.createReadStream(file).pipe(res);
+});
+server.listen(port,'127.0.0.1',()=>console.log(JSON.stringify({url:`http://127.0.0.1:${port}`,synthetic:true})));
+function stop(){for(const response of events)response.end();server.closeAllConnections();server.close();}
+process.on('SIGINT',stop);process.on('SIGTERM',stop);

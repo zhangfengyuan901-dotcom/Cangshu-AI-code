@@ -1,0 +1,59 @@
+async (page) => {
+  const base='https://www.piknoai.com';
+  const expected=__ARTWORK_EXPECTATIONS__;
+  const shots='D:/PIKNO/output/playwright/relay-artwork-current/';
+  const passed=[], rendered=new Set();
+  let pageErrors=0, businessWrites=0;
+  const check=(value,label)=>{if(!value)throw new Error('Public artwork check failed: '+label);passed.push(label);};
+  page.setDefaultTimeout(60000);page.setDefaultNavigationTimeout(60000);
+  page.on('pageerror',()=>pageErrors++);
+  page.on('request',request=>{
+    if(['GET','HEAD','OPTIONS'].includes(request.method()))return;
+    const url=new URL(request.url());
+    if(url.origin===base && url.pathname.startsWith('/api/') && url.pathname!=='/api/user/auth/refresh')businessWrites++;
+    if(url.origin===base && url.pathname.startsWith('/v1/'))businessWrites++;
+  });
+  const loadArtwork=async()=>{
+    const images=page.locator('img.portal-artwork');
+    for(let i=0;i<await images.count();i++){
+      const image=images.nth(i);await image.scrollIntoViewIfNeeded();
+      const data=await image.evaluate(async image=>{await image.decode();return {path:new URL(image.currentSrc).pathname,width:image.naturalWidth,height:image.naturalHeight,alt:image.alt};});
+      check(data.width===1672 && data.height===941 && data.alt==='','live_decoded_'+data.path.split('/').pop());
+      rendered.add(data.path);
+    }
+  };
+  await page.setViewportSize({width:1440,height:1000});
+  await page.goto(base+'/',{waitUntil:'domcontentloaded'});await page.locator('.portal-header').waitFor();
+  const status=await (await page.request.get(base+'/api/status')).json();
+  check(status?.data?.version==='v1.0.0-rc.41-hamster.65','live_version_65');
+  const assets=await page.evaluate(async specs=>await Promise.all(specs.map(async spec=>{
+    const response=await fetch(spec.url,{credentials:'omit'});const bytes=await response.arrayBuffer();
+    const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),v=>v.toString(16).padStart(2,'0')).join('');
+    return {path:spec.url,status:response.status,type:response.headers.get('Content-Type')?.split(';')[0],bytes:bytes.byteLength,sha256:digest};
+  })),expected);
+  for(let i=0;i<assets.length;i++)check(assets[i].status===200 && assets[i].type==='image/webp' && assets[i].sha256===expected[i].sha256,'live_hash_mime_'+expected[i].asset);
+  await loadArtwork();
+  const bounds=await page.locator('.portal-feature-art').evaluateAll(nodes=>nodes.map(node=>{const image=node.querySelector('img');return {name:image.dataset.artwork,width:Math.abs(image.offsetWidth-node.clientWidth),height:Math.abs(image.offsetHeight-node.clientHeight)};}));
+  for(const item of bounds)check(item.width<=1 && item.height<=1,'live_feature_bounds_'+item.name);
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'live-art-home-desktop.png',fullPage:true});
+  await page.locator('.portal-feature-grid').screenshot({path:shots+'live-art-feature-cards.png'});
+  await page.goto(base+'/hub/models',{waitUntil:'domcontentloaded'});await page.locator('.portal-header').waitFor();
+  await page.locator('.portal-model-card').first().waitFor();await loadArtwork();
+  await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:shots+'live-art-models-desktop.png',fullPage:true});
+  await page.locator('.portal-category-list').getByRole('button',{name:/创意工具|Creative tools/}).click();
+  await page.locator('.portal-model-card').first().waitFor();await loadArtwork();
+  check(await page.locator('.portal-model-card img[data-artwork=depth]').count()===1,'live_depth_cover');
+  check(await page.locator('.portal-model-card img[data-artwork=digital]').count()===1,'live_digital_cover');
+  await page.goto(base+'/hub/pricing',{waitUntil:'domcontentloaded'});await page.locator('.portal-header').waitFor();
+  await loadArtwork();
+  check(await page.locator('.portal-hub-art img').getAttribute('data-artwork')==='api','live_pricing_artwork');
+  await page.setViewportSize({width:390,height:844});
+  await page.goto(base+'/',{waitUntil:'domcontentloaded'});await page.locator('.portal-header').waitFor();await loadArtwork();
+  const mobile=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth+1,art:document.querySelector('.portal-hero-art').getBoundingClientRect().top,note:document.querySelector('.portal-hero-note').getBoundingClientRect().bottom}));
+  check(!mobile.overflow && mobile.art>=mobile.note-1,'live_mobile_placement');
+  await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:shots+'live-art-home-mobile.png',fullPage:true});
+  check(rendered.size===7,'live_all_seven_themes_rendered');
+  check(pageErrors===0,'live_no_page_errors');check(businessWrites===0,'live_no_business_write_requests');
+  return {ok:true,checks:passed.length,passed,assets,rendered:[...rendered].sort(),pageErrors,businessWrites,real_relay_generation_calls:0,real_payment_calls:0,customer_login:false,http_cache:'normal_browser_cache'};
+}

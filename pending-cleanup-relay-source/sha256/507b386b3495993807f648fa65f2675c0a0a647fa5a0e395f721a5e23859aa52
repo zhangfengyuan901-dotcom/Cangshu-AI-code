@@ -1,0 +1,18 @@
+import json
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+path=ROOT/'.agents/project-state.json';state=json.loads(path.read_text(encoding='utf-8'))
+stage=sorted(HERE.glob('release68-stage-*.json'))[-1];staged=json.loads(stage.read_text(encoding='utf-8'))
+assert staged['ok'] and staged['result']['staged']
+build=json.loads((HERE/'build68.json').read_text(encoding='utf-8'))
+record=state['relay']['sanbao_retirement_assessment']
+record.update({'status':'validated_candidate_staged_waiting_for_idle_window_no_deletion',
+ 'execution_authorized':True,'opening_balance_snapshot_choice':'explicitly_do_not_preserve',
+ 'candidate_version':build['version'],'candidate_binary_sha256':build['binary_sha256'],
+ 'candidate_image_id':staged['result']['candidate_image_id'],'candidate_build':'output/relay-sanbao-retirement-current/build68.json',
+ 'candidate_stage':stage.relative_to(ROOT).as_posix(),'validation':'output/relay-sanbao-retirement-current/validation68.json',
+ 'cleanup_engine':'output/relay-sanbao-retirement-current/cleanup68.py','application_stopped':False,'deleted_rows':0,
+ 'last_defer_reason':'one_active_non_sanbao_task_and_settlement_observed_before_stop','production_data_mutations':0})
+state['updated_at']=datetime.now(timezone.utc).isoformat();path.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print('{"candidate_state_updated":true,"deleted_rows":0,"production_version_still_67":true}')

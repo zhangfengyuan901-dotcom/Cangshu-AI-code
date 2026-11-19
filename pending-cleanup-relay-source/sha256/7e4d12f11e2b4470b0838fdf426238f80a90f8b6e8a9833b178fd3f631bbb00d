@@ -1,0 +1,63 @@
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[2]
+here = Path(__file__).resolve().parent
+state_file = root / '.agents/project-state.json'
+state = json.loads(state_file.read_text(encoding='utf-8'))
+package = json.loads((here/'package-verification.json').read_text(encoding='utf-8'))
+build = json.loads((here/'candidate-build.json').read_text(encoding='utf-8'))
+
+def digest(file):
+    with file.open('rb') as stream:
+        return hashlib.file_digest(stream,'sha256').hexdigest()
+
+assert digest(here/'backend71-new-api') == build['binary_sha256']
+assert digest(here/'artifacts'/package['portable']) == package['portableSha256']
+assert json.loads((here/'web-browser-verification.json').read_text())['passed']
+assert json.loads((here/'http-integration-verification.json').read_text())['passed']
+assert json.loads((here/'electron-enrollment-verification.json').read_text())['ok']
+assert json.loads((here/'portable-startup-verification.json').read_text(encoding='utf-8-sig'))['candidateVersion'] == package['version']
+assert all(value['exit_code']==0 for value in json.loads((here/'go-database-matrix.json').read_text()))
+state['updated_at'] = datetime.now(timezone.utc).isoformat()
+state['client']['browser_account_candidate'] = {
+    'version': package['version'], 'status':'packaged_verified_not_published',
+    'source':'output/relay-account-browser-current/source',
+    'portable':'output/relay-account-browser-current/artifacts/'+package['portable'],
+    'portable_sha256':package['portableSha256'], 'asar_sha256':package['asarSha256'],
+    'package_verification':'output/relay-account-browser-current/package-verification.json',
+    'portable_startup':'output/relay-account-browser-current/portable-startup-verification.json',
+    'electron_flow':'output/relay-account-browser-current/electron-enrollment-verification.json',
+    'targeted_tests':13, 'manual_key_regression_tests':12, 'real_payments':0,
+    'behavior':'Account display with fixed system-browser onboarding/recharge; main-process proof exchange and protected install of missing scoped keys; focus-driven authoritative balance refresh.',
+}
+state['client']['payment_candidate']['status'] = 'superseded_by_browser_account_candidate'
+state['relay']['browser_account'] = {
+    'status':'candidate_staged_verified_not_deployed', 'candidate_version':build['version'],
+    'binary_sha256':build['binary_sha256'],
+    'build':'output/relay-account-browser-current/candidate-build.json',
+    'source_build':'output/relay-account-browser-current/build-backend.py',
+    'http_integration':'output/relay-account-browser-current/http-integration-verification.json',
+    'browser_verification':'output/relay-account-browser-current/web-browser-verification.json',
+    'sqlite_tests':'output/relay-account-browser-current/go-sqlite.log',
+    'mysql_postgres_matrix':'output/relay-account-browser-current/go-database-matrix.json',
+    'web_tests':123, 'portal_tests':11,
+    'authorization':'Browser session consent with matching display code. Proof remains protected in desktop main process. Account-bound checkout and idempotent managed refs for four existing scopes.',
+    'new_user':'Register and verify on portal, adopt registration session, approve application connection once, provision scoped keys, continue web recharge, manually return to app.',
+    'existing_user':'Existing matched account opens portal recharge; account mismatch blocks order creation.',
+    'real_payments':0, 'customer_acceptance':False,
+}
+state['relay']['lanjing_payment'].update({
+    'candidate_version':build['version'],'build':'output/relay-account-browser-current/candidate-build.json',
+    'build_command':'python output/relay-account-browser-current/build-backend.py',
+    'web_tests':{'passed':123,'log':'output/relay-account-browser-current-web-tests.log'},
+})
+state['relay']['recharge_button_style']['embedded_sha256'] = digest(root/'deploy/new-api/backend/web/dist/account-lite/account.css')
+for name in ['output/relay-account-browser-current/', 'output/relay-account-browser-current-web-tests.log',
+             'output/playwright/relay-account-browser-current/']:
+    if name not in state['protected_paths']:
+        state['protected_paths'].append(name)
+state_file.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'verified':True,'client_candidate':package['version'],'relay_candidate':build['version'],'production_version':state['relay']['version']}))

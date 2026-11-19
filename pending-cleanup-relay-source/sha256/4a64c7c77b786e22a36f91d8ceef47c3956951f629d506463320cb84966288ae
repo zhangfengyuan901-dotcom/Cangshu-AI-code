@@ -1,0 +1,179 @@
+# Appended to the vetted release transport/runtime helpers by prepare-release68.
+STRICT_TABLES = {'users','tokens','options','top_ups','redemptions','tasks','logs','audit_logs',
+ 'pikno_settlements','pikno_settlement_events','pikno_settlement_outboxes','pikno_price_quote_slots',
+ 'pikno_llm_requests','pikno_reverse_operations'}
+
+def cleanup_engine():
+    import importlib.util
+    path = STAGE / 'cleanup68.py'
+    require(path.is_file() and not path.is_symlink() and digest(path) == manifest()['cleanup_sha256'], 'CLEANUP_ENGINE_HASH_DRIFT')
+    spec = importlib.util.spec_from_file_location('approved_cleanup68', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def schema():
+    return sql("SELECT json_build_object('columns',(SELECT coalesce(json_agg(json_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) ORDER BY table_name,ordinal_position),'[]'::json) FROM information_schema.columns WHERE table_schema='public'), 'constraints',(SELECT coalesce(json_agg(json_build_object('table',r.relname,'name',c.conname,'type',c.contype,'definition',pg_get_constraintdef(c.oid)) ORDER BY r.relname,c.conname),'[]'::json) FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public'), 'indexes',(SELECT coalesce(json_agg(json_build_object('table',tablename,'name',indexname,'definition',indexdef) ORDER BY tablename,indexname),'[]'::json) FROM pg_indexes WHERE schemaname='public'))")
+
+def schema_allowed(before, after):
+    require(before == after, 'RETIREMENT_RELEASE_SCHEMA_CHANGED')
+
+def catalog_file(app):
+    from pathlib import PurePosixPath
+    env = dict(value.split('=',1) for value in app['Config'].get('Env',[]) if '=' in value)
+    inside = PurePosixPath(env.get('PIKNO_CATALOG_PATH') or '/data/pikno/catalog.json')
+    require(inside.is_absolute() and '..' not in inside.parts, 'CATALOG_CONTAINER_PATH_INVALID')
+    matches = []
+    for mount in app['Mounts']:
+        destination = PurePosixPath(mount['Destination'])
+        if inside.is_relative_to(destination):
+            matches.append((len(destination.parts), mount, inside.relative_to(destination)))
+    require(bool(matches), 'CATALOG_MOUNT_NOT_FOUND')
+    _, mount, suffix = max(matches,key=lambda item:item[0])
+    require(mount['Type'] in ('bind','volume') and mount.get('RW') is True, 'CATALOG_MOUNT_NOT_WRITABLE')
+    base = Path(mount['Source'])
+    target = base.joinpath(*suffix.parts)
+    require(base.is_absolute() and base.resolve()==base and target.resolve()==target and target.is_file() and not target.is_symlink(), 'CATALOG_HOST_PATH_INVALID')
+    return target
+
+def run_cleanup_sql(script):
+    raw = run(['docker','exec','-i',PG,'psql','-X','-qAt','-U','pikno','-d','newapi','-v','ON_ERROR_STOP=1','-f','-'],data=script.encode(),timeout=180)
+    values = [json.loads(line) for line in raw.decode().splitlines() if line.startswith(('{','['))]
+    require(bool(values), 'CLEANUP_SQL_RESULT_MISSING')
+    return values[-1]
+
+def preflight():
+    app,tool=current()
+    catalog=catalog_file(app)
+    content=json.loads(catalog.read_bytes())
+    return {'read_only':True,'old_version':OLD_VERSION,'app_image_id':app['Image'],'app_binary_sha256':OLD_BINARY,
+      'app_runtime_fingerprint':runtime(app),'tool_runtime_fingerprint':runtime(tool),'activity':activity(),
+      'catalog_path_resolved':True,'legacy_catalog_sanbao_counts':{key:sum(item.get('provider')=='sanbao' for item in (content.get(key) or {}).get('models',[])) for key in ('draft','published','previous')},
+      'compose_image_slot_verified':bool(compose_with_image(app['Config']['Image'],NEW_IMAGE)),'production_business_mutations':0}
+
+def stage():
+    app, tool = current()
+    build = manifest()
+    require(build.get('validation',{}).get('passed') is True, 'CANDIDATE_VALIDATION_REQUIRED')
+    require(digest(STAGE/'cleanup68.py') == build['cleanup_sha256'], 'CLEANUP_ENGINE_HASH_DRIFT')
+    dry_run=cleanup_engine().preflight_inventory(sql)
+    require(digest(STAGE/'backend68-new-api.gz') == build['gzip_sha256'], 'CANDIDATE_GZIP_HASH_DRIFT')
+    binary = STAGE/'backend68-new-api'
+    require(not binary.exists(), 'STAGED_BINARY_ALREADY_EXISTS')
+    with gzip.open(STAGE/'backend68-new-api.gz','rb') as source, binary.open('xb') as target:
+        while chunk := source.read(1024*1024): target.write(chunk)
+    os.chmod(binary,0o700)
+    require(binary.stat().st_size == build['binary_bytes'] and digest(binary)==build['binary_sha256'], 'CANDIDATE_BINARY_HASH_DRIFT')
+    before = {'old_runtime':runtime(app),'tool_runtime':runtime(tool),'files':files_fingerprint(),
+      'old_image_reference':app['Config']['Image'],'schema':schema()}
+    base='hamster-portal68-base:local'
+    run(['docker','tag',OLD_IMAGE,base])
+    recipe=('FROM '+base+'\nCOPY backend68-new-api /new-api\n').encode()
+    PRIVATE.mkdir(mode=0o700,parents=True,exist_ok=True)
+    os.chmod(PRIVATE,0o700)
+    with (PRIVATE/'stage-build.log').open('xb') as log:
+        os.chmod(log.name,0o600)
+        process=subprocess.Popen(['docker','build','--network','none','--pull=false','-t',NEW_IMAGE,'-'],stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,env=dict(os.environ,DOCKER_BUILDKIT='0'))
+        try:
+            with tarfile.open(fileobj=process.stdin,mode='w|') as bundle:
+                entry=tarfile.TarInfo('Dockerfile');entry.size=len(recipe);bundle.addfile(entry,io.BytesIO(recipe))
+                entry=tarfile.TarInfo('backend68-new-api');entry.size=binary.stat().st_size;entry.mode=0o755
+                with binary.open('rb') as source:bundle.addfile(entry,source)
+            process.stdin.close()
+            require(process.wait(timeout=240)==0,'CANDIDATE_IMAGE_BUILD_FAILED')
+        except Exception:
+            if process.poll() is None:process.kill();process.wait(timeout=10)
+            raise
+    candidate=json.loads(run(['docker','image','inspect',NEW_IMAGE]))[0]
+    require(run(['docker','run','--rm','--network','none','--entrypoint','sha256sum',NEW_IMAGE,'/new-api']).decode().split()[0]==build['binary_sha256'],'CANDIDATE_IMAGE_BINARY_DRIFT')
+    require(run(['docker','run','--rm','--network','none','--entrypoint','/new-api',NEW_IMAGE,'--version']).decode().strip()==VERSION,'CANDIDATE_VERSION_DRIFT')
+    before.update({'candidate_image_id':candidate['Id'],'manifest_sha256':digest(STAGE/'build68.json'),
+      'new_compose_sha256':hashlib.sha256(compose_with_image(before['old_image_reference'],NEW_IMAGE).encode()).hexdigest()})
+    save_private('stage.json',before)
+    return {'staged':True,'candidate_image_id':candidate['Id'],'version':VERSION,'application_restarted':False,'source_rows_backed_up':False,'opening_balance_snapshot_saved':False,'cleanup_readonly_dry_run':cleanup_engine().summary(dry_run)}
+
+def assert_strict_fingerprints(plan):
+    for table in sorted(STRICT_TABLES):
+        require(table in plan['tables'], 'PROTECTED_TABLE_MISSING_FROM_PLAN')
+        value=sql('SELECT jsonb_build_object(\'count\',count(*),\'digest\',md5(coalesce(jsonb_agg(row ORDER BY row::text),\'[]\'::jsonb)::text)) FROM (SELECT to_jsonb(r) row FROM "'+table+'" r) s')
+        require(value==plan['tables'][table]['preserved'], 'PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED_REVIEW_REQUIRED')
+
+def verify():
+    app,tool=current(old=False)
+    staged=json.loads((PRIVATE/'stage.json').read_text())
+    plan=json.loads((PRIVATE/'cleanup-plan.json').read_text())
+    require(runtime(app)==staged['old_runtime'] and runtime(tool)==staged['tool_runtime'],'RUNTIME_BINDINGS_CHANGED')
+    fingerprints=files_fingerprint()
+    require(fingerprints.get('compose.yaml')==staged['new_compose_sha256'],'POST_APPLY_COMPOSE_DRIFT')
+    require(all(fingerprints.get(k)==v for k,v in staged['files'].items() if k!='compose.yaml'),'POST_APPLY_CONFIG_DRIFT')
+    assert_strict_fingerprints(plan)
+    schema_allowed(staged['schema'],schema())
+    engine=cleanup_engine();remaining=engine.preflight_inventory(sql)
+    counts=engine.summary(remaining)
+    require(all(value==0 for value in counts['delete_counts'].values()) and not counts['update_counts'],'SANBAO_DATA_REPOPULATED')
+    catalog=catalog_file(app);content=json.loads(catalog.read_bytes())
+    require(all(not any(item.get('provider')=='sanbao' for item in (content.get(key) or {}).get('models',[])) for key in ('draft','published','previous')),'SANBAO_LEGACY_CATALOG_REPOPULATED')
+    frontend=verify_frontend()
+    return {'verified':True,'version':VERSION,'app_image_id':app['Image'],'healthy':True,'runtime_bindings_preserved':True,
+      'protected_history_and_financial_fingerprints_preserved':True,'schema_unchanged':True,'sanbao_remaining_rows':0,
+      'legacy_catalog_sanbao_entries':0,'frontend':frontend,'financial_restore':False,'wallet_or_counter_adjustments':False,
+      'opening_balance_snapshot_saved':False,'source_rows_backed_up':False,'real_generation_calls':0}
+
+def apply():
+    app,tool=current();staged=json.loads((PRIVATE/'stage.json').read_text())
+    require(runtime(app)==staged['old_runtime'] and runtime(tool)==staged['tool_runtime'],'PRE_APPLY_RUNTIME_DRIFT')
+    require(files_fingerprint()==staged['files'],'PRE_APPLY_CONFIG_DRIFT')
+    candidate=json.loads(run(['docker','image','inspect',NEW_IMAGE]))[0]
+    require(candidate['Id']==staged['candidate_image_id'] and digest(STAGE/'build68.json')==staged['manifest_sha256'],'STAGED_PAYLOAD_DRIFT')
+    require(not (PRIVATE/'cleanup-plan.json').exists(),'PRIOR_APPLY_REQUIRES_REVIEW')
+    require(manifest().get('validation',{}).get('passed') is True,'CANDIDATE_VALIDATION_REQUIRED')
+    assert_quiet();stopped=False;deletion_attempted=False
+    try:
+        stopped=True
+        run([*COMPOSE,'stop','-t','900','new-api'],timeout=930)
+        assert_quiet()
+        require(not inspect(APP)['State']['Running'],'APP_MUST_BE_STOPPED')
+        engine=cleanup_engine();plan=engine.preflight_inventory(sql)
+        save_private('cleanup-plan.json',plan)
+        save_private('cleanup-plan-summary.json',engine.summary(plan))
+        catalog=catalog_file(app)
+        catalog_stage=engine.stage_catalog(catalog,digest(catalog),allowed_directory=catalog.parent)
+        save_private('catalog-stage.json',catalog_stage)
+        deletion_attempted=True
+        outcome=engine.apply(run_cleanup_sql,plan,approved_plan_sha256=plan['plan_sha256'],services_stopped=True)
+        save_private('cleanup-committed.json',outcome)
+        catalog_outcome=engine.commit_catalog(catalog,catalog_stage,allowed_directory=catalog.parent)
+        save_private('catalog-committed.json',catalog_outcome)
+        replace_compose_image(staged['old_image_reference'],NEW_IMAGE)
+        run([*COMPOSE,'up','-d','--no-deps','--no-build','--pull','never','new-api'],timeout=180)
+        wait_new();first=verify();save_private('first-start-verification.json',first)
+        # Both startup and a second startup must leave the retired provider absent.
+        run([*COMPOSE,'restart','-t','900','new-api'],timeout=930)
+        wait_new();second=verify();save_private('second-start-verification.json',second)
+        second.update({'cleanup':outcome,'catalog_cleanup':catalog_outcome,'verified_startups':2})
+        return second
+    except Exception as error:
+        code=safe_failure_code(error)
+        if deletion_attempted:
+            # Never bring back the old refill-capable image, financial rows or opening balances.
+            fenced=False
+            try:
+                run([*COMPOSE,'stop','-t','900','new-api'],timeout=930)
+                fenced=not inspect(APP)['State']['Running']
+            except Exception:
+                pass
+            save_private('apply-failure-'+str(time.time_ns())+'.json',{'cleanup_attempted':True,'app_stopped':fenced,'code':code,'financial_restore':False})
+            raise RuntimeError('APPLY_REQUIRES_IMAGE_REPAIR_NO_DATA_RESTORE_'+('APP_STOPPED_' if fenced else 'FENCE_STOP_FAILED_')+code) from None
+        if stopped:
+            run([*COMPOSE,'up','-d','--no-deps','--no-build','--pull','never','new-api'],timeout=180)
+            current()
+        raise RuntimeError('APPLY_DEFERRED_BEFORE_DELETION_'+code) from None
+
+def main(action):
+    require(action in ('preflight','stage','apply','verify'),'UNKNOWN_RELEASE_ACTION')
+    if action=='preflight':return preflight()
+    require(STAGE.parent.resolve()==STAGE.parent and not STAGE.is_symlink(),'STAGE_PATH_INVALID')
+    STAGE.mkdir(mode=0o700,exist_ok=True)
+    with (STAGE/'.release68.lock').open('a') as lock:
+        os.chmod(lock.name,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return {'stage':stage,'apply':apply,'verify':verify}[action]()

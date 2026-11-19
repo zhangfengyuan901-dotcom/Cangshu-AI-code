@@ -1,0 +1,110 @@
+"""Build a frontend-only 65 candidate after byte-identical 64 reproduction."""
+import gzip
+import hashlib
+import json
+import mmap
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SOURCE = ROOT / 'deploy/new-api/backend'
+FRONTEND = ROOT / 'build/hamster-trim44-web/dist'
+VERSION = 'v1.0.0-rc.41-hamster.66'
+IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+MIMES = {'.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.png': 'image/png',
+         '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp', '.avif': 'image/avif', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.mp4': 'video/mp4'}
+
+
+def digest(path):
+    with path.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def frontend_records():
+    return [{'path': path.relative_to(FRONTEND).as_posix(), 'bytes': path.stat().st_size, 'sha256': digest(path)}
+            for path in sorted(FRONTEND.rglob('*')) if path.is_file()]
+
+
+def main():
+    baseline = json.loads((HERE / 'baseline65-build.json').read_text(encoding='utf-8'))
+    assert baseline['byte_identical_to_production65'], 'PRODUCTION65_BASELINE_NOT_REPRODUCED'
+    frozen = {item['file']: item['sha256'] for item in baseline['runtime_source_files']}
+    assert all(digest(SOURCE / name) == expected for name, expected in frozen.items()), 'BUSINESS_RUNTIME_SOURCE_CHANGED'
+    static_delta = json.loads((HERE / 'static-media-source.json').read_text(encoding='utf-8'))
+    assert digest(SOURCE / static_delta['file']) == static_delta['sha256'], 'STATIC_MEDIA_SOURCE_DRIFT'
+    merge = json.loads((HERE / 'web66-merge-manifest.json').read_text(encoding='utf-8'))
+    assert merge['old_hashed_files_unchanged'] and merge['deleted_files'] == 0, 'OLD_ASSETS_NOT_PRESERVED'
+    records = frontend_records()
+    assert records == merge['new_files'], 'FRONTEND_CHANGED_SINCE_MERGE'
+    old_manifest = json.loads((HERE / 'backend-web-baseline65-manifest.json').read_text(encoding='utf-8'))
+    old = {item['path']: item for item in old_manifest['files']}
+    artwork = [item['path'] for item in records if Path(item['path']).suffix.lower() in ('.png', '.webp', '.avif', '.jpg', '.jpeg')
+               and old.get(item['path'], {}).get('sha256') != item['sha256']]
+    assert artwork, 'NEW_BRAND_ARTWORK_NOT_FOUND'
+    for item in records:
+        assert digest(SOURCE / 'web/dist' / item['path']) == item['sha256'], 'MERGED_FRONTEND_HASH_DRIFT'
+    for name, item in old.items():
+        if (re.search(r'\.[0-9a-f]{8,}\.', Path(name).name) or name.startswith(('auth-lite/', 'account-lite/', 'examples/'))) and name not in ('auth-lite/index.html', 'auth-lite/auth.css'):
+            assert digest(SOURCE / 'web/dist' / name) == item['sha256'], 'OLD_PROTECTED_RESOURCE_DRIFT'
+    binary = HERE / 'backend66-new-api'
+    args = ['docker', 'run', '--rm', '--network', 'none', '--label', 'codex.task=relay-hero-auth-current',
+            '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+            '--mount', 'type=bind,source=' + str(HERE) + ',target=/out',
+            '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+            '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+            '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', IMAGE,
+            'go', 'build', '-p', '2', '-ldflags', '-s -w -X github.com/QuantumNous/new-api/common.Version=' + VERSION,
+            '-o', '/out/backend66-new-api']
+    result = subprocess.run(args, capture_output=True, timeout=240)
+    (HERE / 'candidate66-build.log').write_bytes(result.stdout + result.stderr)
+    assert result.returncode == 0, 'CANDIDATE66_BUILD_FAILED'
+    assert all(digest(SOURCE / name) == expected for name, expected in frozen.items()), 'BUSINESS_RUNTIME_CHANGED_DURING_BUILD'
+    assert records == frontend_records(), 'FRONTEND_CHANGED_DURING_BUILD'
+    with binary.open('rb') as source, mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
+        for item in records:
+            assert compiled.find((FRONTEND / item['path']).read_bytes()) >= 0, 'NEW_FRONTEND_BYTES_NOT_EMBEDDED'
+    (HERE / 'web66-embed-verification.json').write_text(json.dumps({'passed': True, 'checked_resource_count': len(records),
+        'all_exact_resource_bytes_in_binary': True, 'resources': records, 'production_mutations': 0}, indent=2) + '\n', encoding='utf-8')
+    compressed = HERE / 'backend66-new-api.gz'
+    with binary.open('rb') as source, compressed.open('wb') as target:
+        with gzip.GzipFile(filename='', mode='wb', fileobj=target, mtime=0) as zipper:
+            while chunk := source.read(1024 * 1024):
+                zipper.write(chunk)
+    html = (FRONTEND / 'index.html').read_text(encoding='utf-8')
+    references = re.findall(r'(?:src|href)=["\']([^"\']+)["\']', html)
+    entry = next(path for path in references if re.fullmatch(r'/static/js/index\.[a-zA-Z0-9]+\.js', path))
+    resource_paths = {path for path in references if re.fullmatch(r'/[a-zA-Z0-9_./-]+\.(?:js|css|png|svg|ico)', path)}
+    resource_paths.update('/' + path for path in artwork)
+    media = json.loads((HERE / 'hero-video-resource.json').read_text(encoding='utf-8'))
+    assert media['audio_streams'] == 0 and digest(FRONTEND / media['path'].lstrip('/')) == media['sha256'], 'SILENT_VIDEO_DRIFT'
+    resource_paths.add(media['path'])
+    resource_paths.add('/auth-lite/index.html')
+    resource_paths.update(['/account-lite/account.mjs', '/account-lite/account.css', '/auth-lite/auth.mjs', '/auth-lite/auth.css'])
+    assert len(resource_paths) <= 24, 'RESOURCE_MANIFEST_TOO_LARGE'
+    resources = [{'path': path, 'sha256': digest(FRONTEND / path.lstrip('/')), 'content_type': MIMES[Path(path).suffix.lower()]} for path in sorted(resource_paths)]
+    value = {'format': 1, 'status': 'local_candidate_not_deployed', 'version': VERSION,
+             'binary_sha256': digest(binary), 'binary_bytes': binary.stat().st_size,
+             'gzip_file': compressed.name, 'gzip_sha256': digest(compressed), 'gzip_bytes': compressed.stat().st_size,
+             'frontend_entry_script': entry, 'frontend_resources': resources, 'artwork_resources': ['/' + path for path in artwork],
+             'public_paths': ['/', '/hub/models', '/hub/pricing', '/hub/docs', '/hub/dashboard'],
+             'production_source_files': baseline['runtime_source_files'], 'static_web_source': static_delta, 'business_runtime_source_changed': False,
+             'go_workdir': '/workspace', 'toolchain_image': IMAGE, 'cgo_enabled': False, 'trimpath': False,
+             'baseline65_production_verified': True, 'all_frontend_resources_embedded': True, 'production_mutations': 0}
+    (HERE / 'build66.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    smoke = subprocess.run([sys.executable, str(HERE / 'smoke66-candidate.py')], capture_output=True, timeout=180)
+    (HERE / 'candidate66-smoke-command.log').write_bytes(smoke.stdout + smoke.stderr)
+    assert smoke.returncode == 0, 'CANDIDATE66_HTTP_SMOKE_FAILED'
+    print(json.dumps({'built': True, 'version': VERSION, 'binary_sha256': value['binary_sha256'],
+                      'artwork_resources': len(artwork), 'frontend_resources_embedded': len(records),
+                      'isolated_http_smoke_passed': True, 'production_mutations': 0}))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'built': False, 'code': str(error) if isinstance(error, AssertionError) else 'CANDIDATE66_BUILD_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

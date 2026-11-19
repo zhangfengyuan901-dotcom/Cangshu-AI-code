@@ -1,0 +1,303 @@
+"""Guarded image-only apply for the separately staged account/payment pair."""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import time
+
+STAGE=Path('/opt/piknoai-relay/account71-20261112')
+spec=importlib.util.spec_from_file_location('release71_stage',STAGE/'release71-candidate.py')
+stage=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(stage)
+
+NEW_TABLES={'desktop_authorizations','desktop_managed_keys'}
+NEW_TOPUP_COLUMNS={'epay_claimed_at','epay_gateway_order_id','epay_gateway_really_price'}
+REVIEWED_REVERSE={'active_count':1,'digest':'ffcf4cb649fd43de27e44a43b80e0763'}
+REVIEWED_BASELINE_SHA256='64f9b203a1c8d9affd6d4d1567834690831a81cb1e9cdff0819409943947437f'
+STOP_GRACE_SECONDS=120
+
+
+def save(name,value):
+    file=stage.PRIVATE/name
+    with file.open('x') as target:
+        os.chmod(file,0o600)
+        json.dump(value,target,sort_keys=True)
+
+
+def replace_service_image(file,service,old,new):
+    path=stage.ROOT/file
+    lines=path.read_text().splitlines(keepends=True)
+    active=False
+    found=0
+    for index,line in enumerate(lines):
+        if re.fullmatch(r'  '+re.escape(service)+r':\s*\n?',line):
+            active=True
+            continue
+        if active and re.match(r'^  [A-Za-z0-9_-]+:',line):
+            active=False
+        if active:
+            match=re.fullmatch(r'(    image:\s*)([^\s#]+)(\s*(?:#.*)?\n?)',line)
+            if match:
+                stage.require(match.group(2) in (old,new),'COMPOSE_IMAGE_DRIFT')
+                lines[index]=match.group(1)+new+match.group(3)
+                found+=1
+    stage.require(found==1,'COMPOSE_IMAGE_SLOT_INVALID')
+    updated=''.join(lines)
+    if updated==path.read_text():
+        return
+    temporary=path.with_name(path.name+'.account71')
+    stage.require(not temporary.exists(),'COMPOSE_TEMPORARY_EXISTS')
+    with temporary.open('x') as target:
+        os.chmod(temporary,path.stat().st_mode&0o777)
+        target.write(updated);target.flush();os.fsync(target.fileno())
+    os.replace(temporary,path)
+
+
+def schema_additions_only(before,after):
+    prior={(entry['table'],entry['column']):entry for entry in before['columns']}
+    current={(entry['table'],entry['column']):entry for entry in after['columns']}
+    stage.require(all(current.get(key)==value for key,value in prior.items()),'EXISTING_COLUMN_CHANGED')
+    added=set(current)-set(prior)
+    stage.require({column for table,column in added if table=='top_ups'}==NEW_TOPUP_COLUMNS,'TOPUP_ADDITIVE_COLUMNS_MISMATCH')
+    stage.require({table for table,column in added if table!='top_ups'}==NEW_TABLES,'UNEXPECTED_NEW_TABLE')
+    stage.require(all(table in NEW_TABLES or table=='top_ups' and column in NEW_TOPUP_COLUMNS for table,column in added),'UNEXPECTED_COLUMN_ADDITION')
+    for category in ('constraints','indexes'):
+        expected={json.dumps(row,sort_keys=True) for row in before[category]}
+        actual={json.dumps(row,sort_keys=True) for row in after[category] if row['table'] not in NEW_TABLES}
+        stage.require(expected==actual,'EXISTING_SCHEMA_'+category.upper()+'_CHANGED')
+
+
+def reverse_state():
+    return stage.sql("SELECT json_build_object('active_count',count(*),'eligible_count',count(*) FILTER (WHERE kind='task' AND state='analyzing' AND financial_state='reserved' AND reserved_quota>0 AND coalesce(provider_job_id,'')<>'' AND created_at<extract(epoch FROM now())::bigint-900 AND updated_at<extract(epoch FROM now())::bigint-900),'digest',md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.id),'[]'::jsonb)::text)) FROM pikno_reverse_operations r WHERE NOT ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR (kind='task' AND state='done' AND financial_state='settled') OR (kind='task' AND state IN ('error','cancelled') AND financial_state='released'))")
+
+
+def validate_reverse(value,expected):
+    stage.require(value['active_count']==value['eligible_count']==expected['active_count'] and value['digest']==expected['digest'],'RETAINED_REVERSE_STATE_CHANGED')
+
+
+def reviewed_attempt_history():
+    files=list(stage.PRIVATE.glob('apply-*.json'))
+    failures=[path for path in files if path.name.startswith('apply-failure-')]
+    attempts=[path for path in files if path.name.startswith('apply-attempt-')]
+    reservations=[path for path in files if path.name.startswith('apply-reservations-')]
+    allowed=('apply-failure-','apply-attempt-','apply-reservations-')
+    stage.require(len(failures)==3 and len(attempts)==3 and len(reservations)==2 and all(path.name.startswith(allowed) for path in files),'PREVIOUS_APPLY_REQUIRES_REVIEW')
+    values=[json.loads(path.read_text()) for path in failures]
+    stage.require(sorted(value.get('code','') for value in values)==['PAIR_RUNTIME_BINDINGS_CHANGED','PAIR_RUNTIME_BINDINGS_CHANGED','RECENT_OR_ACTIVE_NONUNKNOWN_WORK'] and all(value.get('financial_restore') is False and value.get('image_only_rollback') is True for value in values),'PREVIOUS_FAILURE_NOT_REVIEWED_ACTIVE_GATE')
+
+
+def assert_no_new_work(expected_unknown=None,expected_reverse=None):
+    value=stage.activity()
+    blockers=('active_nonunknown_tasks','active_nonunknown_settlements','active_llm','recent_pending_recharges')
+    stage.require(not any(value[key] for key in blockers),'RECENT_OR_ACTIVE_NONUNKNOWN_WORK')
+    if expected_reverse is None:
+        stage.require(value['active_reverse']==0,'RECENT_OR_ACTIVE_NONUNKNOWN_WORK')
+    else:
+        reverse=reverse_state()
+        validate_reverse(reverse,expected_reverse)
+        stage.require(value['active_reverse']==reverse['active_count'],'RETAINED_REVERSE_STATE_CHANGED')
+    if expected_unknown is not None:
+        stage.require(value['retained_unknown_tasks']==expected_unknown['retained_unknown_tasks'] and value['retained_unknown_digest']==expected_unknown['retained_unknown_digest'],'RETAINED_UNKNOWN_STATE_CHANGED')
+    return value
+
+
+def reserved_state():
+    return stage.sql("SELECT json_build_object('count',count(*),'digest',md5(coalesce(jsonb_agg(to_jsonb(s) ORDER BY s.id),'[]'::jsonb)::text)) FROM pikno_settlements s WHERE reserved_quota<>0")
+
+
+def process_identity(info,approved_images=None,expected=None):
+    if approved_images is None:
+        approved_images=(stage.OLD_APP_IMAGE,stage.OLD_BRIDGE_IMAGE)
+    stage.require(info['Image'] in approved_images,'STOP_IMAGE_NOT_REVIEWED')
+    pid=info['State']['Pid']
+    stage.require(info['State']['Running'] and isinstance(pid,int) and pid>1,'STOP_PROCESS_NOT_RUNNING')
+    proc=Path('/proc')/str(pid)
+    expected=expected or ('new-api' if info['Image']==stage.OLD_APP_IMAGE else 'node')
+    stage.require(proc.joinpath('comm').read_text().strip()==expected and info['Id'] in proc.joinpath('cgroup').read_text(),'STOP_PROCESS_OWNERSHIP_MISMATCH')
+    start=proc.joinpath('stat').read_text().rsplit(') ',1)[1].split()[19]
+    return {'id':info['Id'],'image':info['Image'],'pid':pid,'start':start,'comm':expected}
+
+
+def deliver_verified_term(identity):
+    try:
+        info=stage.inspect(identity['id'])
+    except RuntimeError:
+        exists=stage.run(['docker','ps','-a','--no-trunc','--filter','id='+identity['id'],'--format','{{.ID}}']).decode().splitlines()
+        if not exists:
+            return False
+        raise
+    if not info['State']['Running']:
+        return False
+    stage.require(info['Image']==identity['image'] and info['State']['Pid']==identity['pid'],'STOP_PROCESS_IDENTITY_CHANGED')
+    try:
+        actual=process_identity(info,(identity['image'],),identity['comm'])
+    except FileNotFoundError:
+        return False
+    stage.require(actual==identity,'STOP_PROCESS_IDENTITY_CHANGED')
+    try:
+        os.kill(identity['pid'],signal.SIGTERM)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def recreate_pair(app,bridge,app_images,bridge_images,desired_app,desired_bridge):
+    entries=((app,app_images,'new-api',desired_app),(bridge,bridge_images,'node',desired_bridge))
+    for info,images,comm,desired in entries:
+        stage.require(info['Image'] in images,'RECREATE_IMAGE_NOT_REVIEWED')
+    identities=[process_identity(info,images,comm) for info,images,comm,desired in entries if info['State']['Running'] and info['Image']!=desired]
+    command=subprocess.Popen([*stage.COMPOSE,'up','-d','--no-deps','--no-build','--pull','never','--timeout',str(STOP_GRACE_SECONDS),'new-api','lanjing-bridge'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    # Docker owns the recreate lifecycle before the intended TERM is delivered to the
+    # same verified host processes. This avoids restart-policy races and the
+    # previously observed Docker signal-delivery failure. Docker owns fallback.
+    try:
+        time.sleep(0.5)
+        delivered=sum(deliver_verified_term(identity) for identity in identities) if command.poll() is None else 0
+        code=command.wait(timeout=STOP_GRACE_SECONDS*2+60)
+        stage.require(code==0,'PAIR_STOP_COMMAND_FAILED')
+        return {'direct_term_deliveries':delivered,'grace_seconds':STOP_GRACE_SECONDS}
+    except Exception:
+        # Keep ownership of the single stop writer until its bounded stop ends.
+        try:
+            command.wait(timeout=STOP_GRACE_SECONDS+30)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('PAIR_STOP_LIFECYCLE_REQUIRES_REVIEW') from None
+        raise
+
+
+def runtime_fields(info,normalize=True):
+    import copy
+    config=copy.deepcopy(info['Config'])
+    config.pop('Image',None);config.pop('Hostname',None)
+    for key in ('com.docker.compose.config-hash','com.docker.compose.image','com.docker.compose.replace'):
+        config.get('Labels',{}).pop(key,None)
+    config['Env']=sorted(config.get('Env',[]))
+    host=copy.deepcopy(info['HostConfig'])
+    mounts=host.get('Mounts')
+    if normalize and mounts is not None:
+        stage.require(isinstance(mounts,list) and all(isinstance(mount,dict) and isinstance(mount.get('Target'),str) and mount['Target'] for mount in mounts),'HOST_MOUNT_DESCRIPTOR_INVALID')
+        stage.require(len({mount['Target'] for mount in mounts})==len(mounts),'DUPLICATE_HOST_MOUNT_TARGET')
+        host['Mounts']=sorted(mounts,key=lambda mount:mount['Target'])
+    return {'Config':config,'HostConfig':host,'Mounts':[{key:value for key,value in mount.items() if key!='Name'} for mount in info['Mounts']],'Networks':sorted(info['NetworkSettings']['Networks'])}
+
+
+def runtime_digest(info):
+    return stage.hashed(runtime_fields(info))
+
+
+def field_hashes(value,path=''):
+    values={path:stage.hashed(value)}
+    if isinstance(value,dict):
+        for key,child in value.items():values.update(field_hashes(child,path+'.'+key if path else key))
+    elif isinstance(value,list):
+        for index,child in enumerate(value):values.update(field_hashes(child,path+'['+str(index)+']'))
+    return values
+
+
+def runtime_differences(before,after,normalize=True):
+    prior=field_hashes(runtime_fields(before,normalize));current=field_hashes(runtime_fields(after,normalize))
+    return sorted(key for key in set(prior)|set(current) if key and prior.get(key)!=current.get(key))
+
+
+def wait_pair(app_id,bridge_id):
+    deadline=time.monotonic()+180
+    while time.monotonic()<deadline:
+        try:
+            app=stage.inspect(stage.APP)
+            names=stage.run(['docker','ps','--filter','label=com.docker.compose.service=lanjing-bridge','--format','{{.ID}}']).decode().splitlines()
+            if len(names)==1:
+                bridge=stage.inspect(names[0])
+                if app['Image']==app_id and bridge['Image']==bridge_id and all(info['State']['Running'] and info['State'].get('Health',{}).get('Status')=='healthy' for info in (app,bridge)):
+                    return app,bridge
+        except RuntimeError:
+            pass
+        time.sleep(2)
+    raise RuntimeError('PAIR_HEALTH_TIMEOUT')
+
+
+def guarded_apply():
+    plan=json.loads((stage.PRIVATE/'stage.json').read_text())
+    before=plan['after']
+    reviewed_attempt_history()
+    baseline_file=stage.PRIVATE/'reviewed-runtime-baseline.json'
+    stage.require(stage.digest(baseline_file)==REVIEWED_BASELINE_SHA256,'REVIEWED_BASELINE_CHANGED')
+    baseline=json.loads(baseline_file.read_text())
+    stage.require(baseline['original_stage_sha256']==stage.digest(stage.PRIVATE/'stage.json'),'ORIGINAL_STAGE_CHANGED')
+    stage.require(all(all(values.values()) for values in baseline['checks'].values()),'REVIEWED_BASELINE_SEMANTICS_INVALID')
+    app,bridge=stage.current()
+    stage.require(runtime_digest(app)==runtime_digest(baseline['app']) and runtime_digest(bridge)==runtime_digest(baseline['bridge']),'PAIR_RUNTIME_DRIFT')
+    stage.require(stage.hashed(sorted(app['Config'].get('Env',[])))==before['app_environment_sha256'] and stage.hashed(sorted(bridge['Config'].get('Env',[])))==before['bridge_environment_sha256'],'ORIGINAL_ENVIRONMENT_DRIFT')
+    stage.require(stage.files_fingerprint()==before['files'],'PAIR_CONFIG_DRIFT')
+    stage.require(stage.database_fingerprints()['auth_billing_options']==before['database']['auth_billing_options'],'AUTH_BILLING_OPTIONS_DRIFT')
+    schema_additions_only(plan['schema_before'],baseline['schema'])
+    stage.require(stage.schema()==baseline['schema'],'SCHEMA_CHANGED_AFTER_REVIEW')
+    for tag,key in ((stage.APP_IMAGE,'candidate_app_image_id'),(stage.BRIDGE_IMAGE,'candidate_bridge_image_id')):
+        stage.require(json.loads(stage.run(['docker','image','inspect',tag]))[0]['Id']==plan[key],'CANDIDATE_IMAGE_DRIFT')
+    stage.require(stage.digest(STAGE/'server.mjs')==plan['manifest']['bridge_source_sha256'] and stage.digest(STAGE/'backend71-new-api')==plan['manifest']['binary_sha256'],'CANDIDATE_PAYLOAD_DRIFT')
+    unknown=assert_no_new_work(before['activity'],REVIEWED_REVERSE)
+    reservations=reserved_state()
+    save('apply-attempt-'+str(time.time_ns())+'.json',{'old_app_image':app['Image'],'old_bridge_image':bridge['Image'],'retained_unknown':unknown,'retained_reverse':REVIEWED_REVERSE,'financial_restore':False})
+    stopped=False
+    differences={}
+    try:
+        stopped=True
+        save('apply-reservations-'+str(time.time_ns())+'.json',reservations)
+        replace_service_image('compose.yaml','new-api','hamster-portal68-release:local',stage.APP_IMAGE)
+        replace_service_image('compose.payments.yaml','lanjing-bridge','hamster-lanjing-bridge:brand44',stage.BRIDGE_IMAGE)
+        lifecycle=recreate_pair(app,bridge,(stage.OLD_APP_IMAGE,),(stage.OLD_BRIDGE_IMAGE,),plan['candidate_app_image_id'],plan['candidate_bridge_image_id'])
+        new_app,new_bridge=wait_pair(plan['candidate_app_image_id'],plan['candidate_bridge_image_id'])
+        runtime_record={'app':new_app,'bridge':new_bridge,'raw_field_hashes':{role:field_hashes(runtime_fields(info,False)) for role,info in (('app',new_app),('bridge',new_bridge))},'raw_difference_fields':{role:runtime_differences(baseline[role],info,False) for role,info in (('app',new_app),('bridge',new_bridge))}}
+        try:
+            differences={role:runtime_differences(baseline[role],info) for role,info in (('app',new_app),('bridge',new_bridge))}
+            runtime_record.update({'normalized_field_hashes':{role:field_hashes(runtime_fields(info)) for role,info in (('app',new_app),('bridge',new_bridge))},'difference_fields':differences})
+        except RuntimeError as error:
+            runtime_record['normalization_rejected']=str(error)
+            save('candidate-runtime-'+str(time.time_ns())+'.json',runtime_record)
+            raise
+        save('candidate-runtime-'+str(time.time_ns())+'.json',runtime_record)
+        stage.require(runtime_digest(new_app)==runtime_digest(baseline['app']) and runtime_digest(new_bridge)==runtime_digest(baseline['bridge']),'PAIR_RUNTIME_BINDINGS_CHANGED')
+        stage.require(stage.run(['docker','exec',stage.APP,'sha256sum','/new-api']).decode().split()[0]==plan['manifest']['binary_sha256'],'POST_APPLY_BINARY_DRIFT')
+        stage.require(stage.run(['docker','exec',new_bridge['Id'],'sha256sum','/app/server.mjs']).decode().split()[0]==plan['manifest']['bridge_source_sha256'],'POST_APPLY_BRIDGE_DRIFT')
+        schema_additions_only(plan['schema_before'],stage.schema())
+        stage.require(stage.database_fingerprints()['auth_billing_options']==before['database']['auth_billing_options'],'POST_APPLY_AUTH_BILLING_OPTIONS_DRIFT')
+        after=stage.activity()
+        stage.require(after['retained_unknown_tasks']==unknown['retained_unknown_tasks'] and after['retained_unknown_digest']==unknown['retained_unknown_digest'],'POST_APPLY_RETAINED_UNKNOWN_CHANGED')
+        validate_reverse(reverse_state(),REVIEWED_REVERSE)
+        stage.require(reserved_state()==reservations,'POST_APPLY_EXISTING_RESERVATIONS_CHANGED')
+        files=stage.files_fingerprint()
+        stage.require(all(files.get(name)==value for name,value in before['files'].items() if name not in ('compose.yaml','compose.payments.yaml')),'POST_APPLY_UNRELATED_CONFIG_DRIFT')
+        value={'applied':True,'version':stage.VERSION,'app_image_id':new_app['Image'],'bridge_image_id':new_bridge['Image'],
+               'runtime_bindings_preserved':True,'auth_billing_options_preserved':True,'retained_unknown_state_preserved':True,
+               'retained_reverse_state_preserved':True,'lifecycle':lifecycle,
+               'additive_schema_only':True,'financial_restore':False,'wallet_or_reservation_adjustments':False}
+        save('apply-success-'+str(time.time_ns())+'.json',value)
+        return value
+    except Exception as error:
+        code=str(error) if isinstance(error,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(error)) else 'APPLY_PRIVATE_DETAILS_WITHHELD'
+        rollback=False
+        if stopped:
+            try:
+                current_app=stage.inspect(stage.APP)
+                bridges=stage.run(['docker','ps','-a','--filter','label=com.docker.compose.service=lanjing-bridge','--format','{{.ID}}']).decode().splitlines()
+                stage.require(len(bridges)==1,'ROLLBACK_BRIDGE_COUNT_INVALID')
+                current_bridge=stage.inspect(bridges[0])
+                replace_service_image('compose.yaml','new-api',stage.APP_IMAGE,'hamster-portal68-release:local')
+                replace_service_image('compose.payments.yaml','lanjing-bridge',stage.BRIDGE_IMAGE,'hamster-lanjing-bridge:brand44')
+                recreate_pair(current_app,current_bridge,(stage.OLD_APP_IMAGE,plan['candidate_app_image_id']),(stage.OLD_BRIDGE_IMAGE,plan['candidate_bridge_image_id']),stage.OLD_APP_IMAGE,stage.OLD_BRIDGE_IMAGE)
+                wait_pair(stage.OLD_APP_IMAGE,stage.OLD_BRIDGE_IMAGE)
+                rollback=True
+            except Exception:
+                pass
+        save('apply-failure-'+str(time.time_ns())+'.json',{'code':code,'image_only_rollback':rollback,'financial_restore':False,'runtime_difference_fields':differences})
+        raise RuntimeError('APPLY_FAILED_'+('OLD_IMAGES_RESTORED_' if rollback else 'ROLLBACK_REQUIRES_REVIEW_')+code) from None
+
+
+def main():
+    import fcntl
+    with (STAGE/'.apply71.lock').open('a') as lock:
+        os.chmod(lock.name,0o600)
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return guarded_apply()

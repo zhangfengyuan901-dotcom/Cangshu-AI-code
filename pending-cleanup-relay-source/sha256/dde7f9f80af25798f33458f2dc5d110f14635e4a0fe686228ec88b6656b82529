@@ -1,0 +1,88 @@
+"""Freeze and build the current backend with only new embedded portal assets."""
+from datetime import datetime, timezone
+import gzip
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+BACKEND = ROOT / 'deploy/new-api/backend'
+FRONTEND = ROOT / 'build/hamster-trim44-web'
+SOURCE = HERE / 'backend72-source'
+VERSION = 'v1.0.0-rc.41-hamster.72'
+TOOLCHAIN = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+
+
+def digest(file):
+    with file.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def inventory(folder):
+    return {file.relative_to(folder).as_posix(): digest(file)
+            for file in folder.rglob('*') if file.is_file()}
+
+
+def main():
+    business = json.loads((HERE / 'business-source-verification.json').read_text(encoding='utf-8'))
+    assert business['unchanged'] and not SOURCE.exists()
+    for name, expected in business['current_hashes'].items():
+        assert digest(BACKEND / name) == expected
+    dist = FRONTEND / 'dist'
+    assert (dist / 'index.html').is_file()
+    media = json.loads((HERE / 'media-manifest.json').read_text(encoding='utf-8'))
+    for row in media['assets']:
+        for key, expected in [('gif', row['original_sha256']), ('poster', row['poster_sha256'])]:
+            assert digest(dist / row[key].lstrip('/')) == expected
+    embed = BACKEND / 'web/dist'
+    before = inventory(embed)
+    (HERE / 'embedded-before.json').write_text(json.dumps(before, indent=2) + '\n', encoding='utf-8')
+    shutil.copytree(dist, embed, dirs_exist_ok=True)
+    current = inventory(embed)
+    assert before.keys() <= current.keys(), 'An old embedded resource was deleted'
+    resources = {
+        'changed': [name for name in before if current[name] != before[name]],
+        'added': [name for name in current if name not in before],
+        'retained': sum(current[name] == before[name] for name in before),
+        'deleted': [], 'current_hashes': current,
+    }
+    (HERE / 'embedded-resources.json').write_text(json.dumps(resources, indent=2) + '\n', encoding='utf-8')
+    shutil.copytree(BACKEND, SOURCE, ignore=shutil.ignore_patterns('.git', 'node_modules', '*.env', '.env*'))
+    for name, expected in business['current_hashes'].items():
+        assert digest(SOURCE / name) == expected
+    command = ['docker', 'run', '--rm', '--network', 'none', '--label', 'codex.task=relay-model-gif-current',
+               '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+               '--mount', 'type=bind,source=' + str(HERE) + ',target=/out',
+               '-v', 'relay-portal-gomod:/go/pkg/mod', '-v', 'relay-portal-gobuild:/root/.cache/go-build',
+               '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', '-w', '/workspace', TOOLCHAIN,
+               'go', 'build', '-p', '2', '-ldflags', '-s -w -X github.com/QuantumNous/new-api/common.Version=' + VERSION,
+               '-o', '/out/backend72-new-api']
+    result = subprocess.run(command, capture_output=True, timeout=600)
+    (HERE / 'backend-build.log').write_bytes(result.stdout + result.stderr)
+    assert result.returncode == 0, 'Offline backend build failed'
+    binary = HERE / 'backend72-new-api'
+    compressed = HERE / 'backend72-new-api.gz'
+    with binary.open('rb') as source, compressed.open('xb') as file:
+        with gzip.GzipFile(fileobj=file, mode='wb', mtime=0) as target:
+            shutil.copyfileobj(source, target)
+    manifest = {
+        'status': 'candidate_not_deployed', 'version': VERSION,
+        'built_at': datetime.now(timezone.utc).isoformat(),
+        'binary_sha256': digest(binary), 'binary_bytes': binary.stat().st_size,
+        'gzip_sha256': digest(compressed), 'gzip_bytes': compressed.stat().st_size,
+        'business_source_unchanged': True, 'business_source_files': len(business['current_hashes']),
+        'resources': {key: value for key, value in resources.items() if key != 'current_hashes'},
+        'source': 'output/relay-model-gif-current/backend72-source',
+        'real_generation_calls': 0, 'real_payments': 0,
+    }
+    manifest['staging_peak_additional_bytes_bound'] = manifest['gzip_bytes'] + 4 * manifest['binary_bytes'] + 100 * 1024**2
+    manifest['minimum_free_bytes_before_stage'] = manifest['staging_peak_additional_bytes_bound'] + 1024**3
+    (HERE / 'build72.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({key: value for key, value in manifest.items() if key != 'resources'}))
+
+
+if __name__ == '__main__':
+    main()

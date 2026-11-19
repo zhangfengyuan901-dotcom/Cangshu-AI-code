@@ -1,0 +1,20 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO')
+spec=importlib.util.spec_from_file_location('quiet_window_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import importlib.util,json,pathlib
+p=pathlib.Path('/opt/piknoai-relay/portal68-20261112')
+s=importlib.util.spec_from_file_location('quiet_release68',p/'release68-candidate.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+age=m.sql("""WITH times AS (
+ SELECT greatest(coalesce(created_at,0),coalesce(updated_at,0),coalesce(start_time,0),coalesce(finish_time,0)) ts FROM tasks
+ UNION ALL SELECT greatest(coalesce(created_at,0),coalesce(updated_at,0)) FROM pikno_settlements
+ UNION ALL SELECT greatest(coalesce(created_at,0),coalesce(updated_at,0)) FROM pikno_llm_requests
+ UNION ALL SELECT create_time FROM top_ups WHERE status='pending'
+) SELECT json_build_object('remaining_quiet_seconds',greatest(0,600-(extract(epoch FROM now())::bigint-coalesce(max(ts),0)))) FROM times""")
+values=m.activity()
+print(json.dumps({'remaining_quiet_seconds':age['remaining_quiet_seconds'],'tasks_active':values['tasks_active'],'settlements_active':values['settlements_active'],'llm_active':values['llm_active'],'reverse_active':values['reverse_active'],'pending_recharges':values['pending_recharges']}))
+'''
+value=transport.remote(code,timeout=40)
+print(json.dumps(value))

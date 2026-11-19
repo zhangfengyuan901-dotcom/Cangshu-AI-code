@@ -1,0 +1,21 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+func main() {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		panic("synthetic_sqlite_open_failed")
+	}
+	var version string
+	if err = db.Raw("SELECT sqlite_version()").Scan(&version).Error; err != nil {
+		panic("synthetic_sqlite_version_failed")
+	}
+	fmt.Print(version)
+}

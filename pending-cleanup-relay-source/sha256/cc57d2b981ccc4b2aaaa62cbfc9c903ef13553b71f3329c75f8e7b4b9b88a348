@@ -1,0 +1,73 @@
+"""Read selected release-payload references without touching business files."""
+import importlib.util
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+plan=json.loads((HERE/'cleanup-plan.json').read_text(encoding='utf-8'))
+paths=[value['path'] for value in plan['payload_file_candidates']]
+REMOTE=r'''
+import datetime,hashlib,json,os,pathlib,subprocess
+TARGETS=__TARGETS__
+BASE=pathlib.Path('/opt/piknoai-relay')
+targets={pathlib.Path(path).resolve():{'path':path,'open_fd_references':0,'executable_references':0,'build_context_overlaps':0,'mount_overlaps':0} for path in TARGETS}
+def run(args):
+ p=subprocess.run(args,capture_output=True,timeout=60)
+ if p.returncode:return None
+ return p.stdout
+ids=(run(['docker','ps','-aq','--no-trunc']) or b'').decode().split()
+containers=json.loads(run(['docker','inspect',*ids])) if ids else []
+groups=set()
+for value in containers:
+ for mount in value.get('Mounts',[]):
+  source=pathlib.Path(mount.get('Source','/none')).resolve()
+  for target,metadata in targets.items():
+   if target==source or target in source.parents or source in target.parents:metadata['mount_overlaps']+=1
+ labels=value['Config'].get('Labels') or {}
+ project=labels.get('com.docker.compose.project');files=labels.get('com.docker.compose.project.config_files','').split(',')
+ if project and all(files):groups.add((project,tuple(files)))
+unresolved=0
+for project,files in groups:
+ command=['docker','compose','-p',project]
+ for file in files:command+=['-f',file]
+ output=run([*command,'config','--format','json'])
+ if output is None:output=run([*command,'config','--no-interpolate','--no-env-resolution','--format','json'])
+ if output is None:unresolved+=1;continue
+ for service in json.loads(output)['services'].values():
+  build=service.get('build')
+  if not build:continue
+  context=pathlib.Path(build if isinstance(build,str) else build['context']).resolve()
+  for target,metadata in targets.items():
+   if target==context or context in target.parents:metadata['build_context_overlaps']+=1
+for proc in pathlib.Path('/proc').iterdir():
+ if not proc.name.isdigit():continue
+ try:
+  executable=pathlib.Path(os.readlink(proc/'exe').removesuffix(' (deleted)')).resolve()
+  if executable in targets:targets[executable]['executable_references']+=1
+ except (OSError,ValueError):pass
+ try:descriptors=list((proc/'fd').iterdir())
+ except OSError:continue
+ for descriptor in descriptors:
+  try:reference=pathlib.Path(os.readlink(descriptor).removesuffix(' (deleted)')).resolve()
+  except (OSError,ValueError):continue
+  if reference in targets:targets[reference]['open_fd_references']+=1
+values=[]
+for target,metadata in targets.items():
+ original=pathlib.Path(metadata['path'])
+ metadata.update({'exists':original.is_file(),'is_symlink':original.is_symlink(),'real_parent':str(target.parent),
+                  'inside_declared_stage':BASE in target.parents and original.parent.resolve()==target.parent})
+ values.append(metadata)
+print(json.dumps({'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'files':values,
+                  'unresolved_active_project_configurations':unresolved,'production_mutations':0}))
+'''.replace('__TARGETS__',repr(paths))
+spec=importlib.util.spec_from_file_location('cleanup_transport',ROOT/'output/direct-media-production-current/transport.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+try:
+    value=module.remote(REMOTE,timeout=180)
+    (HERE/'payload-usage-audit.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps({'saved':True,'files':len(value['files']),'referenced_files':sum(any(entry[key] for key in ('open_fd_references','executable_references','build_context_overlaps','mount_overlaps')) for entry in value['files']),
+                      'unresolved_project_configurations':value['unresolved_active_project_configurations'],'production_mutations':0}))
+except Exception:
+    print(json.dumps({'saved':False,'code':'PAYLOAD_USAGE_AUDIT_FAILED_DETAILS_WITHHELD','production_mutations':0}))
+    raise SystemExit(1)

@@ -1,0 +1,43 @@
+"""Read-only current 64 identity, binding hashes, health and activity metadata."""
+import importlib.util
+import json
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+
+
+def main():
+    spec = importlib.util.spec_from_file_location('hero_auth66_readonly_transport', ROOT / 'output/direct-media-production-current/transport.py')
+    transport = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(transport)
+    engine = (HERE / 'release66-candidate.py').read_text(encoding='utf-8')
+    code = engine + r'''
+import datetime
+app,tool=current()
+status=json.loads(run(['docker','exec',APP,'wget','-q','-T','10','-O','-','http://127.0.0.1:3000/api/status']))
+require(status.get('data',{}).get('version')==OLD_VERSION,'CURRENT65_VERSION_DRIFT')
+reference=json.loads((Path('/opt/piknoai-relay/portal65-20261111/private')/'stage.json').read_text())
+current_schema=schema()
+result={'format':1,'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+ 'version':OLD_VERSION,'app_image_id':app['Image'],'binary_sha256':OLD_BINARY,
+ 'app_healthy':True,'tool_healthy':True,'app_runtime_sha256':runtime(app),'tool_runtime_sha256':runtime(tool),
+ 'app_bindings_match65_stage':runtime(app)==reference['old_runtime'],
+ 'tool_bindings_match65_stage':runtime(tool)==reference['tool_runtime'],
+ 'compose65_image_slot_verified':bool(compose_with_image(app['Config']['Image'],'hamster-portal66-release:local')),
+ 'schema_query_validated':True,'schema_sha256':hashed(current_schema),
+ 'schema_counts':{key:len(value) for key,value in current_schema.items()},
+ 'activity':activity(),'read_only':True,'production_mutations':0,'credentials_returned':False,'customer_rows_returned':False}
+print(json.dumps(result))
+'''
+    result = transport.remote(code)
+    (HERE / 'production65-readonly.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(result))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print(json.dumps({'passed': False, 'code': 'READONLY_PRODUCTION64_CHECK_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

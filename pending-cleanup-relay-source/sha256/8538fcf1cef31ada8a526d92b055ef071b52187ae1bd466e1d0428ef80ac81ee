@@ -1,0 +1,78 @@
+"""Classify read-only evidence; this file never deletes production objects."""
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+audit=json.loads((HERE/'server-readonly-audit.json').read_text(encoding='utf-8'))
+references=json.loads((HERE/'server-reference-audit.json').read_text(encoding='utf-8'))
+disk={value['id']:value for value in references['image_disk_accounting']}
+build_refs=set()
+for project in references['projects']:
+    for service in project.get('services',[]):
+        if service.get('image_reference'):build_refs.add(service['image_reference'])
+        build_refs.update(service.get('build_images',[]))
+build_refs.add('hamster-account71-release:local')
+
+def owned(tags):
+    return bool(tags) and all(tag.startswith(('hamster-', 'pikno-new-api:', 'pikno-line-', 'pikno-page', 'pikno-preload')) for tag in tags)
+
+images=[]
+protected=[]
+uncertain=[]
+for image in audit['images']:
+    entry={**image,**disk.get(image['id'],{})}
+    reasons=[]
+    if image['container_references']:reasons.append('container_reference')
+    if image['current_or_compose_reference']:reasons.append('current_compose_or_running_image')
+    if image['required_parent_of_referenced_image']:reasons.append('required_parent_image')
+    if any(tag in build_refs for tag in image['tags']):reasons.append('declared_build_or_service_image')
+    if reasons:
+        protected.append({**entry,'protection_reasons':reasons});continue
+    if not image['children'] and not image['container_references'] and owned(image['tags']):
+        images.append({**entry,'eligibility':'unreferenced_owned_historical_leaf','fresh_recheck_required':True})
+    else:
+        uncertain.append({**entry,'reason':'public_or_other_project_build_cache_or_unresolved_reference'})
+capacity_tags=['hamster-admin51-release:local','hamster-rh52-release:local','hamster-specs53-release:local',
+               'hamster-compat49-release:local','hamster-cost50-release:local','hamster-key48-release:local']
+capacity=[]
+for tag in capacity_tags:
+    matching=[entry for entry in images if entry['tags']==[tag]]
+    assert len(matching)==1 and matching[0].get('unique_bytes',0)>0
+    capacity.append({key:matching[0][key] for key in ('id','tags','unique_bytes','bytes_including_shared_layers')})
+payloads=[]
+for stage in audit['stages']:
+    for file in stage['files']:
+        if not file.get('sha256') or file['mounted_overlap']:continue
+        payloads.append({'path':stage['path']+'/'+file['name'],'real_parent':stage['real_path'],
+                         'bytes':file['bytes'],'sha256':file['sha256'],'mounted_overlap':False,
+                         'eligibility':'after_new_backend_verified' if 'account71-' in stage['path'] else 'superseded_deployment_payload',
+                         'before_delete_required':['fresh_lstat_no_symlink','real_path_inside_exact_stage',
+                         'immutable_sha256_match','no_current_build_or_manifest_reference','no_open_fd_or_executable_reference',
+                         'not_private_evidence_or_customer_data']})
+plan={'prepared_at':datetime.now(timezone.utc).isoformat(),'status':'read_only_candidates_not_executed',
+      'audit':'server-readonly-audit.json','reference_audit':'server-reference-audit.json',
+      'current_running_backend':'sha256:4bd04c59aa142d4dd5de6fcaaf3657f6b991f4cafbbbc377e1ec0ddb5c0df83d',
+      'current_running_bridge':'sha256:10be445fd089bf325edb46323d7e99d0d6c968d332d63cae88460fc024ccd240',
+      'capacity_preclean_candidates':capacity,'capacity_preclean_unique_bytes_sum':sum(entry['unique_bytes'] for entry in capacity),
+      'capacity_preclean_policy':{'only_if_needed_for_current_release_capacity':True,'exact_image_ids_only':True,
+          'command':['docker','image','rm','--no-prune','<reviewed-image-id>'],'force':False,
+          'fresh_check_before_each':['no_container_reference','no_child_image','same_tags_and_image_id',
+          'no_active_compose_or_build_reference','current_images_and_parent_chain_preserved'],
+          'measure_root_free_bytes_after_each':True,'stop_when_required_capacity_reached':True},
+      'after_release_image_candidates':images,'protected_images':protected,'uncertain_images_retained':uncertain,
+      'payload_file_candidates':payloads,'payload_candidate_bytes_upper_bound':sum(entry['bytes'] for entry in payloads),
+      'private_stage_directories_preserved':[entry['path']+'/private' for entry in audit['stages'] if entry['private_exists']],
+      'stopped_containers_to_remove':[],'volumes_to_remove':[],'business_database_rows_to_remove':[],
+      'build_cache_to_remove':[],'git_objects_to_remove':[],
+      'protected_volume_inventory':audit['volume_inventory'],
+      'notes':['Image virtual sizes overlap; actual recovered bytes must be measured.',
+               'Public cache and direct-origin manual certificate image remain protected pending resolved references.',
+               'Current source Dockerfile runtime is account71; current parent chain cannot be removed as stale tags.',
+               'No whole directories, private evidence, customer files, database, Redis, tasks, results or reservations are cleanup targets.'],
+      'production_mutations':0,'deleted_images':0,'deleted_files':0}
+(HERE/'cleanup-plan.json').write_text(json.dumps(plan,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'prepared':True,'preclean_candidates':len(capacity),'preclean_unique_bytes':plan['capacity_preclean_unique_bytes_sum'],
+                  'postrelease_image_candidates':len(images),'payload_file_candidates':len(payloads),
+                  'protected_images':len(protected),'production_mutations':0}))

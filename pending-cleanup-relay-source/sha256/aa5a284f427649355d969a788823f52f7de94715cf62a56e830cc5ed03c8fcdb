@@ -1,0 +1,49 @@
+package controller
+
+import (
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/model"
+	"github.com/stretchr/testify/require"
+)
+
+func TestPiknoSyncSchedulerUsesCompletionDeadline(t *testing.T) {
+	// A tick starts at 60 and its request finishes at 62. The persisted gate is
+	// 122, so another fixed tick at 120 skips until 180. A deadline timer waits
+	// exactly 60 seconds after completion instead.
+	finished := time.Unix(62, 0)
+	providers := []model.PiknoSyncProvider{{Provider: "sanbao", NextAttemptAt: 122}, {Provider: "canseedream", NextAttemptAt: 124}}
+	delay := piknoSyncNextDelay(finished, providers)
+	require.Equal(t, 60*time.Second, delay)
+	require.Equal(t, int64(122), finished.Add(delay).Unix())
+	require.Less(t, finished.Add(delay).Unix(), int64(180))
+	// A later provider completes at 64; the first provider must still wake at
+	// 122 rather than being pushed out to 124 or another whole minute.
+	require.Equal(t, 58*time.Second, piknoSyncNextDelay(time.Unix(64, 0), providers))
+	require.Equal(t, time.Unix(122, 0), time.Unix(64, 0).Add(piknoSyncNextDelay(time.Unix(64, 0), providers)))
+	// Preserve sub-second precision while the persisted gate uses Unix seconds.
+	require.Equal(t, 57*time.Second+500*time.Millisecond, piknoSyncNextDelay(time.Unix(64, 500000000), providers))
+}
+
+func TestPiknoSyncSchedulerDelayBoundsAndMissingState(t *testing.T) {
+	now := time.Unix(100, 0)
+	for _, test := range []struct {
+		name      string
+		providers []model.PiknoSyncProvider
+		expected  time.Duration
+	}{
+		{"empty state", nil, time.Second},
+		{"partial state", []model.PiknoSyncProvider{{Provider: "sanbao", NextAttemptAt: 160}}, time.Second},
+		{"already due", []model.PiknoSyncProvider{{NextAttemptAt: 100}, {NextAttemptAt: 160}}, time.Second},
+		{"expired deadline", []model.PiknoSyncProvider{{NextAttemptAt: 90}, {NextAttemptAt: 160}}, time.Second},
+		{"zero deadline", []model.PiknoSyncProvider{{NextAttemptAt: 0}, {NextAttemptAt: 160}}, time.Second},
+		{"future deadline clamps to sixty", []model.PiknoSyncProvider{{NextAttemptAt: 1000}, {NextAttemptAt: 1100}}, 60 * time.Second},
+		{"second provider first", []model.PiknoSyncProvider{{NextAttemptAt: 160}, {NextAttemptAt: 115}}, 15 * time.Second},
+		{"first provider first", []model.PiknoSyncProvider{{NextAttemptAt: 115}, {NextAttemptAt: 160}}, 15 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.expected, piknoSyncNextDelay(now, test.providers))
+		})
+	}
+}

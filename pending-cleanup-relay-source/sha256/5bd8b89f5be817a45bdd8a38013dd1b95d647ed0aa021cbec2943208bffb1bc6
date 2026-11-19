@@ -1,0 +1,23 @@
+async (page) => {
+ page.setDefaultTimeout(90000);page.setDefaultNavigationTimeout(90000);
+ await page.setViewportSize({width:1440,height:1000});
+ await page.route('https://www.piknoai.com/api/**',async route=>{
+  const input=new URL(route.request().url());
+  if(input.pathname==='/api/setup')return route.fulfill({json:{success:true,data:{status:true,root_init:true,database_type:'synthetic'}}});
+  const response=await route.fetch({url:'http://127.0.0.1:48276'+input.pathname+input.search,timeout:20000});
+  await route.fulfill({response});
+ });
+ await page.route('https://api.github.com/**',route=>route.fulfill({json:[]}));
+ await page.route('https://www.piknoai.com/v1/**',route=>route.abort());
+ await page.route('https://www.piknoai.com/mj/**',route=>route.abort());
+ await page.route('https://www.piknoai.com/pg/**',route=>route.abort());
+ await page.goto('https://www.piknoai.com/channels',{waitUntil:'domcontentloaded'});
+ await page.locator('[data-slot="page-header"]').waitFor();
+ await page.getByText('合成上游连接 1',{exact:true}).first().waitFor();
+ const result=await page.evaluate(()=>({theme:document.documentElement.dataset.adminTheme,bg:getComputedStyle(document.body).backgroundColor,
+  scripts:[...document.scripts].map(e=>new URL(e.src||location.href).pathname).filter(e=>e.startsWith('/static/'))}));
+ if(result.theme!=='pikno')throw new Error('live_admin_theme_missing');
+ await page.screenshot({path:'D:/PIKNO/output/playwright/relay-admin-theme-current/live-channels-synthetic.png',fullPage:true});
+ return {passed:true,checks:['deployed_admin_with_synthetic_session','deployed_shared_dark_theme','production_api_requests_replaced_with_local_fixtures'],result,
+  real_customer_login:false,real_generation_calls:0,real_payment_calls:0};
+}

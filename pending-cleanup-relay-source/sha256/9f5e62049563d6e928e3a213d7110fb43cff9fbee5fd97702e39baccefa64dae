@@ -1,0 +1,6 @@
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=ROOT/'output/relay-sanbao-retirement-current'
+source=(ROOT/'output/relay-admin-theme-current/verify-public.py').read_text(encoding='utf-8')
+source=source.replace('build67.json','build68.json').replace('public_version67','public_version68').replace('before/backend-web-dist','baseline67-source/web/dist')
+(HERE/'verify-public68.py').write_text(source,encoding='utf-8')
+print('{"public_verifier_prepared":true}')

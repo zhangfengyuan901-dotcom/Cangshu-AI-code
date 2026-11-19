@@ -1,0 +1,58 @@
+import hashlib,json,re
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=ROOT/'output/relay-admin-theme-current'
+load=lambda p:json.loads(p.read_text(encoding='utf-8'))
+def log_result(name):
+    output=(HERE/name).read_text(encoding='utf-8')
+    assert '### Error' not in output,'BROWSER_LOG_FAILED'
+    return json.loads(re.search(r'### Result\s*\n(.*?)\n###',output,re.S).group(1))
+live=[log_result(name) for name in ('live-ui.log','live-interactions.log')]
+assert all(item['passed'] for item in live)
+browser={'passed':True,'checks':[c for item in live for c in item['checks']],
+  'synthetic_admin_only':True,'production_api_requests_mocked':True,'real_customer_login':False,'real_generation_calls':0,'real_payment_calls':0}
+(HERE/'deployed-ui-verification.json').write_text(json.dumps(browser,indent=2)+'\n',encoding='utf-8')
+applyfile=next(HERE.glob('release67-apply-*.json'));stagefile=next(HERE.glob('release67-stage-*.json'))
+apply=load(applyfile);assert apply['ok'] and apply['result']['verified'] and apply['result']['schema_unchanged']
+build=load(HERE/'build67.json');local=load(HERE/'local-ui-verification.json');public=load(HERE/'public-assets-verification.json')
+tests=load(HERE/'frontend-targeted-tests.json');guards=load(HERE/'release67-candidate-guard-tests.json')
+baseline=load(HERE/'baseline.json');merge=load(HERE/'web67-merge-manifest.json');smoke=load(HERE/'candidate67-http-smoke.json')
+assert local['passed'] and public['passed'] and guards['passed'] and tests['success'] and smoke['passed']
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+assert all(sha(ROOT/'deploy/new-api/backend'/i['file'])==i['sha256'] for i in baseline['runtime_source_files']),'BUSINESS_SOURCE_DRIFT'
+assert sha(HERE/'backend67-new-api')==build['binary_sha256']
+files=[i['path'] for i in baseline['frontend_source_files']]+['src/styles/admin.css']
+source=[{'path':'build/hamster-trim44-web/'+name,'sha256':sha(ROOT/'build/hamster-trim44-web'/name)} for name in files]
+source.append({'path':'deploy/new-api/Dockerfile','sha256':sha(ROOT/'deploy/new-api/Dockerfile')})
+verification={'passed':True,'version':build['version'],'candidate_binary_sha256':build['binary_sha256'],
+  'byte_identical_production66_baseline':baseline['byte_identical_to_production66'],
+  'go_source_files_unchanged':len(baseline['runtime_source_files']),'changed_sources':source,'typecheck_passed':True,'changed_source_lint_passed':True,
+  'targeted_tests':{'passed':tests['numPassedTests'],'failed':tests['numFailedTests']},
+  'known_sidebar_test_failures':{'count':5,'reproduced_on_prechange_source':True,'evidence':'sidebar-baseline-comparison.json'},
+  'local_browser_checks':local['check_count'],'deployed_browser_checks':len(browser['checks']),'public_http_checks':public['check_count'],
+  'isolated_backend_http_checks':len(smoke['checks']),'release_guard_tests':guards['tests_run'],
+  'old_hashed_resources_preserved':merge['old_hashed_files_checked'],'deleted_resources':0,
+  'runtime_bindings_preserved':True,'schema_unchanged':True,'protected_history_financial_fingerprints_preserved_at_cutover':True,
+  'release_apply':applyfile.name,'customer_acceptance':False,'real_customer_login':False,'real_generation_calls':0,'financial_restore':False}
+(HERE/'verification.json').write_text(json.dumps(verification,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+statefile=ROOT/'.agents/project-state.json';state=load(statefile);relay=state['relay'];result=apply['result']
+rel=lambda p:p.relative_to(ROOT).as_posix()
+relay.update({'version':build['version'],'image':'hamster-portal67-release:local','production_image_id':result['app_image_id'],
+  'binary_sha256':build['binary_sha256'],'verification':rel(applyfile),'build':'output/relay-admin-theme-current/build67.json',
+  'deployment':'output/relay-admin-theme-current/release67-candidate.py','deployment_runner':'output/relay-admin-theme-current/release67-run.py',
+  'postdeploy_verifier':'output/relay-admin-theme-current/verification.json','backup_path':'/opt/piknoai-relay/portal67-20261111/private',
+  'rollback_image_reference':'hamster-portal66-release:local','build_scope':'Byte-identical 66 baseline; shared admin colors/navigation/tables/dialogs; public hero/auth/account fixed resources preserved; all Go runtime sources unchanged',
+  'current_line_count':result['current_line_count'],'customer_acceptance':False,'financial_restore':False})
+relay['admin_theme_refresh'].update({'status':'published_and_verified','active_version':build['version'],
+  'production_apply':rel(applyfile),'production_stage':rel(stagefile),'verification':'output/relay-admin-theme-current/verification.json',
+  'local_browser':'output/relay-admin-theme-current/local-ui-verification.json','deployed_browser':'output/relay-admin-theme-current/deployed-ui-verification.json',
+  'public_assets':'output/relay-admin-theme-current/public-assets-verification.json','local_browser_checks':local['check_count'],
+  'deployed_browser_checks':len(browser['checks']),'public_http_checks':public['check_count'],'targeted_tests_passed':tests['numPassedTests'],
+  'known_sidebar_tests_failed':5,'known_failures_reproduced_before_change':True,
+  'runtime_bindings_preserved':True,'protected_history_financial_fingerprints_preserved_at_cutover':True,'schema_changed':False,
+  'current_lines_at_cutover':result['current_line_count'],'line_changes_during_cutover':{'removed':0,'added':0,'changed':0},
+  'previous_recorded_line_count':45,'line_count_difference_before_cutover_not_attributed_to_ui_release':True,
+  'real_customer_login':False,'real_generation_calls':0,'real_payment_calls':0,'completed_at':datetime.now(timezone.utc).isoformat()})
+state['updated_at']=datetime.now(timezone.utc).isoformat();statefile.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'completed':True,'version':build['version'],'local_browser_checks':local['check_count'],'deployed_browser_checks':len(browser['checks']),
+  'public_http_checks':public['check_count'],'targeted_tests_passed':tests['numPassedTests'],'known_preexisting_test_failures':5}))

@@ -1,0 +1,111 @@
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+TRANSPORT = ROOT / 'output/direct-media-production-current/transport.py'
+
+REMOTE = r'''
+import datetime,hashlib,json,re,subprocess
+APP='piknoai-relay-new-api-1'
+PG='piknoai-relay-postgres-1'
+TOOL='pikno-tool-control-tool-control-1'
+
+def run(args):
+    result=subprocess.run(args,capture_output=True,timeout=25)
+    if result.returncode:
+        raise RuntimeError('READONLY_COMMAND_FAILED')
+    return result.stdout
+
+def runtime(name):
+    data=json.loads(run(['docker','inspect',name]))[0]
+    return {'container_id':data['Id'],'image_id':data['Image'],'running':data['State']['Running'],
+            'health':data['State'].get('Health',{}).get('Status','not_configured')}
+
+def read_public(path):
+    if not path.startswith('/') or path.startswith('//') or '?' in path:
+        raise RuntimeError('INVALID_PUBLIC_PATH')
+    body=run(['docker','exec',APP,'wget','-q','-T','10','-O','-','http://127.0.0.1:3000'+path])
+    if len(body)>8*1024*1024:
+        raise RuntimeError('PUBLIC_BODY_OVER_LIMIT')
+    return body
+
+def sql(query):
+    raw=run(['docker','exec','-i',PG,'psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c','BEGIN READ ONLY; '+query+'; ROLLBACK']).decode()
+    rows=[line for line in raw.splitlines() if line.startswith(('{','['))]
+    if len(rows)!=1:
+        raise RuntimeError('READONLY_SQL_SHAPE')
+    return json.loads(rows[0])
+
+result={'format':1,'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'read_only':True,'production_mutations':0,'credentials_returned':False,
+        'customer_rows_returned':False,'real_generation_calls':0}
+result['app']=runtime(APP)
+result['tool_control']=runtime(TOOL)
+sha=run(['docker','exec',APP,'sha256sum','/new-api']).decode().split()[0]
+if not re.fullmatch('[a-f0-9]{64}',sha):raise RuntimeError('BINARY_HASH_SHAPE')
+result['app']['binary_sha256']=sha
+status=json.loads(read_public('/api/status'))
+version=status.get('data',{}).get('version')
+if not isinstance(version,str) or not re.fullmatch('[a-zA-Z0-9._-]{1,80}',version):raise RuntimeError('VERSION_SHAPE')
+result['app']['version']=version
+index=read_public('/')
+assets=[]
+for path in re.findall(r'(?:src|href)=["\']([^"\']+)["\']',index.decode('utf-8')):
+    if path.startswith('/') and not path.startswith('//') and '?' not in path and re.fullmatch(r'/[a-zA-Z0-9_./-]+\.(?:js|css|ico|svg|png)',path):
+        if path not in assets:assets.append(path)
+result['frontend']={'index_sha256':hashlib.sha256(index).hexdigest(),'direct_resources':[]}
+for path in assets[:16]:
+    body=read_public(path)
+    result['frontend']['direct_resources'].append({'path':path,'bytes':len(body),'sha256':hashlib.sha256(body).hexdigest()})
+result['frontend']['all_direct_resource_count']=len(assets)
+result['frontend']['fixed_entries']=[]
+for path in ['/auth-lite/index.html','/account-lite/index.html','/account-lite/account.mjs','/account-lite/account.css']:
+    body=read_public(path)
+    result['frontend']['fixed_entries'].append({'path':path,'bytes':len(body),'sha256':hashlib.sha256(body).hexdigest()})
+result['database_schema']=sql("""SELECT json_build_object(
+ 'columns',(SELECT coalesce(json_agg(json_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable) ORDER BY table_name,ordinal_position),'[]'::json)
+  FROM information_schema.columns WHERE table_schema='public' AND table_name IN ('pikno_lines','pikno_sync_providers','pikno_sync_snapshots','pikno_line_sync_states','tasks','pikno_settlements')),
+ 'constraints',(SELECT coalesce(json_agg(json_build_object('table',r.relname,'name',c.conname,'type',c.contype) ORDER BY r.relname,c.conname),'[]'::json)
+  FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public' AND r.relname IN ('pikno_lines','pikno_sync_providers','pikno_sync_snapshots','pikno_line_sync_states','tasks','pikno_settlements')))
+""")
+result['database_counts']=sql("""SELECT json_build_object(
+ 'current_lines',(SELECT count(*) FROM pikno_lines),
+ 'published_lines',(SELECT count(*) FROM pikno_lines WHERE coalesce(published_config,'')<>''),
+ 'tasks_active',(SELECT count(*) FROM tasks WHERE status NOT IN ('SUCCESS','FAILURE')),
+ 'settlements_pending',(SELECT count(*) FROM pikno_settlements WHERE coalesce(settled_outcome,'')='' OR reserved_quota<>0),
+ 'settlements_unknown',(SELECT count(*) FROM pikno_settlements WHERE generation_state='unknown'),
+ 'llm_unknown',(SELECT count(*) FROM pikno_llm_requests WHERE state='unknown'),
+ 'reverse_unfinished',(SELECT count(*) FROM pikno_reverse_operations WHERE NOT ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR (kind='task' AND state='done' AND financial_state='settled') OR (kind='task' AND state IN ('error','cancelled') AND financial_state='released'))))
+""")
+print(json.dumps(result))
+'''
+
+
+def main():
+    # The existing transport keeps SSH credentials in memory. Only whitelisted
+    # metadata above crosses back into the output artifact.
+    spec = importlib.util.spec_from_file_location('relay_readonly_transport', TRANSPORT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result = module.remote(REMOTE, timeout=180)
+    baseline = json.loads((ROOT / 'output/direct-media-production-current/build.json').read_text(encoding='utf-8'))
+    result['matches_recorded_production_binary'] = result['app']['binary_sha256'] == baseline['binary_sha256']
+    result['matches_recorded_production_version'] = result['app']['version'] == baseline['version']
+    (HERE / 'production-readonly-preflight.json').write_text(json.dumps(result, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'read_only':True,'version':result['app']['version'],
+                     'healthy':result['app']['health']=='healthy','binary_matches_recorded':result['matches_recorded_production_binary'],
+                     'current_line_count':result['database_counts']['current_lines'],
+                     'tasks_active':result['database_counts']['tasks_active'],
+                     'settlements_unknown':result['database_counts']['settlements_unknown'],
+                     'production_mutations':0}))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'read_only':True,'preflight_error':type(error).__name__,'details_withheld':True,'production_mutations':0}))
+        raise SystemExit(1)

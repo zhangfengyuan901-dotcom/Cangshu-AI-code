@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/studio-favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google" content="notranslate" />
+    <meta name="referrer" content="no-referrer" />
+
+    <!-- Primary Meta Tags -->
+    <title>仓鼠AI</title>
+    <meta name="title" content="仓鼠AI" />
+    <meta
+      name="description"
+      content="仓鼠AI 账户与模型服务平台，查看余额、消费记录和 API Key。"
+    />
+
+    <meta name="theme-color" content="#fff" />
+    <!--umami-->
+    <!--Google Analytics-->
+  <link rel="icon" href="/studio-favicon.png"><script defer src="/static/js/index.5ac48a5f16.js"></script></head>
+
+  <body>
+    <div id="root" translate="no" class="notranslate">
+      <p role="status" style="margin:0;padding:3rem 1rem;font-family:system-ui,sans-serif;text-align:center">
+        仓鼠AI · 正在加载…
+      </p>
+    </div>
+  </body>
+</html>

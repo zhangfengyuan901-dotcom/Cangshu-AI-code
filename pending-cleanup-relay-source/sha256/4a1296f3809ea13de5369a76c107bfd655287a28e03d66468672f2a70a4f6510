@@ -1,0 +1,11 @@
+from pathlib import Path
+import shutil
+ROOT=Path('D:/PIKNO');HERE=ROOT/'output/relay-sanbao-retirement-current';OLD=ROOT/'output/relay-admin-theme-current'
+text=(OLD/'smoke67-candidate.py').read_text(encoding='utf-8')
+for token in ('portal67','backend67','build67','candidate67'):
+    text=text.replace(token,token.replace('67','68'))
+text=text.replace('relay-admin-theme-current','relay-sanbao-retirement-current').replace("HERE / 'before/backend-web-dist'","HERE / 'baseline67-source/web/dist'")
+(HERE/'smoke68-candidate.py').write_text(text,encoding='utf-8')
+for name in ('media-http-check.go','hero-video-resource.json'):
+    shutil.copy2(OLD/name,HERE/name)
+print('{"build_tools_prepared":true}')

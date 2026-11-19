@@ -1,0 +1,32 @@
+async (page) => {
+  const out = 'D:/PIKNO/output/playwright/relay-model-gif-current';
+  const images = page.locator('.portal-model-animation');
+  for (let i = 0; i < 8; i++) {
+    await images.nth(i).scrollIntoViewIfNeeded();
+    await images.nth(i).evaluate(image => image.decode());
+  }
+  const reduced = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const cards = await page.locator('.portal-model-card').evaluateAll(elements => elements.map(card => {
+    const frame = card.querySelector('.portal-model-card-top').getBoundingClientRect();
+    const image = card.querySelector('.portal-model-animation');
+    return {source: new URL(image.currentSrc).pathname, fit: getComputedStyle(image).objectFit,
+      width: frame.width, height: frame.height, complete: image.complete, naturalWidth: image.naturalWidth};
+  }));
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+  if (cards.length !== 8 || overflow || cards.some(card => !card.complete || !card.naturalWidth ||
+      card.fit !== 'contain' || Math.abs(card.width / card.height - 16 / 9) > 0.015 ||
+      (reduced ? !card.source.endsWith('-poster.webp') : !card.source.endsWith('.gif')))) {
+    throw new Error('responsive_artwork_failed');
+  }
+  const kind = reduced ? 'reduced' : 'mobile';
+  await page.locator('.portal-model-card-top').first().screenshot({path: out + '/' + kind + '-first-a.png'});
+  await page.waitForTimeout(900);
+  await page.locator('.portal-model-card-top').first().screenshot({path: out + '/' + kind + '-first-b.png'});
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo({top: 0, left: 0, behavior: 'instant'});
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({path: out + '/models-' + kind + '.png', fullPage: true});
+  return {passed: true, cards, reducedMotion: reduced, overflow, viewport: page.viewportSize()};
+}

@@ -1,0 +1,60 @@
+import hashlib,json
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+load=lambda p:json.loads(p.read_text(encoding='utf-8'))
+applyfile=sorted(HERE.glob('release68-apply-*.json'))[-1];apply=load(applyfile)
+assert apply['ok'] and apply['result']['verified'] and apply['result']['verified_startups']==2,'PRODUCTION_NOT_VERIFIED'
+result=apply['result'];build=load(HERE/'build68.json');public=load(HERE/'public-assets-verification.json');validation=load(HERE/'validation68.json')
+remaining=load(HERE/'post-erasure-remaining.json');catalog=load(HERE/'public-catalog-after.json')
+assert public['passed'] and public['version']==build['version'] and validation['passed']
+assert remaining['passed'] and remaining['healthy'] and remaining['sanbao_config_rows']==0
+assert catalog['same_published_model_ids'] and catalog['same_published_model_details']
+assert result['opening_balance_snapshot_saved'] is False and result['wallet_or_counter_adjustments'] is False and result['financial_restore'] is False
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+assert all(sha(ROOT/'deploy/new-api/backend'/i['file'])==i['sha256'] for i in build['production_source_files']),'SOURCE_DRIFT'
+assert sha(HERE/'backend68-new-api')==build['binary_sha256']
+value={'passed':True,'version':build['version'],'production_image_id':result['app_image_id'],'binary_sha256':build['binary_sha256'],
+ 'delete_counts':result['cleanup']['delete_counts'],'update_counts':result['cleanup']['update_counts'],
+ 'catalog_removed':result['catalog_cleanup']['removed'],'verified_startups':2,'sanbao_remaining_rows':result['sanbao_remaining_rows'],
+ 'legacy_catalog_sanbao_entries':result['legacy_catalog_sanbao_entries'],'runtime_bindings_preserved':result['runtime_bindings_preserved'],
+ 'protected_history_and_financial_fingerprints_preserved':result['protected_history_and_financial_fingerprints_preserved'],
+ 'schema_unchanged':result['schema_unchanged'],'validation':validation,'public_http_checks':public['check_count'],
+ 'current_line_count':remaining['current_line_count'],'public_model_count':catalog['public_model_count'],
+ 'public_model_ids_and_details_unchanged':True,'exact_deleted_primary_keys_remaining':remaining['remaining_exact_target_rows'],
+ 'opening_balance_snapshot_saved':False,'source_rows_backed_up':False,'wallet_or_counter_adjustments':False,'financial_restore':False,
+ 'real_generation_calls':0,'customer_acceptance':False}
+(HERE/'verification.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+docker=ROOT/'deploy/new-api/Dockerfile';text=docker.read_text(encoding='utf-8')
+assert 'ARG RUNTIME_IMAGE=hamster-portal67-release:local' in text and 'ARG RELEASE_VERSION=v1.0.0-rc.41-hamster.67' in text
+text=text.replace('ARG RUNTIME_IMAGE=hamster-portal67-release:local','ARG RUNTIME_IMAGE=hamster-portal68-release:local').replace('ARG RELEASE_VERSION=v1.0.0-rc.41-hamster.67','ARG RELEASE_VERSION=v1.0.0-rc.41-hamster.68')
+docker.write_text(text,encoding='utf-8')
+path=ROOT/'.agents/project-state.json';state=load(path);relay=state['relay']
+relay.update({'version':build['version'],'image':'hamster-portal68-release:local','production_image_id':result['app_image_id'],
+ 'binary_sha256':build['binary_sha256'],'verification':applyfile.relative_to(ROOT).as_posix(),
+ 'build':'output/relay-sanbao-retirement-current/build68.json','deployment':'output/relay-sanbao-retirement-current/release68-candidate.py',
+ 'deployment_runner':'output/relay-sanbao-retirement-current/release68-run.py','postdeploy_verifier':'output/relay-sanbao-retirement-current/verification.json',
+ 'build_scope':'Permanent sanbao source fences and explicitly authorized online current/history erasure; web assets and stable billing/generation sources unchanged',
+ 'backup_path':'/opt/piknoai-relay/portal68-20261112/private','backup_kind':'primary-key deletion plan and fingerprints only; no source-row or opening-balance backup',
+ 'rollback_image_reference':None,'rollback_policy':'repair_or_replace_with_retirement_fenced_image_only; no_old_refill_image_no_financial_restore',
+ 'current_line_count':remaining['current_line_count'],
+ 'financial_restore':False,'customer_acceptance':False})
+r=relay['sanbao_retirement_assessment'];r.update({'status':'online_erasure_completed_published_and_verified','candidate_version':build['version'],
+ 'candidate_image_id':result['app_image_id'],'production_version_verified':build['version'],'production_healthy':True,
+ 'production_apply':applyfile.relative_to(ROOT).as_posix(),'verification':'output/relay-sanbao-retirement-current/verification.json',
+ 'deleted_rows':sum(result['cleanup']['delete_counts'].values()),'deleted_counts':result['cleanup']['delete_counts'],
+ 'catalog_removed':result['catalog_cleanup']['removed'],'remaining_sanbao_rows':0,'remaining_legacy_catalog_sanbao_entries':0,
+ 'verified_startups':2,'opening_balance_snapshot_choice':'explicitly_do_not_preserve','opening_balance_snapshot_saved':False,
+ 'wallet_or_counter_adjustments':False,'source_rows_backed_up':False,'application_stopped':False,'runtime_sync_repopulation_observed':False,
+ 'last_defer_reason':None,'history_result_compatibility_required':False,'completed_at':datetime.now(timezone.utc).isoformat()})
+if 'latest_counts' in r:r['approved_scope_counts_before_execution']=r.pop('latest_counts')
+for field in ('current_draft_configs','disabled_published_configs','public_catalog_entries','sync_states','sync_snapshots','sync_provider_records','plugin_versions','enabled_active_plugin_versions','historical_settlements','unsettled_history','history_with_reserved_funds','historical_success_tasks','historical_failed_tasks','active_or_unknown_tasks','historical_tasks_with_existing_channel'):
+ r[field]=0
+r['confirmed_previous_baseline']='superseded_by_explicit_user_authorization_to_erase_online_sanbao_configuration_and_history_without_opening_balance_snapshot'
+r['implementation_requirements']=['completed_provider_source_fences','completed_exact_online_configuration_history_erasure','completed_two_startup_no_repopulation_checks']
+relay['admin_operations_assessment'].update({'history_policy_impact':'sanbao_history_erased; no_opening_balance_snapshot; future_analytics_must_mark_incomplete_pre_erasure_history',
+ 'history_erasure_completed_at':datetime.now(timezone.utc).isoformat(),'opening_balance_snapshot':'explicitly_declined_not_created',
+ 'status':'business_reconciliation_and_anomaly_monitoring_scope_discussion_pending_implementation',
+ 'execution_scope_approved':False})
+state['updated_at']=datetime.now(timezone.utc).isoformat();path.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'completed':True,'version':build['version'],'deleted_rows':sum(result['cleanup']['delete_counts'].values()),'verified_startups':2,'opening_balance_snapshot_saved':False,'financial_restore':False}))

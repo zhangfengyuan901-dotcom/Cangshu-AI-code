@@ -1,0 +1,79 @@
+"""Preserve current frontend input and reproduce the active 65 binary offline."""
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+PREVIOUS = ROOT / 'output/relay-artwork-current'
+SOURCE = ROOT / 'deploy/new-api/backend'
+WEB = SOURCE / 'web/dist'
+BASELINE = HERE / 'backend-web-baseline65'
+IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+
+
+def digest(path):
+    with path.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def files(folder):
+    return [{'path': path.relative_to(folder).as_posix(), 'bytes': path.stat().st_size, 'sha256': digest(path)}
+            for path in sorted(folder.rglob('*')) if path.is_file()]
+
+
+def main():
+    build = json.loads((PREVIOUS / 'build65.json').read_text(encoding='utf-8'))
+    verified = json.loads((ROOT / 'output/relay-portal-current/backend-retirement-verification.json').read_text(encoding='utf-8'))
+    frozen = {item['file']: item['sha256'] for item in verified['changed_files'] if item['role'] == 'runtime'}
+    assert len(frozen) == 7 and frozen == {item['file']: item['sha256'] for item in build['production_source_files']}, 'RUNTIME_MANIFEST_DRIFT'
+    assert all(digest(SOURCE / path) == value for path, value in frozen.items()), 'RUNTIME_SOURCE_DRIFT'
+    if not BASELINE.exists():
+        before = files(WEB)
+        shutil.copytree(WEB, BASELINE)
+        after = files(BASELINE)
+        assert before == after == files(WEB), 'BASELINE_WEB_COPY_DRIFT'
+        value = {'format': 1, 'captured_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                 'version': build['version'], 'expected_binary_sha256': build['binary_sha256'],
+                 'file_count': len(after), 'total_bytes': sum(item['bytes'] for item in after),
+                 'files': after, 'production_mutations': 0}
+        (HERE / 'backend-web-baseline65-manifest.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    else:
+        value = json.loads((HERE / 'backend-web-baseline65-manifest.json').read_text(encoding='utf-8'))
+        assert files(BASELINE) == value['files'], 'BASELINE64_SNAPSHOT_DRIFT'
+    args = ['docker', 'run', '--rm', '--network', 'none', '--label', 'codex.task=relay-hero-auth-current',
+            '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+            '--mount', 'type=bind,source=' + str(BASELINE) + ',target=/workspace/web/dist,readonly',
+            '--mount', 'type=bind,source=' + str(HERE) + ',target=/out',
+            '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+            '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+            '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', IMAGE,
+            'go', 'build', '-p', '2', '-ldflags', '-s -w -X github.com/QuantumNous/new-api/common.Version=' + build['version'],
+            '-o', '/out/backend-baseline65']
+    result = subprocess.run(args, capture_output=True, timeout=240)
+    (HERE / 'baseline65-build.log').write_bytes(result.stdout + result.stderr)
+    evidence = {'format': 1, 'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'exit_code': result.returncode, 'version': build['version'], 'toolchain_image': IMAGE,
+                'go_workdir': '/workspace', 'cgo_enabled': False, 'trimpath': False, 'network': 'none',
+                'baseline_frontend_files': value['file_count'], 'expected_binary_sha256': build['binary_sha256'],
+                'runtime_source_files': [{'file': path, 'sha256': expected} for path, expected in frozen.items()],
+                'production_mutations': 0, 'production_credentials_supplied': False}
+    if result.returncode == 0:
+        evidence['binary_sha256'] = digest(HERE / 'backend-baseline65')
+        evidence['binary_bytes'] = (HERE / 'backend-baseline65').stat().st_size
+        evidence['runtime_source_still_unchanged'] = all(digest(SOURCE / path) == expected for path, expected in frozen.items())
+        evidence['byte_identical_to_production65'] = evidence['binary_sha256'] == build['binary_sha256'] and evidence['runtime_source_still_unchanged']
+    (HERE / 'baseline65-build.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({key: evidence.get(key) for key in ('exit_code', 'binary_sha256', 'byte_identical_to_production65', 'baseline_frontend_files', 'production_mutations')}))
+    return 0 if evidence.get('byte_identical_to_production65') else 1
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, AssertionError) else 'BASELINE64_REPRO_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

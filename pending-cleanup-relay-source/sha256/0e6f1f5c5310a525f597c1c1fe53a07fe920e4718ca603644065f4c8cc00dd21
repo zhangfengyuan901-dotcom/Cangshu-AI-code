@@ -1,0 +1,388 @@
+"""Image-only portal release. No database writes or unrelated service changes."""
+import copy
+import fcntl
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import tarfile
+import time
+import traceback
+
+ROOT = Path('/opt/piknoai-relay/current')
+STAGE = Path('/opt/piknoai-relay/modelgif72-20261112')
+PRIVATE = STAGE / 'private'
+APP = 'piknoai-relay-new-api-1'
+PG = 'piknoai-relay-postgres-1'
+OLD_IMAGE = 'sha256:4bd04c59aa142d4dd5de6fcaaf3657f6b991f4cafbbbc377e1ec0ddb5c0df83d'
+OLD_BINARY = '2a2409a86bdd407e038eb2c3ee7aa83882b3a066c3bd44849928a13120346652'
+BRIDGE_IMAGE = 'sha256:10be445fd089bf325edb46323d7e99d0d6c968d332d63cae88460fc024ccd240'
+IMAGE = 'hamster-modelgif72-release:local'
+VERSION = 'v1.0.0-rc.41-hamster.72'
+OLD_TAG = 'hamster-account71-release:local'
+LAYERS = ('compose.yaml', 'compose.ecs.yaml', 'compose.payments.yaml', 'compose.tunnel.yaml', 'compose.llm36.yaml')
+COMPOSE = ['docker', 'compose', *[value for name in LAYERS for value in ('-f', str(ROOT / name))]]
+
+
+def require(value, code):
+    if not value:
+        raise RuntimeError(code)
+
+
+def run(args, timeout=90):
+    result = subprocess.run(args, capture_output=True, timeout=timeout)
+    require(result.returncode == 0, 'CONTROLLED_COMMAND_FAILED')
+    return result.stdout
+
+
+def digest(file):
+    with Path(file).open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def hashed(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def save(name, value):
+    with (PRIVATE / name).open('x', encoding='utf-8') as file:
+        os.chmod(file.name, 0o600)
+        json.dump(value, file, sort_keys=True)
+
+
+def inspect(name):
+    return json.loads(run(['docker', 'inspect', name]))[0]
+
+
+def runtime_fields(info):
+    config = copy.deepcopy(info['Config'])
+    config.pop('Image', None)
+    config.pop('Hostname', None)
+    for name in ('com.docker.compose.config-hash', 'com.docker.compose.image', 'com.docker.compose.replace'):
+        config.get('Labels', {}).pop(name, None)
+    config['Env'] = sorted(config.get('Env', []))
+    host = copy.deepcopy(info['HostConfig'])
+    mounts = host.get('Mounts')
+    if mounts is not None:
+        require(isinstance(mounts, list) and all(isinstance(row, dict) and isinstance(row.get('Target'), str) and row['Target'] for row in mounts), 'HOST_MOUNT_DESCRIPTOR_INVALID')
+        require(len({row['Target'] for row in mounts}) == len(mounts), 'DUPLICATE_HOST_MOUNT_TARGET')
+        host['Mounts'] = sorted(mounts, key=lambda row: row['Target'])
+    return {'config': config, 'host': host,
+            'mounts': [{key: value for key, value in row.items() if key != 'Name'} for row in info['Mounts']],
+            'networks': sorted(info['NetworkSettings']['Networks'])}
+
+
+def runtime(info):
+    return hashed(runtime_fields(info))
+
+
+def sql(query):
+    output = run(['docker', 'exec', '-i', PG, 'psql', '-X', '-qAt', '-U', 'pikno', '-d', 'newapi',
+                  '-v', 'ON_ERROR_STOP=1', '-c', 'BEGIN READ ONLY; ' + query + '; ROLLBACK']).decode()
+    rows = [line for line in output.splitlines() if line.startswith(('{', '['))]
+    require(len(rows) == 1, 'READONLY_SQL_SHAPE')
+    return json.loads(rows[0])
+
+
+def database_state():
+    return sql("""WITH clock AS (SELECT extract(epoch FROM now())::bigint ts),
+    retained AS (SELECT t.id FROM tasks t JOIN pikno_settlements s ON s.id=t.task_id AND s.user_id=t.user_id
+      WHERE t.status='IN_PROGRESS' AND s.generation_state='unknown' AND s.reserved_quota<>0
+      AND coalesce(s.settled_outcome,'')='' AND greatest(coalesce(t.created_at,0),coalesce(t.updated_at,0),coalesce(t.start_time,0),coalesce(t.finish_time,0))<(SELECT ts-900 FROM clock)
+      AND greatest(coalesce(s.created_at,0),coalesce(s.updated_at,0))<(SELECT ts-900 FROM clock)),
+    accepted AS (SELECT t.id,t.task_id,t.user_id FROM tasks t JOIN pikno_settlements s ON s.id=t.task_id AND s.user_id=t.user_id
+      WHERE t.status IN ('SUBMITTED','QUEUED','IN_PROGRESS') AND s.channel_id=t.channel_id
+      AND coalesce(s.upstream_task_id,'')<>'' AND t.private_data::jsonb->>'upstream_task_id'=s.upstream_task_id
+      AND t.private_data::jsonb->>'billing_source'='pikno_unified_v1'
+      AND t.private_data::jsonb->>'token_id'=s.token_id::text),
+    reverse_active AS (SELECT * FROM pikno_reverse_operations WHERE NOT
+      ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR
+       (kind='task' AND state='done' AND financial_state='settled') OR
+       (kind='task' AND state IN ('error','cancelled') AND financial_state='released')))
+    SELECT json_build_object(
+      'options', (SELECT md5(coalesce(jsonb_agg(to_jsonb(o) ORDER BY o.key),'[]'::jsonb)::text) FROM options o),
+      'unknown_count', (SELECT count(*) FROM retained),
+      'unknown_digest', (SELECT md5(coalesce(jsonb_agg(jsonb_build_object('task',to_jsonb(t),'settlement',to_jsonb(s)) ORDER BY t.id),'[]'::jsonb)::text) FROM tasks t JOIN pikno_settlements s ON s.id=t.task_id AND s.user_id=t.user_id WHERE t.id IN (SELECT id FROM retained)),
+      'reservation_digest', (SELECT md5(coalesce(jsonb_agg(to_jsonb(s) ORDER BY s.id),'[]'::jsonb)::text) FROM pikno_settlements s WHERE reserved_quota<>0),
+      'reverse_count', (SELECT count(*) FROM reverse_active),
+      'reverse_digest', (SELECT md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.id),'[]'::jsonb)::text) FROM reverse_active r),
+      'accepted_tasks', (SELECT count(*) FROM accepted),
+      'unaccepted_reverse', (SELECT count(*) FROM reverse_active WHERE NOT (kind='task' AND state='analyzing' AND financial_state='reserved' AND coalesce(provider_job_id,'')<>'')),
+      'active_tasks', (SELECT count(*) FROM tasks t WHERE t.status NOT IN ('SUCCESS','FAILURE') AND NOT (t.status='UNKNOWN' AND t.created_at<(SELECT ts-900 FROM clock) AND t.updated_at<(SELECT ts-900 FROM clock)) AND t.id NOT IN (SELECT id FROM retained) AND t.id NOT IN (SELECT id FROM accepted)),
+      'active_settlements', (SELECT count(*) FROM pikno_settlements s WHERE (coalesce(settled_outcome,'')='' OR reserved_quota<>0) AND NOT (generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock)) AND NOT EXISTS (SELECT 1 FROM accepted a WHERE a.task_id=s.id AND a.user_id=s.user_id)),
+      'active_llm', (SELECT count(*) FROM pikno_llm_requests WHERE state NOT IN ('settled','released','unknown') OR state='unknown' AND updated_at>=(SELECT ts-900 FROM clock)),
+      'recent_payments', (SELECT count(*) FROM top_ups WHERE status IN ('pending','closing') AND create_time>=(SELECT ts-600 FROM clock)))""")
+
+
+def schema_digest():
+    return hashed(sql("""SELECT json_build_object(
+      'columns',(SELECT json_agg(json_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) ORDER BY table_name,ordinal_position) FROM information_schema.columns WHERE table_schema='public'),
+      'constraints',(SELECT json_agg(json_build_object('table',r.relname,'name',c.conname,'type',c.contype,'definition',pg_get_constraintdef(c.oid)) ORDER BY r.relname,c.conname) FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public'),
+      'indexes',(SELECT json_agg(json_build_object('table',tablename,'name',indexname,'definition',indexdef) ORDER BY tablename,indexname) FROM pg_indexes WHERE schemaname='public'))"""))
+
+
+def files_state():
+    names = (*LAYERS, '.env', '.auth-challenge55.env', '.promptvv-reverse.env')
+    return {name: digest(ROOT / name) for name in names if (ROOT / name).is_file()}
+
+
+def bridge():
+    names = run(['docker', 'ps', '--filter', 'label=com.docker.compose.service=lanjing-bridge', '--format', '{{.ID}}']).decode().splitlines()
+    require(len(names) == 1, 'BRIDGE_COUNT_INVALID')
+    value = inspect(names[0])
+    require(value['Image'] == BRIDGE_IMAGE and value['State']['Running'] and value['State'].get('Health', {}).get('Status') == 'healthy', 'BRIDGE_CHANGED_OR_UNHEALTHY')
+    return value
+
+
+def snapshot():
+    app = inspect(APP)
+    require(app['Image'] == OLD_IMAGE and app['State']['Running'] and app['State'].get('Health', {}).get('Status') == 'healthy', 'BASELINE_APP_CHANGED_OR_UNHEALTHY')
+    require(run(['docker', 'exec', APP, 'sha256sum', '/new-api']).decode().split()[0] == OLD_BINARY, 'BASELINE_BINARY_CHANGED')
+    other = bridge()
+    return {'app': app, 'app_runtime': runtime(app), 'bridge_id': other['Id'], 'bridge_image': other['Image'],
+            'bridge_runtime': runtime(other), 'files': files_state(), 'database': database_state(),
+            'schema': schema_digest(), 'disk_free_bytes': shutil.disk_usage(STAGE.parent).free}
+
+
+def no_new_work(value):
+    require(not any(value[name] for name in ('active_tasks', 'active_settlements', 'active_llm', 'recent_payments', 'unaccepted_reverse')), 'CURRENT_INLINE_OR_PAYMENT_WORK_ACTIVE')
+
+
+def preserved_database(before, after):
+    require(before['options'] == after['options'], 'PROTECTED_DATABASE_OPTIONS_CHANGED')
+
+
+def durable_rows(previous=None):
+    tables = {
+        'tasks': ('tasks', "status NOT IN ('SUCCESS','FAILURE')", ('id','task_id','user_id','channel_id','platform','created_at'), ('upstream_task_id','billing_source','token_id','execution','billing_context')),
+        'settlements': ('pikno_settlements', "reserved_quota<>0 OR coalesce(settled_outcome,'')=''", ('id','user_id','token_id','channel_id','model','account_ref','upstream_task_id','rule','quote_hash','price_mode','price_unit','requested_images','quote_quota','line_provider','line_revision','created_at'), ()),
+        'reverse': ('pikno_reverse_operations', "NOT ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR (kind='task' AND state='done' AND financial_state='settled') OR (kind='task' AND state IN ('error','cancelled') AND financial_state='released'))", ('id','user_id','token_id','operation_id','kind','provider_job_id','provider_account_ref','request_sha256','price_version','created_at'), ()),
+    }
+    parts = []
+    for name, (table, active, fields, private_fields) in tables.items():
+        if previous is None:
+            where = active
+        else:
+            ids = json.dumps([row['id'] for row in previous[name]], separators=(',', ':')).replace("'", "''")
+            where = "id::text IN (SELECT jsonb_array_elements_text('" + ids + "'::jsonb))"
+        selected = ["'" + field + "',to_jsonb(r)->'" + field + "'" for field in fields]
+        selected.extend("'private_" + field + "',r.private_data::jsonb->'" + field + "'" for field in private_fields)
+        projection = 'jsonb_build_object(' + ','.join(selected) + ')'
+        parts.append("'" + name + "',(SELECT coalesce(json_agg(json_build_object('id',r.id::text,'fingerprint',md5((" + projection + ")::text)) ORDER BY r.id::text),'[]'::json) FROM " + table + " r WHERE " + where + ')')
+    # All three tables use one read-only SELECT and one MVCC snapshot.
+    return sql('SELECT json_build_object(' + ','.join(parts) + ')')
+
+
+def preserved_durable_rows(before, after):
+    require(before == after, 'PERSISTED_TASK_OR_QUOTE_IDENTITY_CHANGED')
+
+
+def preflight():
+    value = snapshot()
+    tags = run(['docker', 'image', 'ls', '--format', '{{.Repository}}:{{.Tag}}']).decode().splitlines()
+    require(IMAGE not in tags, 'CANDIDATE_TAG_ALREADY_PRESENT')
+    require(not STAGE.exists(), 'CANDIDATE_STAGE_ALREADY_PRESENT')
+    return {key: item for key, item in value.items() if key != 'app'}
+
+
+def stage():
+    require(STAGE.resolve() == STAGE and STAGE.parent.resolve() == STAGE.parent and not PRIVATE.is_symlink(), 'STAGE_PATH_INVALID')
+    require(not (PRIVATE / 'stage.json').exists(), 'STAGE_ALREADY_RECORDED')
+    manifest = json.loads((STAGE / 'manifest.json').read_text())
+    require(manifest['version'] == VERSION and manifest['business_source_unchanged'], 'CANDIDATE_MANIFEST_INVALID')
+    before = snapshot()
+    # Transfer compressed data first; decompression, build context, final layer and
+    # Docker temporary commit are conservatively bounded by four binary copies.
+    remaining_peak = 4 * manifest['binary_bytes'] + 100 * 1024**2 + 1024**3
+    require(shutil.disk_usage(STAGE.parent).free >= remaining_peak, 'INSUFFICIENT_SAFE_STAGING_SPACE')
+    compressed = STAGE / 'backend72-new-api.gz'
+    require(digest(compressed) == manifest['gzip_sha256'], 'COMPRESSED_PAYLOAD_CHANGED')
+    binary = STAGE / 'backend72-new-api'
+    require(not binary.exists(), 'STAGED_BINARY_ALREADY_PRESENT')
+    with gzip.open(compressed, 'rb') as source, binary.open('xb') as target:
+        shutil.copyfileobj(source, target)
+    os.chmod(binary, 0o700)
+    require(binary.stat().st_size == manifest['binary_bytes'] and digest(binary) == manifest['binary_sha256'], 'STAGED_BINARY_CHANGED')
+    recipe = ('FROM ' + OLD_IMAGE + '\nCOPY backend72-new-api /new-api\n').encode()
+    PRIVATE.mkdir(mode=0o700, exist_ok=True)
+    with (PRIVATE / 'build.log').open('xb') as log:
+        os.chmod(log.name, 0o600)
+        command = subprocess.Popen(['docker', 'build', '--network', 'none', '--pull=false', '-t', IMAGE, '-'],
+                                   stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT,
+                                   env={**os.environ, 'DOCKER_BUILDKIT': '0'})
+        with tarfile.open(fileobj=command.stdin, mode='w|') as bundle:
+            entry = tarfile.TarInfo('Dockerfile'); entry.size = len(recipe)
+            bundle.addfile(entry, io.BytesIO(recipe))
+            entry = tarfile.TarInfo('backend72-new-api'); entry.size = binary.stat().st_size; entry.mode = 0o755
+            with binary.open('rb') as source:
+                bundle.addfile(entry, source)
+        command.stdin.close()
+        require(command.wait(timeout=300) == 0, 'CANDIDATE_IMAGE_BUILD_FAILED')
+    image = json.loads(run(['docker', 'image', 'inspect', IMAGE]))[0]
+    base = json.loads(run(['docker', 'image', 'inspect', OLD_IMAGE]))[0]
+    require(image['Config'] == base['Config'], 'CANDIDATE_IMAGE_CONFIG_CHANGED')
+    require(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'sha256sum', IMAGE, '/new-api']).decode().split()[0] == manifest['binary_sha256'], 'CANDIDATE_IMAGE_BINARY_CHANGED')
+    require(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', '/new-api', IMAGE, '--version']).decode().strip() == VERSION, 'CANDIDATE_IMAGE_VERSION_CHANGED')
+    after = snapshot()
+    require(before['app_runtime'] == after['app_runtime'] and before['bridge_id'] == after['bridge_id'], 'LIVE_RUNTIME_CHANGED_DURING_STAGE')
+    require(before['files'] == after['files'] and before['schema'] == after['schema'], 'LIVE_CONFIGURATION_CHANGED_DURING_STAGE')
+    save('stage.json', {'manifest': manifest, 'baseline': after, 'image_id': image['Id']})
+    return {'staged': True, 'version': VERSION, 'image_id': image['Id'], 'live_services_switched': False,
+            'bridge_untouched': True, 'disk_free_bytes': after['disk_free_bytes']}
+
+
+def replace_image(old, new):
+    file = ROOT / 'compose.yaml'
+    lines = file.read_text().splitlines(keepends=True)
+    active = False
+    matches = 0
+    for index, line in enumerate(lines):
+        if re.fullmatch(r'  new-api:\s*\n?', line):
+            active = True
+        elif active and re.match(r'^  [A-Za-z0-9_-]+:', line):
+            active = False
+        elif active:
+            match = re.fullmatch(r'(    image:\s*)([^\s#]+)(\s*(?:#.*)?\n?)', line)
+            if match:
+                require(match.group(2) in (old, new), 'COMPOSE_IMAGE_CHANGED')
+                lines[index] = match.group(1) + new + match.group(3)
+                matches += 1
+    require(matches == 1, 'COMPOSE_IMAGE_SLOT_INVALID')
+    temporary = file.with_name(file.name + '.modelgif72')
+    with temporary.open('x') as target:
+        os.chmod(target.name, file.stat().st_mode & 0o777)
+        target.write(''.join(lines)); target.flush(); os.fsync(target.fileno())
+    os.replace(temporary, file)
+
+
+def process_identity(info):
+    pid = info['State']['Pid']
+    require(info['State']['Running'] and isinstance(pid, int) and pid > 1, 'PROCESS_NOT_RUNNING')
+    process = Path('/proc') / str(pid)
+    require(process.joinpath('comm').read_text().strip() == 'new-api' and info['Id'] in process.joinpath('cgroup').read_text(), 'PROCESS_OWNERSHIP_CHANGED')
+    return {'id': info['Id'], 'image': info['Image'], 'pid': pid,
+            'start': process.joinpath('stat').read_text().rsplit(') ', 1)[1].split()[19]}
+
+
+def recreate(desired, candidate):
+    old = inspect(APP)
+    require(desired in (OLD_IMAGE, candidate) and old['Image'] in (OLD_IMAGE, candidate), 'RECREATE_IMAGE_NOT_REVIEWED')
+    identity = process_identity(old) if old['State']['Running'] and old['Image'] != desired else None
+    command = subprocess.Popen([*COMPOSE, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--timeout', '120', 'new-api'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    delivered = False
+    try:
+        time.sleep(0.5)
+        if identity and command.poll() is None:
+            try:
+                current = inspect(identity['id'])
+            except RuntimeError:
+                exists = run(['docker', 'ps', '-a', '--no-trunc', '--filter', 'id=' + identity['id'], '--format', '{{.ID}}']).decode().splitlines()
+                require(not exists, 'PROCESS_INSPECTION_FAILED')
+                current = None
+            if current and current['State']['Running']:
+                try:
+                    current_identity = process_identity(current)
+                except FileNotFoundError:
+                    current_identity = None
+                if current_identity is not None:
+                    require(current_identity == identity, 'PROCESS_IDENTITY_CHANGED')
+                    try:
+                        os.kill(identity['pid'], signal.SIGTERM)
+                        delivered = True
+                    except ProcessLookupError:
+                        pass
+        code = command.wait(timeout=180)
+    except subprocess.TimeoutExpired:
+        try:
+            code = command.wait(timeout=180)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('APP_RECREATE_WRITER_UNRESOLVED') from None
+    except Exception:
+        # Retain ownership until the existing writer ends. Never launch a
+        # rollback writer while a previous recreate can still mutate services.
+        try:
+            command.wait(timeout=180)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('APP_RECREATE_WRITER_UNRESOLVED') from None
+        raise
+    require(code == 0, 'APP_RECREATE_FAILED')
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        value = inspect(APP)
+        if value['Image'] == desired and value['State']['Running'] and value['State'].get('Health', {}).get('Status') == 'healthy':
+            return value, {'direct_term_delivered': delivered, 'grace_seconds': 120}
+        time.sleep(2)
+    raise RuntimeError('APP_HEALTH_TIMEOUT')
+
+
+def apply():
+    plan = json.loads((PRIVATE / 'stage.json').read_text())
+    require(not list(PRIVATE.glob('apply-*.json')), 'PREVIOUS_APPLY_REQUIRES_REVIEW')
+    current = snapshot()
+    baseline = plan['baseline']
+    require(current['app_runtime'] == baseline['app_runtime'] and current['bridge_id'] == baseline['bridge_id'] and current['bridge_runtime'] == baseline['bridge_runtime'], 'RUNTIME_CHANGED_AFTER_STAGE')
+    require(current['files'] == baseline['files'] and current['schema'] == baseline['schema'], 'CONFIGURATION_CHANGED_AFTER_STAGE')
+    preserved_database(baseline['database'], current['database'])
+    no_new_work(current['database'])
+    durable = durable_rows()
+    no_new_work(database_state())
+    require(json.loads(run(['docker', 'image', 'inspect', IMAGE]))[0]['Id'] == plan['image_id'], 'STAGED_IMAGE_CHANGED')
+    save('apply-attempt.json', {'started_at': time.time(), 'old_image_id': OLD_IMAGE, 'new_image_id': plan['image_id'], 'financial_restore': False})
+    save('apply-durable-rows.json', durable)
+    changed = False
+    try:
+        replace_image(OLD_TAG, IMAGE)
+        changed = True
+        app, lifecycle = recreate(plan['image_id'], plan['image_id'])
+        actual_runtime = runtime_fields(app)
+        save('candidate-runtime.json', {'app': app, 'runtime': actual_runtime})
+        require(runtime(app) == baseline['app_runtime'], 'APP_RUNTIME_BINDINGS_CHANGED')
+        require(run(['docker', 'exec', APP, 'sha256sum', '/new-api']).decode().split()[0] == plan['manifest']['binary_sha256'], 'APPLIED_BINARY_CHANGED')
+        other = bridge()
+        require(other['Id'] == baseline['bridge_id'] and runtime(other) == baseline['bridge_runtime'], 'BRIDGE_CHANGED_DURING_APP_RELEASE')
+        require(schema_digest() == baseline['schema'], 'DATABASE_SCHEMA_CHANGED')
+        preserved_database(current['database'], database_state())
+        preserved_durable_rows(durable, durable_rows(durable))
+        files = files_state()
+        require(all(files.get(name) == value for name, value in baseline['files'].items() if name != 'compose.yaml'), 'UNRELATED_CONFIGURATION_CHANGED')
+        result = {'applied': True, 'version': VERSION, 'image_id': app['Image'], 'bridge_id_unchanged': True,
+                  'runtime_bindings_preserved': True, 'protected_database_state_preserved': True,
+                  'preservation_scope': 'Existing row identities, account/provider bindings and quoted policy; normal task progress and settlement may advance',
+                  'preserved_task_rows': len(durable['tasks']), 'preserved_settlement_rows': len(durable['settlements']),
+                  'preserved_reverse_rows': len(durable['reverse']),
+                  'schema_unchanged': True, 'financial_restore': False, 'lifecycle': lifecycle}
+        save('apply-success.json', result)
+        return result
+    except Exception as error:
+        code = str(error) if isinstance(error, RuntimeError) and re.fullmatch('[A-Z0-9_]+', str(error)) else 'PRIVATE_DETAILS_WITHHELD'
+        restored = False
+        rollback_error = None
+        if changed and code != 'APP_RECREATE_WRITER_UNRESOLVED':
+            try:
+                replace_image(IMAGE, OLD_TAG)
+                recreate(OLD_IMAGE, plan['image_id'])
+                restored = True
+            except Exception as rollback:
+                rollback_error = {'type': type(rollback).__name__, 'frames': [{'function': frame.name, 'line': frame.lineno} for frame in traceback.extract_tb(rollback.__traceback__)]}
+        save('apply-failure.json', {'code': code, 'old_image_restored': restored, 'financial_restore': False,
+                                  'exception_type': type(error).__name__,
+                                  'exception_frames': [{'function': frame.name, 'line': frame.lineno} for frame in traceback.extract_tb(error.__traceback__)],
+                                  'rollback_error': rollback_error})
+        raise RuntimeError('APPLY_FAILED_' + ('OLD_IMAGE_RESTORED_' if restored else 'RESTORE_REQUIRES_REVIEW_') + code) from None
+
+
+def main(action):
+    require(action in ('preflight', 'stage', 'apply'), 'ACTION_INVALID')
+    if action == 'preflight':
+        return preflight()
+    with (STAGE / '.release72.lock').open('a') as lock:
+        os.chmod(lock.name, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return stage() if action == 'stage' else apply()

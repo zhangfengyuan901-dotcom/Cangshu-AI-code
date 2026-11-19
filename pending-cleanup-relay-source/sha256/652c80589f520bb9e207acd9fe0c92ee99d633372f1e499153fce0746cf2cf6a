@@ -1,0 +1,66 @@
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import urllib.error
+import urllib.request
+
+HERE=Path(__file__).resolve().parent
+ORIGIN='https://www.piknoai.com'
+opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+manifest=json.loads((HERE/'candidate-build.json').read_text())
+names=manifest['resources']['changed']+manifest['resources']['added']
+checks=[]
+
+
+def request(path,body=None):
+    headers={'Accept-Encoding':'identity','Cache-Control':'no-cache','Origin':ORIGIN}
+    if body is not None:
+        headers['Content-Type']='application/json'
+    req=urllib.request.Request(ORIGIN+path,data=body,headers=headers)
+    try:
+        response=opener.open(req,timeout=25)
+    except urllib.error.HTTPError as error:
+        response=error
+    with response:
+        assert response.url.startswith(ORIGIN+'/')
+        return response.status,response.read()
+
+
+status,body=request('/api/status')
+assert status==200
+assert json.loads(body)['data']['version']==manifest['version']
+checks.append({'check':'public_api_version','passed':True})
+status,body=request('/pay/lanjing/health')
+assert status==200 and json.loads(body).get('paymentConfigured') is True
+checks.append({'check':'public_bridge_health','passed':True})
+for path in ['/pay/lanjing/notify','/pay/lanjing/return']:
+    status,body=request(path)
+    assert status==403 and body==b'fail'
+    checks.append({'check':'empty_callback_rejected','path':path,'passed':True})
+for path,code in [('/api/user/desktop/start','DESKTOP_FLOW_INVALID'),('/api/user/desktop/exchange','DESKTOP_FLOW_INVALID')]:
+    status,body=request(path,b'{}')
+    assert status==400 and json.loads(body).get('code')==code
+    checks.append({'check':'invalid_desktop_request_rejected','path':path,'passed':True})
+for name in names:
+    path='/'+name
+    status,body=request(path)
+    expected_bytes=(HERE/'backend-candidate/web/dist'/name).read_bytes()
+    if name=='index.html':
+        # main.go always replaces these existing analytics placeholders, even
+        # when no analytics IDs are configured. Check exact runtime bytes.
+        expected_bytes=expected_bytes.replace(b'<!--umami-->\n',b'<!--Umami QuantumNous-->\n').replace(b'<!--Google Analytics-->\n',b'<!--Google Analytics QuantumNous-->\n')
+    expected=hashlib.sha256(expected_bytes).hexdigest()
+    assert status==200 and hashlib.sha256(body).hexdigest()==expected
+    checks.append({'check':'runtime_index_hash' if name=='index.html' else 'asset_hash','path':path,'passed':True})
+entry=[name for name in names if name.startswith('static/js/index.') and name.endswith('.js')]
+assert len(entry)==1
+for path in ['/hub/billing','/hub/dashboard']:
+    status,body=request(path)
+    assert status==200 and ('/'+entry[0]).encode() in body
+    checks.append({'check':'portal_entry','path':path,'passed':True})
+record={'passed':True,'version':manifest['version'],'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'checks':checks,'asset_hashes_checked':len(names),'customer_login_or_key_creation':False,
+        'real_payments':0,'generation_calls':0}
+(HERE/'release71-public-verification.json').write_text(json.dumps(record,indent=2)+'\n')
+print(json.dumps({'passed':True,'version':manifest['version'],'checks':len(checks),'asset_hashes_checked':len(names),'real_payments':0}))

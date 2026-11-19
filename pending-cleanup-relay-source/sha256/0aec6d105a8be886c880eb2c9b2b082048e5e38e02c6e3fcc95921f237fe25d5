@@ -1,0 +1,23 @@
+import hashlib,json
+from pathlib import Path
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1];SOURCE=ROOT/'deploy/new-api/backend'
+load=lambda name:json.loads((HERE/name).read_text(encoding='utf-8'))
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+matrix=load('database-matrix68.json');cleanup=load('cleanup68-tests.json');smoke=load('candidate68-http-smoke.json')
+guards=load('release68-guard-tests.json')
+assert matrix['passed'] and matrix['source_hashes_unchanged'] and matrix['server_test_binary_identical_to_final_source_build']
+assert cleanup['passed'] and smoke['passed'] and guards['passed']
+hashes=load(matrix['source_hash_manifest'])
+assert all(sha(SOURCE/name)==expected for name,expected in hashes.items()),'MATRIX_SOURCE_DRIFT'
+build=load('build68.json')
+assert all(sha(SOURCE/i['file'])==i['sha256'] for i in build['production_source_files']),'CANDIDATE_SOURCE_DRIFT'
+assert sha(HERE/'backend68-new-api')==build['binary_sha256']
+assert sha(HERE/'cleanup68.py')=='1bcc8b2dbf1ec3287158f8599122478baf3d570a2c8557043ff981642b3c961d','CLEANUP_TESTED_SOURCE_DRIFT'
+value={'passed':True,'database_matrix_passed':True,'engine_versions':matrix['engine_versions'],
+ 'cleanup_safety_tests':cleanup['tests'],'release_guard_tests':guards['tests'],'isolated_http_checks':len(smoke['checks']),
+ 'matrix_source_hashes_verified':len(hashes),'source_rows_backed_up':False,'opening_balance_snapshot_saved':False,
+ 'financial_restore':False,'real_generation_calls':0}
+(HERE/'validation68.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+build['cleanup_sha256']=sha(HERE/'cleanup68.py');build['validation']=value
+(HERE/'build68.json').write_text(json.dumps(build,indent=2)+'\n',encoding='utf-8')
+print(json.dumps(value))

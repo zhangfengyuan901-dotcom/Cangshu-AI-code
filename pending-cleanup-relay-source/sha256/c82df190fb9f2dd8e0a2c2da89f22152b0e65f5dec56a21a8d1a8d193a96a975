@@ -1,0 +1,138 @@
+import hashlib
+from html.parser import HTMLParser
+import json
+from pathlib import Path
+import re
+import secrets
+import subprocess
+import time
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+NAME = 'relay-portal68-http-smoke'
+TASK = 'relay-sanbao-retirement-current'
+RUNTIME_IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+
+
+def run(args, check=True):
+    value = subprocess.run(args, capture_output=True, timeout=30)
+    if check and value.returncode:
+        raise RuntimeError('ISOLATED_SMOKE_COMMAND_FAILED')
+    return value
+
+
+def read(path):
+    value = run(['docker', 'exec', NAME, 'wget', '-S', '-q', '-T', '8', '-O', '-', 'http://127.0.0.1:3000' + path], check=False)
+    headers = value.stderr.decode('utf-8', errors='replace')
+    codes = re.findall(r'HTTP/[0-9.]+ ([0-9]{3})', headers)
+    return value.returncode, int(codes[-1]) if codes else None, value.stdout, headers
+
+
+class CSP(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.values = []
+
+    def handle_starttag(self, tag, attrs):
+        item = dict(attrs)
+        if tag == 'meta' and item.get('http-equiv', '').lower() == 'content-security-policy':
+            self.values.append(item.get('content', ''))
+
+
+def csp_meta(body):
+    parser = CSP()
+    parser.feed(body.decode('utf-8'))
+    return parser.values
+
+
+def main():
+    manifest = json.loads((HERE / 'build68.json').read_text(encoding='utf-8'))
+    binary = HERE / 'backend68-new-api'
+    assert hashlib.sha256(binary.read_bytes()).hexdigest() == manifest['binary_sha256'], 'candidate_binary_hash_drift'
+    inspect = run(['docker', 'container', 'inspect', NAME], check=False)
+    assert inspect.returncode != 0, 'previous_smoke_container_requires_review'
+    env = ['SQL_DSN=', 'REDIS_CONN_STRING=', 'SQLITE_PATH=/data/smoke.db', 'PIKNO_LINE_SYNC_ENABLED=false',
+           'PIKNO_REVERSE_ENABLED=false', 'PIKNO_TOOLS_ENABLED=false', 'PIKNO_MEDIA_ENABLED=false',
+           'BATCH_UPDATE_ENABLED=false', 'SESSION_SECRET=' + secrets.token_hex(24)]
+    args = ['docker', 'run', '-d', '--name', NAME, '--network', 'none', '--read-only', '--label', 'codex.task=' + TASK,
+            '--memory', '1024m', '--cpus', '2', '--security-opt', 'no-new-privileges',
+            '--tmpfs', '/data:rw,nosuid,size=256m', '--tmpfs', '/tmp:rw,nosuid,size=256m',
+            '--mount', 'type=bind,source=' + str(binary) + ',target=/new-api,readonly', '-w', '/data']
+    for value in env:
+        args += ['-e', value]
+    args += ['--entrypoint', '/new-api', RUNTIME_IMAGE, '--port', '3000', '--log-dir', '/tmp/logs']
+    run(args)
+    info = json.loads(run(['docker', 'inspect', NAME]).stdout)[0]
+    assert info['Config']['Labels']['codex.task'] == TASK and info['HostConfig']['NetworkMode'] == 'none'
+    checks = []
+    try:
+        deadline = time.monotonic() + 100
+        while time.monotonic() < deadline:
+            code, status, body, _ = read('/api/status')
+            if code == 0 and status == 200:
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError('ISOLATED_HEALTH_TIMEOUT')
+        data = json.loads(body)
+        assert data.get('data', {}).get('version') == manifest['version'], 'candidate_health_version_mismatch'
+        checks.append({'check': 'health_and_version', 'passed': True})
+        for path in manifest['public_paths']:
+            code, status, body, _ = read(path)
+            assert code == 0 and status == 200 and manifest['frontend_entry_script'].encode() in body, 'candidate_public_route_mismatch'
+            checks.append({'check': 'public_route', 'path': path, 'passed': True})
+        for item in manifest['frontend_resources']:
+            code, status, body, headers = read(item['path'])
+            assert code == 0 and status == 200 and hashlib.sha256(body).hexdigest() == item['sha256'], 'candidate_resource_hash_mismatch'
+            types = re.findall(r'Content-Type:\s*([^;\s]+)', headers, re.IGNORECASE)
+            assert types and types[-1].lower() == item['content_type'], 'candidate_resource_mime_mismatch'
+            checks.append({'check': 'resource_hash', 'path': item['path'], 'passed': True})
+        for path in ['/auth-lite/index.html', '/account-lite/index.html']:
+            code, status, body, headers = read(path)
+            expected = (ROOT / 'build/hamster-trim44-web/dist' / path.lstrip('/')).read_bytes()
+            old = (HERE / 'baseline67-source/web/dist' / path.lstrip('/')).read_bytes()
+            assert code == 0 and status == 200 and body == expected, 'native_fixed_entry_mismatch'
+            assert len(re.findall(r'HTTP/[0-9.]+ [0-9]{3}', headers)) == 1, 'native_entry_redirect_detected'
+            assert csp_meta(body) == csp_meta(old), 'native_entry_csp_meta_changed'
+            checks.append({'check': 'native_entry_and_csp', 'path': path, 'passed': True})
+        media = json.loads((HERE / 'hero-video-resource.json').read_text(encoding='utf-8'))
+        media_file = ROOT / 'build/hamster-trim44-web/dist' / media['path'].lstrip('/')
+        media_check = run(['docker','run','--rm','--network','container:'+NAME,
+            '--mount','type=bind,source='+str(HERE)+',target=/verify,readonly',
+            '--mount','type=bind,source='+str(media_file)+',target=/video.mp4,readonly',
+            '--mount','type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+            '-e','CGO_ENABLED=0','-e','GOMAXPROCS=2','-e','GO111MODULE=off',RUNTIME_IMAGE,
+            'go','run','-p','2','/verify/media-http-check.go','http://127.0.0.1:3000'+media['path'],'/video.mp4'],check=False)
+        assert media_check.returncode == 0, 'candidate_network_media_http_failed'
+        media_result = json.loads(media_check.stdout)
+        assert media_result['passed'], 'candidate_network_media_http_cases_failed'
+        (HERE / 'candidate68-media-http.json').write_text(json.dumps(media_result,indent=2)+'\n',encoding='utf-8')
+        checks.extend({'check':item['case'],'passed':item['passed']} for item in media_result['checks'])
+        result = {'format': 1, 'passed': True, 'checks': checks, 'network': 'none', 'task_container': NAME,
+                  'container_id': info['Id'], 'synthetic_sqlite_database': True, 'production_environment_supplied': False,
+                  'production_credentials_or_accounts_supplied': False, 'generation_requests': 0, 'payment_requests': 0,
+                  'csp_scope': 'fixed native HTML meta policies unchanged; HTTP routes/assets served; browser UI verified separately',
+                  'production_mutations': 0}
+        (HERE / 'candidate68-http-smoke.json').write_text(json.dumps(result, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+        print(json.dumps({'passed': True, 'checks': len(checks), 'network': 'none', 'production_mutations': 0}))
+    finally:
+        # Only this freshly created, ID-checked, task-labelled tmpfs container is disposable.
+        current = json.loads(run(['docker', 'inspect', NAME]).stdout)[0]
+        assert current['Id'] == info['Id'] and current['Config']['Labels']['codex.task'] == TASK, 'smoke_cleanup_identity_drift'
+        assert current['HostConfig']['NetworkMode'] == 'none', 'smoke_cleanup_network_drift'
+        plan = {'format': 1, 'scope': 'task_owned_disposable_container_only', 'container_id': info['Id'],
+                'name': NAME, 'label': {'codex.task': TASK}, 'network': 'none', 'tmpfs': ['/data', '/tmp'],
+                'bound_candidate_binary_read_only': True, 'production_resources': [], 'remove_volumes': False}
+        plan_file = HERE / ('candidate68-smoke-cleanup-' + info['Id'][:12] + '.json')
+        plan_file.write_text(json.dumps(plan, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+        run(['docker', 'rm', '-f', info['Id']])
+        plan['removed'] = True
+        plan_file.write_text(json.dumps(plan, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, (AssertionError, RuntimeError)) else 'ISOLATED_HTTP_SMOKE_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

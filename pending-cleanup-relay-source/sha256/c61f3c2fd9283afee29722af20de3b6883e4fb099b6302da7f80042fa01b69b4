@@ -1,0 +1,64 @@
+import argparse
+import hashlib
+import json
+import mmap
+from pathlib import Path
+import re
+from urllib.parse import unquote, urlsplit
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--binary', required=True)
+    parser.add_argument('--frontend-dist', default='build/hamster-trim44-web/dist')
+    parser.add_argument('--embedded-dist', default='deploy/new-api/backend/web/dist')
+    parser.add_argument('--output', default='output/relay-portal-current/web-embed-verification.json')
+    args = parser.parse_args()
+    frontend = Path(args.frontend_dist).resolve()
+    embedded = Path(args.embedded_dist).resolve()
+    binary = Path(args.binary).resolve()
+    index = frontend / 'index.html'
+    new_files = [p for p in frontend.rglob('*') if p.is_file()]
+    assert index.is_file() and new_files, 'new_frontend_build_missing'
+    records = []
+    for file in new_files:
+        relative = file.relative_to(frontend)
+        target = embedded / relative
+        assert target.is_file(), 'new_frontend_file_not_merged'
+        source = file.read_bytes()
+        assert digest(source) == digest(target.read_bytes()), 'new_frontend_merge_hash_mismatch'
+        records.append({'file': relative.as_posix(), 'bytes': len(source), 'sha256': digest(source)})
+    index_bytes = index.read_bytes()
+    references = {'index.html'}
+    for ref in re.findall(r'(?:src|href)=["\']([^"\']+)["\']', index_bytes.decode('utf-8')):
+        url = urlsplit(ref)
+        if url.scheme or url.netloc or not url.path:
+            continue
+        path = unquote(url.path).lstrip('/')
+        if path.startswith('./'):
+            path = path[2:]
+        if '..' in Path(path).parts or Path(path).is_absolute():
+            raise RuntimeError('index_reference_outside_dist')
+        if Path(path).suffix in ('.js', '.css', '.png', '.svg', '.ico', '.webp'):
+            references.add(path)
+    with binary.open('rb') as source, mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
+        for ref in sorted(references):
+            file = embedded / ref
+            assert file.is_file(), 'index_referenced_asset_missing'
+            assert compiled.find(file.read_bytes()) != -1, 'referenced_asset_bytes_not_in_binary'
+    result = {'format': 1, 'passed': True, 'new_dist_file_count': len(records),
+              'new_dist_merge_hashes_match': True, 'index_sha256': digest(index_bytes),
+              'index_and_direct_reference_bytes_present_in_binary': True,
+              'checked_direct_reference_count': len(references), 'new_dist_files': records,
+              'verification_scope': 'offline_merge_and_go_embed_bytes; does_not_replace_HTTP_route_or_browser_tests',
+              'old_hashed_assets_deleted': False}
+    Path(args.output).write_text(json.dumps(result, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'passed': True, 'new_dist_files': len(records), 'direct_references': len(references)}))
+
+
+if __name__ == '__main__':
+    main()

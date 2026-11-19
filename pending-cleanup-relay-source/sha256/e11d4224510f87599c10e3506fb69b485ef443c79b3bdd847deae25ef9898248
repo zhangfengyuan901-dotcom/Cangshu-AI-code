@@ -1,0 +1,49 @@
+"""Read-only audit; return fixed booleans, never raw runtime configuration."""
+import importlib.util
+import json
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+
+
+def main():
+    spec = importlib.util.spec_from_file_location('portal64_readonly_transport', ROOT / 'output/direct-media-production-current/transport.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    code = (HERE / 'release64-candidate.py').read_text(encoding='utf-8') + r'''
+import datetime
+result={'read_only':True,'production_mutations':0,'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'surfaces':{}}
+for kind,name in [('app',APP),('tool_control',TOOL)]:
+ info=inspect(name)
+ host=info['HostConfig']
+ config=copy.deepcopy(info['Config'])
+ config.pop('Image',None);config.pop('Hostname',None)
+ for key in ('com.docker.compose.config-hash','com.docker.compose.image','com.docker.compose.replace'):
+  config.get('Labels',{}).pop(key,None)
+ mounts=[{key:value for key,value in entry.items() if key!='Name'} for entry in info['Mounts']]
+ text=json.dumps({'config':config,'host':host,'mounts':mounts,'networks':sorted(info['NetworkSettings']['Networks'])},sort_keys=True)
+ result['surfaces'][kind]={
+  'runtime_sha256':runtime(info),
+  'container_id_file_empty':not bool(host.get('ContainerIDFile')),
+  'network_mode_uses_container_identity':str(host.get('NetworkMode','')).startswith('container:'),
+  'pid_mode_uses_container_identity':str(host.get('PidMode','')).startswith('container:'),
+  'ipc_mode_uses_container_identity':str(host.get('IpcMode','')).startswith('container:'),
+  'runtime_contains_current_container_id':info['Id'] in text or info['Id'][:12] in text,
+  'unmodified_host_config_included':True,
+  'mount_source_paths_returned':False,
+  'environment_values_returned':False,
+  'healthy':info['State'].get('Health',{}).get('Status')=='healthy'}
+print(json.dumps(result))
+'''
+    result = module.remote(code)
+    (HERE / 'runtime-fingerprint-readonly.json').write_text(json.dumps(result, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(result))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print(json.dumps({'ok': False, 'code': 'READONLY_RUNTIME_AUDIT_FAILED_DETAILS_WITHHELD'}))
+        raise SystemExit(1)

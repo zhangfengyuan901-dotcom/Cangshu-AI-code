@@ -1,0 +1,245 @@
+"""Paired account/payment image staging. This runner never switches live services."""
+import copy
+import fcntl
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import tarfile
+import time
+
+ROOT = Path('/opt/piknoai-relay/current')
+STAGE = Path('/opt/piknoai-relay/account71-20261112')
+PRIVATE = STAGE / 'private'
+APP = 'piknoai-relay-new-api-1'
+PG = 'piknoai-relay-postgres-1'
+OLD_APP_IMAGE = 'sha256:700408ccd8d1b60c2423bf861dd6ee531b1eba2a4d8207d10526ddeae48fefca'
+OLD_APP_BINARY = '84a3c0b9500d9816b15d4fd8b10b3a2a24ca82a31e68885215fd93301ad13f92'
+OLD_BRIDGE_IMAGE = 'sha256:3235aff517c6151ae11fb5e5557f4a2365f16f1b89f801e8f318f5592c63fef2'
+OLD_BRIDGE_SOURCE = '8aab7808ccd2964c27b683bd0dcbcb723ccf34b43c34fce1a76f46a1f7ea1719'
+APP_IMAGE = 'hamster-account71-release:local'
+BRIDGE_IMAGE = 'hamster-lanjing71-release:local'
+VERSION = 'v1.0.0-rc.41-hamster.71'
+LAYERS = ('compose.yaml','compose.ecs.yaml','compose.payments.yaml','compose.tunnel.yaml','compose.llm36.yaml')
+COMPOSE = ['docker','compose',*[value for name in LAYERS for value in ('-f',str(ROOT / name))]]
+
+
+def require(condition, code):
+    if not condition:
+        raise RuntimeError(code)
+
+
+def run(args, data=None, timeout=90):
+    result = subprocess.run(args,input=data,capture_output=True,timeout=timeout)
+    require(result.returncode == 0,'STAGE_COMMAND_FAILED_' + args[0].upper())
+    return result.stdout
+
+
+def digest(path):
+    with Path(path).open('rb') as source:
+        return hashlib.file_digest(source,'sha256').hexdigest()
+
+
+def hashed(value):
+    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+def inspect(name):
+    return json.loads(run(['docker','inspect',name]))[0]
+
+
+def runtime(info):
+    config = copy.deepcopy(info['Config'])
+    config.pop('Image',None)
+    config.pop('Hostname',None)
+    for key in ('com.docker.compose.config-hash','com.docker.compose.image','com.docker.compose.replace'):
+        config.get('Labels',{}).pop(key,None)
+    config['Env'] = sorted(config.get('Env',[]))
+    mounts = [{key:value for key,value in item.items() if key != 'Name'} for item in info['Mounts']]
+    return hashed({'config':config,'host':info['HostConfig'],'mounts':mounts,'networks':sorted(info['NetworkSettings']['Networks'])})
+
+
+def sql(query):
+    result = run(['docker','exec','-i',PG,'psql','-X','-qAt','-U','pikno','-d','newapi','-v','ON_ERROR_STOP=1','-c',
+                  'BEGIN READ ONLY; '+query+'; ROLLBACK']).decode()
+    rows = [line for line in result.splitlines() if line.startswith(('{','['))]
+    require(len(rows)==1,'READONLY_SQL_SHAPE')
+    return json.loads(rows[0])
+
+
+def activity():
+    # Only matched, durable, old unknown operations are classified separately.
+    # They retain their task rows, reservations, and all original billing state.
+    return sql("""WITH clock AS (SELECT extract(epoch FROM now())::bigint ts),
+    historical AS (
+      SELECT t.id FROM tasks t JOIN pikno_settlements s ON s.id=t.task_id AND s.user_id=t.user_id
+      WHERE t.status='IN_PROGRESS' AND s.generation_state='unknown' AND s.reserved_quota<>0
+      AND coalesce(s.settled_outcome,'')=''
+      AND greatest(coalesce(t.created_at,0),coalesce(t.updated_at,0),coalesce(t.start_time,0),coalesce(t.finish_time,0))<(SELECT ts-900 FROM clock)
+      AND greatest(coalesce(s.created_at,0),coalesce(s.updated_at,0))<(SELECT ts-900 FROM clock))
+    SELECT json_build_object(
+      'retained_unknown_tasks',(SELECT count(*) FROM historical),
+      'retained_unknown_digest',(SELECT md5(coalesce(jsonb_agg(jsonb_build_object('task',to_jsonb(t),'settlement',to_jsonb(s)) ORDER BY t.id),'[]'::jsonb)::text) FROM tasks t JOIN pikno_settlements s ON s.id=t.task_id AND s.user_id=t.user_id WHERE t.id IN (SELECT id FROM historical)),
+      'active_nonunknown_tasks',(SELECT count(*) FROM tasks t WHERE t.status NOT IN ('SUCCESS','FAILURE') AND NOT (t.status='UNKNOWN' AND t.created_at<(SELECT ts-900 FROM clock) AND t.updated_at<(SELECT ts-900 FROM clock)) AND t.id NOT IN (SELECT id FROM historical)),
+      'active_nonunknown_settlements',(SELECT count(*) FROM pikno_settlements WHERE (coalesce(settled_outcome,'')='' OR reserved_quota<>0) AND NOT (generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock))),
+      'recent_tasks',(SELECT count(*) FROM tasks WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0),coalesce(start_time,0),coalesce(finish_time,0))>=(SELECT ts-600 FROM clock)),
+      'recent_settlements',(SELECT count(*) FROM pikno_settlements WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0))>=(SELECT ts-600 FROM clock)),
+      'active_llm',(SELECT count(*) FROM pikno_llm_requests WHERE state NOT IN ('settled','released','unknown') OR state='unknown' AND updated_at>=(SELECT ts-900 FROM clock)),
+      'recent_llm',(SELECT count(*) FROM pikno_llm_requests WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0))>=(SELECT ts-600 FROM clock)),
+      'recent_pending_recharges',(SELECT count(*) FROM top_ups WHERE status IN ('pending','closing') AND create_time>=(SELECT ts-600 FROM clock)),
+      'active_reverse',(SELECT count(*) FROM pikno_reverse_operations WHERE NOT ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR (kind='task' AND state='done' AND financial_state='settled') OR (kind='task' AND state IN ('error','cancelled') AND financial_state='released'))))""")
+
+
+def files_fingerprint():
+    names = (*LAYERS,'.env','.auth-challenge55.env','.promptvv-reverse.env')
+    return {name:digest(ROOT/name) for name in names if (ROOT/name).is_file()}
+
+
+def database_fingerprints():
+    return sql("""SELECT json_build_object(
+      'auth_billing_options',(SELECT md5(coalesce(jsonb_agg(to_jsonb(o) ORDER BY o.key),'[]'::jsonb)::text) FROM options o),
+      'users_count',(SELECT count(*) FROM users),
+      'topups_count',(SELECT count(*) FROM top_ups),
+      'tokens_count',(SELECT count(*) FROM tokens),
+      'existing_auth_sessions_count',(SELECT count(*) FROM user_sessions))""")
+
+
+def schema():
+    return sql("""SELECT json_build_object('columns',(SELECT coalesce(json_agg(json_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) ORDER BY table_name,ordinal_position),'[]'::json) FROM information_schema.columns WHERE table_schema='public'),
+    'constraints',(SELECT coalesce(json_agg(json_build_object('table',r.relname,'name',c.conname,'type',c.contype,'definition',pg_get_constraintdef(c.oid)) ORDER BY r.relname,c.conname),'[]'::json) FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public'),
+    'indexes',(SELECT coalesce(json_agg(json_build_object('table',tablename,'name',indexname,'definition',indexdef) ORDER BY tablename,indexname),'[]'::json) FROM pg_indexes WHERE schemaname='public'))""")
+
+
+def current():
+    app = inspect(APP)
+    names = run(['docker','ps','--filter','label=com.docker.compose.service=lanjing-bridge','--format','{{.ID}}']).decode().splitlines()
+    require(len(names)==1,'BRIDGE_COUNT_INVALID')
+    bridge = inspect(names[0])
+    require(app['Image']==OLD_APP_IMAGE and bridge['Image']==OLD_BRIDGE_IMAGE,'LIVE_IMAGE_DRIFT')
+    for info in (app,bridge):
+        require(info['State']['Running'] and info['State'].get('Health',{}).get('Status')=='healthy','LIVE_SERVICE_UNHEALTHY')
+    require(run(['docker','exec',APP,'sha256sum','/new-api']).decode().split()[0]==OLD_APP_BINARY,'LIVE_BINARY_DRIFT')
+    require(run(['docker','exec',bridge['Id'],'sha256sum','/app/server.mjs']).decode().split()[0]==OLD_BRIDGE_SOURCE,'LIVE_BRIDGE_SOURCE_DRIFT')
+    require(bridge['Config']['WorkingDir']=='/app' and bridge['Config']['Cmd']==['node','server.mjs'],'BRIDGE_RUNTIME_UNSUPPORTED')
+    require(bool(set(app['NetworkSettings']['Networks'])&set(bridge['NetworkSettings']['Networks'])),'PAIR_NETWORK_MISMATCH')
+    require(not bridge['HostConfig'].get('PortBindings'),'BRIDGE_PORT_PUBLISHED')
+    return app,bridge
+
+
+def compose_slots():
+    expected = {'new-api':('compose.yaml','hamster-portal68-release:local'),
+                'lanjing-bridge':('compose.payments.yaml','hamster-lanjing-bridge:brand44')}
+    result = {}
+    for service,(name,image) in expected.items():
+        active=False
+        matches=[]
+        for line in (ROOT/name).read_text().splitlines():
+            if line=='  '+service+':':
+                active=True
+                continue
+            if active and re.match(r'^  [A-Za-z0-9_-]+:',line):
+                active=False
+            if active:
+                match=re.fullmatch(r'    image:\s*([^\s#]+)\s*(?:#.*)?',line)
+                if match:
+                    require(match.group(1)==image,'COMPOSE_IMAGE_DRIFT')
+                    matches.append(image)
+        require(len(matches)==1,'COMPOSE_SLOT_INVALID')
+        result[service]={'file':name,'image_reference':image}
+    merged=json.loads(run([*COMPOSE,'config','--format','json']))
+    for service in expected:
+        require(merged['services'][service]['image']==expected[service][1],'COMPOSE_EFFECTIVE_IMAGE_DRIFT')
+    return result
+
+
+def snapshot():
+    app,bridge=current()
+    work=activity()
+    return {
+      'app_image_id':app['Image'],'bridge_image_id':bridge['Image'],
+      'app_runtime':runtime(app),'bridge_runtime':runtime(bridge),
+      'app_environment_sha256':hashed(sorted(app['Config'].get('Env',[]))),
+      'bridge_environment_sha256':hashed(sorted(bridge['Config'].get('Env',[]))),
+      'files':files_fingerprint(),'database':database_fingerprints(),'activity':work,'compose_slots':compose_slots(),
+      'new_work_blocks_later_apply':any(value for key,value in work.items() if key not in ('retained_unknown_tasks','retained_unknown_digest'))
+    }
+
+
+def thin_image(base,tag,name,payload,destination,chown=False):
+    prefix='COPY --chown=node:node ' if chown else 'COPY '
+    recipe=('FROM '+base+'\n'+prefix+name+' '+destination+'\n').encode()
+    logpath=PRIVATE/(tag.split(':')[0]+'-build.log')
+    with logpath.open('xb') as log:
+        os.chmod(log.name,0o600)
+        process=subprocess.Popen(['docker','build','--network','none','--pull=false','-t',tag,'-'],
+                                 stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,
+                                 env=dict(os.environ,DOCKER_BUILDKIT='0'))
+        try:
+            with tarfile.open(fileobj=process.stdin,mode='w|') as bundle:
+                entry=tarfile.TarInfo('Dockerfile');entry.size=len(recipe);bundle.addfile(entry,io.BytesIO(recipe))
+                entry=tarfile.TarInfo(name);entry.size=payload.stat().st_size;entry.mode=0o755 if destination=='/new-api' else 0o644
+                with payload.open('rb') as source:
+                    bundle.addfile(entry,source)
+            process.stdin.close()
+            require(process.wait(timeout=300)==0,'THIN_IMAGE_BUILD_FAILED')
+        except Exception:
+            if process.poll() is None:
+                process.kill();process.wait(timeout=10)
+            raise
+    return json.loads(run(['docker','image','inspect',tag]))[0]['Id']
+
+
+def stage():
+    require(STAGE.resolve()==STAGE and STAGE.parent.resolve()==STAGE.parent and not PRIVATE.is_symlink(),'STAGE_PATH_INVALID')
+    require(not (PRIVATE/'stage.json').exists(),'STAGE_ALREADY_RECORDED')
+    manifest=json.loads((STAGE/'stage-manifest.json').read_text())
+    require(manifest['version']==VERSION,'MANIFEST_VERSION_INVALID')
+    require(manifest.get('validation',{}).get('passed') is True,'CANDIDATE_VALIDATION_REQUIRED')
+    require(digest(STAGE/'backend71-new-api.gz')==manifest['gzip_sha256'],'PAYLOAD_GZIP_DRIFT')
+    require(digest(STAGE/'server.mjs')==manifest['bridge_source_sha256'],'PAYLOAD_BRIDGE_DRIFT')
+    before=snapshot()
+    PRIVATE.mkdir(mode=0o700,exist_ok=True)
+    binary=STAGE/'backend71-new-api'
+    require(not binary.exists(),'STAGED_BINARY_EXISTS')
+    with gzip.open(STAGE/'backend71-new-api.gz','rb') as source,binary.open('xb') as target:
+        while chunk:=source.read(1024*1024):
+            target.write(chunk)
+    os.chmod(binary,0o700)
+    require(digest(binary)==manifest['binary_sha256'],'PAYLOAD_BINARY_DRIFT')
+    app_base='hamster-account71-base:local'
+    bridge_base='hamster-lanjing71-base:local'
+    run(['docker','tag',OLD_APP_IMAGE,app_base])
+    run(['docker','tag',OLD_BRIDGE_IMAGE,bridge_base])
+    app_image=thin_image(app_base,APP_IMAGE,'backend71-new-api',binary,'/new-api')
+    bridge_image=thin_image(bridge_base,BRIDGE_IMAGE,'server.mjs',STAGE/'server.mjs','/app/server.mjs',True)
+    require(run(['docker','run','--rm','--network','none','--entrypoint','sha256sum',APP_IMAGE,'/new-api']).decode().split()[0]==manifest['binary_sha256'],'IMAGE_BINARY_DRIFT')
+    require(run(['docker','run','--rm','--network','none','--entrypoint','/new-api',APP_IMAGE,'--version']).decode().strip()==VERSION,'IMAGE_VERSION_DRIFT')
+    require(run(['docker','run','--rm','--network','none','--entrypoint','sha256sum',BRIDGE_IMAGE,'/app/server.mjs']).decode().split()[0]==manifest['bridge_source_sha256'],'IMAGE_BRIDGE_DRIFT')
+    run(['docker','run','--rm','--network','none','--entrypoint','node',BRIDGE_IMAGE,'--check','/app/server.mjs'])
+    after=snapshot()
+    require(before['app_runtime']==after['app_runtime'] and before['bridge_runtime']==after['bridge_runtime'],'LIVE_RUNTIME_CHANGED_DURING_STAGE')
+    require(before['files']==after['files'],'LIVE_CONFIG_CHANGED_DURING_STAGE')
+    plan={'staged_at':time.time(),'before':before,'after':after,'schema_before':schema(),
+          'candidate_app_image_id':app_image,'candidate_bridge_image_id':bridge_image,
+          'candidate_app_image':APP_IMAGE,'candidate_bridge_image':BRIDGE_IMAGE,'manifest':manifest}
+    file=PRIVATE/'stage.json'
+    with file.open('x') as out:
+        os.chmod(file,0o600);json.dump(plan,out,sort_keys=True)
+    return {'staged':True,'version':VERSION,'candidate_app_image_id':app_image,'candidate_bridge_image_id':bridge_image,
+            'old_app_runtime_preserved':True,'old_bridge_runtime_preserved':True,'configuration_hashes_preserved':True,
+            'activity':after['activity'],'new_work_blocks_later_apply':after['new_work_blocks_later_apply'],
+            'live_services_switched':False,'financial_restore':False,'production_business_mutations':0}
+
+
+def main(action):
+    require(action in ('preflight','stage'),'STAGE_ONLY_ACTION_REQUIRED')
+    if action=='preflight':
+        return snapshot()
+    require(STAGE.parent.resolve()==STAGE.parent and not STAGE.is_symlink(),'STAGE_PATH_INVALID')
+    with (STAGE/'.stage71.lock').open('a') as lock:
+        os.chmod(lock.name,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return stage()

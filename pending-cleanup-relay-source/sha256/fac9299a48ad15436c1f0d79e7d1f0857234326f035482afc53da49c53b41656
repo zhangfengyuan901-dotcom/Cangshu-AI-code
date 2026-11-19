@@ -1,0 +1,136 @@
+import importlib.util
+import json
+import sys
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+SPEC = importlib.util.spec_from_file_location('release64_candidate_tests_target', Path(__file__).with_name('release64-candidate.py'))
+D = importlib.util.module_from_spec(SPEC)
+with mock.patch.dict(sys.modules, {'fcntl': mock.Mock()}):
+    SPEC.loader.exec_module(D)
+
+
+class ReleaseGuards(unittest.TestCase):
+    def test_database_queries_are_wrapped_in_read_only_transaction(self):
+        with mock.patch.object(D, 'run', return_value=b'BEGIN\n{"ok":true}\nROLLBACK\n') as run:
+            self.assertEqual(D.sql("SELECT json_build_object('ok',true)"), {'ok': True})
+            query = run.call_args.args[0][-1]
+            self.assertTrue(query.startswith('BEGIN READ ONLY; '))
+            self.assertTrue(query.endswith('; ROLLBACK'))
+
+    def test_old_unknowns_are_retained_without_blocking_idle_release(self):
+        activity = {'recent_tasks': 0, 'recent_settlements': 0, 'tasks_active': 0, 'settlements_active': 0,
+                    'llm_active': 0, 'recent_llm': 0, 'pending_recharges': 0, 'reverse_active': 0,
+                    'old_unknown_settlements': 3, 'old_unknown_llm': 15}
+        with mock.patch.object(D, 'activity', return_value=activity), mock.patch.object(D, 'run', return_value=b'{"active":0,"accepting":true}'):
+            self.assertEqual(D.assert_quiet(), activity)
+
+    def test_recent_settlement_blocks_before_stop_or_image_change(self):
+        with mock.patch.object(D, 'activity', return_value={'recent_settlements': 1, 'old_unknown_settlements': 3}), mock.patch.object(D, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'RECENT_OR_ACTIVE_WORK'):
+                D.assert_quiet()
+            run.assert_not_called()
+
+    def test_only_retirement_revision_schema_addition_is_allowed(self):
+        before = {'columns': [{'table': 'users', 'column': 'id', 'type': 'bigint', 'nullable': 'NO', 'default': None}], 'constraints': []}
+        added = {'table': 'pikno_line_sync_states', 'column': 'retired_revision', 'type': 'bigint', 'nullable': 'NO', 'default': '0'}
+        D.schema_allowed(before, {'columns': before['columns'] + [added], 'constraints': []})
+        with self.assertRaisesRegex(RuntimeError, 'DEFAULT_INVALID'):
+            D.schema_allowed(before, {'columns': before['columns'] + [{**added, 'default': '1'}], 'constraints': []})
+        with self.assertRaisesRegex(RuntimeError, 'UNEXPECTED_SCHEMA'):
+            D.schema_allowed(before, {'columns': before['columns'] + [{**added, 'column': 'unexpected'}], 'constraints': []})
+        with self.assertRaisesRegex(RuntimeError, 'EXISTING_SCHEMA_COLUMN'):
+            D.schema_allowed(before, {'columns': [{**before['columns'][0], 'type': 'text'}], 'constraints': []})
+
+    def test_private_inventory_is_exclusive_and_not_customer_rows_export(self):
+        with tempfile.TemporaryDirectory(prefix='portal64-guard-') as folder:
+            stage = Path(folder).resolve() / 'stage'
+            private = stage / 'private'
+            with mock.patch.object(D, 'STAGE', stage), mock.patch.object(D, 'PRIVATE', private):
+                digest = D.save_private('inventory.json', {'lines': [{'public_model': 'synthetic'}], 'protected': {'users': {'count': 1, 'digest': 'synthetic'}}})
+                self.assertEqual(len(digest), 64)
+                self.assertEqual(json.loads((private / 'inventory.json').read_text())['lines'][0]['public_model'], 'synthetic')
+                with self.assertRaises(FileExistsError):
+                    D.save_private('inventory.json', {})
+
+    def test_compose_only_replaces_new_api_image(self):
+        with tempfile.TemporaryDirectory(prefix='portal64-compose-') as folder:
+            root = Path(folder)
+            original = 'services:\n  new-api:\n    image: old-app:local\n    environment:\n      - SAFE=SYNTHETIC\n  postgres:\n    image: postgres:16\n'
+            (root / 'compose.yaml').write_text(original)
+            with mock.patch.object(D, 'ROOT', root):
+                changed = D.compose_with_image('old-app:local', 'new-app:local')
+                self.assertEqual(changed, original.replace('old-app:local', 'new-app:local'))
+                self.assertEqual((root / 'compose.yaml').read_text(), original)
+                with self.assertRaisesRegex(RuntimeError, 'REFERENCE_DRIFT'):
+                    D.compose_with_image('different:local', 'new-app:local')
+
+    def apply_fixture(self, folder):
+        stage = Path(folder).resolve() / 'stage'
+        private = stage / 'private'
+        private.mkdir(parents=True)
+        (private / 'stage.json').write_text(json.dumps({'old_runtime': 'runtime', 'tool_runtime': 'runtime', 'files': {'compose.yaml': 'old'},
+                                                     'candidate_image_id': 'candidate', 'manifest_sha256': 'manifest', 'old_image_reference': 'old-app'}))
+        return stage, private
+
+    def test_failure_after_stop_restarts_old_image_without_sql_restore(self):
+        with tempfile.TemporaryDirectory(prefix='portal64-recovery-') as folder:
+            stage, private = self.apply_fixture(folder)
+            def run(args, **_):
+                if args[:3] == ['docker', 'image', 'inspect']:
+                    return b'[{"Id":"candidate"}]'
+                return b''
+            with mock.patch.object(D, 'STAGE', stage), mock.patch.object(D, 'PRIVATE', private), mock.patch.object(D, 'current', return_value=({}, {})), mock.patch.object(D, 'runtime', return_value='runtime'), mock.patch.object(D, 'files_fingerprint', return_value={'compose.yaml': 'old'}), mock.patch.object(D, 'digest', return_value='manifest'), mock.patch.object(D, 'assert_quiet'), mock.patch.object(D, 'inventory', side_effect=RuntimeError('synthetic_failure')), mock.patch.object(D, 'run', side_effect=run) as calls, mock.patch.object(D, 'replace_compose_image') as replace, mock.patch.object(D, 'sql') as sql:
+                with self.assertRaisesRegex(RuntimeError, 'IMAGE_ONLY_RECOVERY'):
+                    D.apply()
+                replace.assert_not_called()
+                sql.assert_not_called()
+                self.assertTrue(any('stop' in call.args[0] for call in calls.call_args_list))
+                self.assertTrue(any('up' in call.args[0] for call in calls.call_args_list))
+
+    def test_failed_verification_recovers_only_image(self):
+        with tempfile.TemporaryDirectory(prefix='portal64-recovery-') as folder:
+            stage, private = self.apply_fixture(folder)
+            def run(args, **_):
+                return b'[{"Id":"candidate"}]' if args[:3] == ['docker', 'image', 'inspect'] else b''
+            with mock.patch.object(D, 'STAGE', stage), mock.patch.object(D, 'PRIVATE', private), mock.patch.object(D, 'current', return_value=({}, {})), mock.patch.object(D, 'runtime', return_value='runtime'), mock.patch.object(D, 'files_fingerprint', return_value={'compose.yaml': 'old'}), mock.patch.object(D, 'digest', return_value='manifest'), mock.patch.object(D, 'assert_quiet') as quiet, mock.patch.object(D, 'inventory', return_value={'protected': {}}), mock.patch.object(D, 'save_private'), mock.patch.object(D, 'wait_new'), mock.patch.object(D, 'verify', side_effect=RuntimeError('PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED_REVIEW_REQUIRED')), mock.patch.object(D, 'run', side_effect=run), mock.patch.object(D, 'replace_compose_image') as replace, mock.patch.object(D, 'sql') as sql:
+                with self.assertRaisesRegex(RuntimeError, 'PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED_REVIEW_REQUIRED_IMAGE_ONLY_RECOVERY_SUCCEEDED'):
+                    D.apply()
+                self.assertEqual(replace.call_args_list, [mock.call('old-app', D.NEW_IMAGE), mock.call(D.NEW_IMAGE, 'old-app')])
+                self.assertEqual(quiet.call_count, 2)
+                sql.assert_not_called()
+
+    def test_new_activity_during_stop_recovers_before_inventory_and_swap(self):
+        with tempfile.TemporaryDirectory(prefix='portal64-quiet-') as folder:
+            stage, private = self.apply_fixture(folder)
+            def run(args, **_):
+                return b'[{"Id":"candidate"}]' if args[:3] == ['docker', 'image', 'inspect'] else b''
+            with mock.patch.object(D, 'STAGE', stage), mock.patch.object(D, 'PRIVATE', private), mock.patch.object(D, 'current', return_value=({}, {})), mock.patch.object(D, 'runtime', return_value='runtime'), mock.patch.object(D, 'files_fingerprint', return_value={'compose.yaml': 'old'}), mock.patch.object(D, 'digest', return_value='manifest'), mock.patch.object(D, 'assert_quiet', side_effect=[{}, RuntimeError('RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')]), mock.patch.object(D, 'inventory') as inventory, mock.patch.object(D, 'run', side_effect=run) as calls, mock.patch.object(D, 'replace_compose_image') as replace, mock.patch.object(D, 'sql') as sql:
+                with self.assertRaisesRegex(RuntimeError, 'RECENT_OR_ACTIVE_WORK_DEFER_RELEASE_IMAGE_ONLY_RECOVERY_SUCCEEDED'):
+                    D.apply()
+                inventory.assert_not_called()
+                replace.assert_not_called()
+                sql.assert_not_called()
+                self.assertTrue(any('stop' in call.args[0] for call in calls.call_args_list))
+                self.assertTrue(any('up' in call.args[0] for call in calls.call_args_list))
+
+    def test_failure_codes_cannot_include_private_error_details(self):
+        self.assertEqual(D.safe_failure_code(RuntimeError('RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')), 'RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')
+        self.assertEqual(D.safe_failure_code(RuntimeError('synthetic customer private details')), 'PRIVATE_FAILURE_DETAILS_WITHHELD')
+        self.assertEqual(D.safe_failure_code(ValueError('PRIVATE_VALUE')), 'PRIVATE_FAILURE_DETAILS_WITHHELD')
+
+
+if __name__ == '__main__':
+    here = Path(__file__).resolve().parent
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ReleaseGuards)
+    with (here / 'release64-candidate-guard-tests.log').open('w', encoding='utf-8') as log:
+        result = unittest.TextTestRunner(stream=log, verbosity=2).run(suite)
+    evidence = {'format': 1, 'tests_run': result.testsRun, 'failures': len(result.failures),
+                'errors': len(result.errors), 'passed': result.wasSuccessful(),
+                'scope': 'synthetic mocked release safety guards only', 'production_mutations': 0,
+                'financial_database_restoration_implemented': False}
+    (here / 'release64-candidate-guard-tests.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(evidence))
+    raise SystemExit(0 if result.wasSuccessful() else 1)

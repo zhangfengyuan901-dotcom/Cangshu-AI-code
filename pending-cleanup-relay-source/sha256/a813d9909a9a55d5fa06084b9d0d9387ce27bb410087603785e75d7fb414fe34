@@ -1,0 +1,17 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO')
+spec=importlib.util.spec_from_file_location('retirement_progress_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import json,pathlib,subprocess
+p=pathlib.Path('/opt/piknoai-relay/portal68-20261112/private')
+value={name:(p/file).is_file() for name,file in [('cleanup_plan_written','cleanup-plan.json'),('cleanup_committed','cleanup-committed.json'),('catalog_committed','catalog-committed.json'),('first_start_verified','first-start-verification.json'),('second_start_verified','second-start-verification.json')]}
+r=subprocess.run(['docker','inspect','piknoai-relay-new-api-1'],capture_output=True,timeout=20)
+if r.returncode==0:
+ app=json.loads(r.stdout)[0]
+ value.update({'service_running':app['State']['Running'],'healthy':app['State'].get('Health',{}).get('Status')=='healthy','image_id':app['Image']})
+else:value.update({'service_running':False,'healthy':False,'between_container_recreation':True})
+print(json.dumps(value))
+'''
+print(json.dumps(transport.remote(code,timeout=35)))

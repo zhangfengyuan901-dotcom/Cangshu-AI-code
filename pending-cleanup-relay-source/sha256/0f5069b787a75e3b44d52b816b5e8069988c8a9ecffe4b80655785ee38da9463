@@ -1,0 +1,101 @@
+// Synthetic transport check only; this fixture does not test video playback.
+package main
+
+import (
+	"bytes"
+	"embed"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strconv"
+
+	"github.com/QuantumNous/new-api/router"
+	"github.com/gin-gonic/gin"
+)
+
+//go:embed web/dist/*
+var assets embed.FS
+
+type result struct {
+	Case          string `json:"case"`
+	Status        int    `json:"status"`
+	ContentType   string `json:"content_type"`
+	Encoding      string `json:"content_encoding"`
+	ContentLength int64  `json:"content_length"`
+	ContentRange  string `json:"content_range"`
+	AcceptRanges  string `json:"accept_ranges"`
+	Bytes         int    `json:"bytes"`
+	WireExact     bool   `json:"wire_exact"`
+	Passed        bool   `json:"passed"`
+	Code          string `json:"code"`
+}
+
+func main() {
+	gin.SetMode(gin.ReleaseMode)
+	engine := gin.New()
+	router.SetWebRouter(engine, router.WebAssets{BuildFS: assets, IndexPage: []byte("synthetic")}, func(c *gin.Context) { c.Next() })
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	data, err := assets.ReadFile("web/dist/synthetic.mp4")
+	if err != nil {
+		os.Exit(1)
+	}
+	length := int64(len(data))
+	cases := []struct {
+		name, method, encoding, byteRange string
+		status                           int
+		start, end                       int64
+	}{
+		{"get_identity_large", "GET", "identity", "", 200, 0, length},
+		{"head_identity", "HEAD", "identity", "", 200, 0, 0},
+		{"range_first", "GET", "identity", "bytes=0-1023", 206, 0, 1024},
+		{"range_middle", "GET", "identity", "bytes=1048576-1049599", 206, 1048576, 1049600},
+		{"range_suffix", "GET", "identity", "bytes=-1024", 206, length - 1024, length},
+		{"range_open_tail", "GET", "identity", "bytes=" + strconv.FormatInt(length-1024, 10) + "-", 206, length - 1024, length},
+		{"range_unsatisfied", "GET", "identity", "bytes=" + strconv.FormatInt(length, 10) + "-", 416, 0, 0},
+		{"get_accept_gzip", "GET", "gzip", "", 200, 0, length},
+		{"head_accept_gzip", "HEAD", "gzip", "", 200, 0, 0},
+		{"range_accept_gzip", "GET", "gzip", "bytes=0-1023", 206, 0, 1024},
+	}
+	rows := make([]result, 0, len(cases))
+	for _, test := range cases {
+		request, _ := http.NewRequest(test.method, server.URL+"/synthetic.mp4", nil)
+		request.Header.Set("Accept-Encoding", test.encoding)
+		if test.byteRange != "" {
+			request.Header.Set("Range", test.byteRange)
+		}
+		row := result{Case: test.name, Code: "SYNTHETIC_HTTP_FAILED"}
+		response, err := client.Do(request)
+		if err == nil {
+			body, readErr := io.ReadAll(response.Body)
+			response.Body.Close()
+			row.Status, row.ContentType, row.Encoding = response.StatusCode, response.Header.Get("Content-Type"), response.Header.Get("Content-Encoding")
+			row.ContentLength, row.ContentRange, row.AcceptRanges = response.ContentLength, response.Header.Get("Content-Range"), response.Header.Get("Accept-Ranges")
+			row.Bytes = len(body)
+			row.WireExact = bytes.Equal(body, data[test.start:test.end])
+			if test.status == 416 {
+				row.Passed = readErr == nil && row.Status == 416 && row.ContentRange == "bytes */"+strconv.FormatInt(length, 10)
+			} else {
+				row.Passed = readErr == nil && row.Status == test.status && row.ContentType == "video/mp4" && row.Encoding == "" && row.WireExact && row.AcceptRanges == "bytes"
+				if test.method == "HEAD" {
+					row.Passed = row.Passed && row.ContentLength == length
+				}
+				if test.status == 206 {
+					row.Passed = row.Passed && row.ContentRange == "bytes "+strconv.FormatInt(test.start, 10)+"-"+strconv.FormatInt(test.end-1, 10)+"/"+strconv.FormatInt(length, 10)
+				}
+			}
+			if row.Passed {
+				row.Code = "STATIC_MEDIA_TRANSPORT_VERIFIED"
+			} else if row.Encoding != "" {
+				row.Code = "MP4_TRANSFER_ENCODING_REQUIRES_REVIEW"
+			} else {
+				row.Code = "STATIC_MEDIA_TRANSPORT_MISMATCH"
+			}
+		}
+		rows = append(rows, row)
+	}
+	json.NewEncoder(os.Stdout).Encode(rows)
+}

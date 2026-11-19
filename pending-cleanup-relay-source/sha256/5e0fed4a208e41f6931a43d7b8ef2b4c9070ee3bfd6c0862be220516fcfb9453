@@ -1,0 +1,52 @@
+"""Run current unchanged web handler with a large synthetic embedded resource."""
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SOURCE = ROOT / 'deploy/new-api/backend'
+IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+
+
+def main():
+    fixture = HERE / 'media-handler-fixture/web/dist/synthetic.mp4'
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    size = 9 * 1024 * 1024 + 257
+    header = b'\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42'
+    data = (header + bytes(range(256)) * (size // 256 + 1))[:size]
+    if fixture.exists():
+        assert fixture.read_bytes() == data, 'SYNTHETIC_FIXTURE_DRIFT'
+    else:
+        fixture.write_bytes(data)
+    before = hashlib.sha256((SOURCE / 'router/web-router.go').read_bytes()).hexdigest()
+    args = ['docker', 'run', '--rm', '--network', 'none', '--label', 'codex.task=relay-hero-auth-current',
+            '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+            '--mount', 'type=bind,source=' + str(HERE / 'media-handler-fixture') + ',target=/harness,readonly',
+            '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+            '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+            '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', IMAGE, 'go', 'run', '-p', '2', '/harness/main.go']
+    completed = subprocess.run(args, capture_output=True, timeout=180)
+    assert completed.returncode == 0, 'SYNTHETIC_HANDLER_RUN_FAILED'
+    assert hashlib.sha256((SOURCE / 'router/web-router.go').read_bytes()).hexdigest() == before, 'WEB_HANDLER_CHANGED_DURING_CHECK'
+    rows = json.loads(completed.stdout)
+    assert isinstance(rows, list) and len(rows) == 10, 'SYNTHETIC_HANDLER_OUTPUT_SHAPE'
+    value = {'format': 1, 'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+             'passed': all(row['passed'] for row in rows), 'checks': rows, 'synthetic_resource_bytes': size,
+             'source_web_router_sha256': before, 'go_business_source_modified': False,
+             'database_access': False, 'production_requests': 0, 'production_mutations': 0,
+             'scope': 'unchanged actual SetWebRouter with synthetic large bytes; no video-playback claim'}
+    (HERE / 'existing-media-handler-verification.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'passed': value['passed'], 'checks': len(rows), 'passed_checks': sum(row['passed'] for row in rows),
+                      'failed_case_codes': [{'case': row['case'], 'code': row['code']} for row in rows if not row['passed']],
+                      'synthetic_resource_bytes': size, 'production_mutations': 0}))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, AssertionError) else 'SYNTHETIC_HANDLER_CHECK_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

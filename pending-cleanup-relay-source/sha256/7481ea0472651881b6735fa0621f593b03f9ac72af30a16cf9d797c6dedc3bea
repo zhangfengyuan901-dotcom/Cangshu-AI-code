@@ -1,0 +1,88 @@
+"""Explicit read, stage, or app-only apply of the GIF portal candidate."""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import re
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+REMOTE = '/opt/piknoai-relay/modelgif72-20261112'
+
+
+def digest(file):
+    with file.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def require(value, code):
+    if not value:
+        raise RuntimeError(code)
+
+
+def transport():
+    spec = importlib.util.spec_from_file_location('gif72_transport', ROOT / 'output/direct-media-production-current/transport.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def scp(module, file, name):
+    executable = Path(module.SSH[0])
+    command = str(executable.with_name('scp.exe' if executable.suffix.lower() == '.exe' else 'scp'))
+    arguments = [('-P' if value == '-p' else value) for value in module.SSH[1:-1] if value != '-T']
+    result = subprocess.run([command, *arguments, str(file), module.SSH[-1] + ':' + REMOTE + '/' + name],
+                            capture_output=True, timeout=300)
+    require(result.returncode == 0, 'CONTROLLED_TRANSFER_FAILED')
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['preflight', 'stage', 'apply'])
+    parser.add_argument('--apply', action='store_true')
+    args = parser.parse_args()
+    require(args.action == 'preflight' or args.apply, 'EXPLICIT_APPLY_REQUIRED')
+    module = transport()
+    script = HERE / 'release72-remote.py'
+    if args.action == 'preflight':
+        source = script.read_text(encoding='utf-8') + "\nprint(json.dumps(main('preflight')))\n"
+        value = module.remote(source, timeout=120)
+    else:
+        tests = json.loads((HERE / 'release72-guard-tests.json').read_text(encoding='utf-8'))
+        require(tests['passed'] and tests['remote_source_sha256'] == digest(script), 'RELEASE_GUARDS_MISSING_OR_STALE')
+        if args.action == 'stage':
+            manifest = json.loads((HERE / 'build72.json').read_text(encoding='utf-8'))
+            require(manifest['business_source_unchanged'] and manifest['version'] == 'v1.0.0-rc.41-hamster.72', 'CANDIDATE_BUILD_INVALID')
+            binary = HERE / 'backend72-new-api'
+            compressed = HERE / 'backend72-new-api.gz'
+            require(digest(binary) == manifest['binary_sha256'] and digest(compressed) == manifest['gzip_sha256'], 'LOCAL_PAYLOAD_CHANGED')
+            manifest['remote_source_sha256'] = digest(script)
+            file = HERE / 'manifest.json'
+            file.write_text(json.dumps(manifest, sort_keys=True) + '\n', encoding='utf-8')
+            source = "import pathlib,shutil,json,os\np=pathlib.Path(" + repr(REMOTE) + ")\nassert p.parent.resolve()==p.parent and not p.exists()\nassert shutil.disk_usage(p.parent).free >= " + str(manifest['minimum_free_bytes_before_stage']) + "\np.mkdir(mode=0o700)\nprint(json.dumps({'directory_ready':True}))"
+            require(module.remote(source).get('directory_ready'), 'REMOTE_STAGE_NOT_READY')
+            for file, name in [(script, 'release72-remote.py'), (file, 'manifest.json'), (compressed, 'backend72-new-api.gz')]:
+                scp(module, file, name)
+            payloads = {name: digest(file) for file, name in [(script, 'release72-remote.py'), (HERE / 'manifest.json', 'manifest.json'), (compressed, 'backend72-new-api.gz')]}
+            source = "import pathlib,hashlib,os,json\np=pathlib.Path(" + repr(REMOTE) + ")\nfor name,expected in " + repr(payloads) + ".items():\n f=p/name\n assert f.is_file() and not f.is_symlink() and hashlib.sha256(f.read_bytes()).hexdigest()==expected\n os.chmod(f,0o600)\nprint(json.dumps({'payloads_verified':True}))"
+            require(module.remote(source).get('payloads_verified'), 'REMOTE_PAYLOAD_CHANGED')
+        source = "import pathlib,importlib.util,json,hashlib,re\np=pathlib.Path(" + repr(REMOTE) + ")\nf=p/'release72-remote.py'\nassert f.is_file() and not f.is_symlink() and hashlib.sha256(f.read_bytes()).hexdigest()==" + repr(digest(script)) + "\ns=importlib.util.spec_from_file_location('release72',f)\nm=importlib.util.module_from_spec(s)\ns.loader.exec_module(m)\ntry:\n value=m.main(" + repr(args.action) + ")\n print(json.dumps({'ok':True,'result':value}))\nexcept Exception as error:\n code=str(error) if isinstance(error,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(error)) else 'PRIVATE_DETAILS_WITHHELD'\n print(json.dumps({'ok':False,'code':code,'financial_restore':False}))\n"
+        value = module.remote(source, timeout=1500 if args.action == 'apply' else 720)
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
+    file = HERE / ('release72-' + args.action + '-' + stamp + '.json')
+    file.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'evidence': file.name, **value}))
+    if value.get('ok') is False:
+        raise SystemExit(1)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        code = str(error) if isinstance(error, RuntimeError) and re.fullmatch('[A-Z0-9_]+', str(error)) else 'CONTROLLED_RELEASE_FAILED'
+        print(json.dumps({'ok': False, 'code': code, 'financial_restore': False}))
+        raise SystemExit(1)

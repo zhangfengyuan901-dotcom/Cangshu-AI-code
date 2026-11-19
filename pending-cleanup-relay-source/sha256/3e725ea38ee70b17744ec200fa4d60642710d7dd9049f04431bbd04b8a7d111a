@@ -1,0 +1,62 @@
+async (page) => {
+  const origin = 'http://127.0.0.1:18169';
+  const folder = 'D:/PIKNO/output/playwright/relay-topup-glass-current';
+  await page.context().route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) return route.abort();
+    if (url.pathname === '/account-lite/account.css') return route.fulfill({
+      path: 'D:/PIKNO/output/relay-topup-glass-current/build/account-lite/account.css',
+      contentType: 'text/css',
+    });
+    if (url.pathname === '/hamster-mark.png' || url.pathname === '/studio-favicon.png') return route.fulfill({
+      path: 'D:/PIKNO/deploy/new-api/backend/web/dist' + url.pathname,
+      contentType: 'image/png',
+    });
+    return route.continue();
+  });
+  const card = page.locator('.balance-card');
+  const button = card.getByRole('button', { name: '充值', exact: true });
+  const style = () => button.evaluate(el => {
+    const css = getComputedStyle(el);
+    const arrow = getComputedStyle(el.querySelector('span'));
+    const rect = el.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, filter: css.backdropFilter,
+      topBorder: css.borderTopColor, background: css.backgroundImage, radius: css.borderRadius,
+      focus: el.matches(':focus-visible'), outline: css.outlineStyle, outlineWidth: css.outlineWidth,
+      motion: css.transitionDuration, arrowMotion: arrow.transitionDuration, arrow: arrow.color,
+      overflow: document.documentElement.scrollWidth > window.innerWidth };
+  });
+  const check = (condition, label) => { if (!condition) throw new Error(label); };
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(origin + '/account-lite/index.html');
+  await button.waitFor({ state: 'visible' });
+  const desktop = await style();
+  check(desktop.filter.includes('blur(14px)') && desktop.background.includes('radial-gradient') && desktop.radius === '12px', 'glass surface missing');
+  check(desktop.width >= 148 && desktop.height >= 48, 'touch target too small');
+  await card.screenshot({ path: folder + '/recharge-glass-desktop.png', animations: 'disabled' });
+  await button.hover();
+  await page.waitForFunction(initial => getComputedStyle(document.querySelector('.balance-card .light-button')).borderTopColor !== initial, desktop.topBorder);
+  const hover = await style();
+  await page.keyboard.press('Tab');
+  await button.focus();
+  const focus = await style();
+  check(focus.focus && focus.outline === 'solid' && focus.outlineWidth === '2px', 'keyboard focus indicator missing');
+  await page.keyboard.press('Enter');
+  await page.locator('#topup').waitFor({ state: 'visible' });
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto(origin + '/account-lite/index.html');
+  await button.waitFor({ state: 'visible' });
+  const mobile = await style();
+  check(!mobile.overflow && mobile.height >= 48, 'narrow viewport layout failed');
+  await card.screenshot({ path: folder + '/recharge-glass-mobile.png', animations: 'disabled' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reduced = await style();
+  check(reduced.motion === '0s' && reduced.arrowMotion === '0s', 'reduced motion preferences ignored');
+  await button.click();
+  await page.locator('#topup').waitFor({ state: 'visible' });
+  const orders = await page.evaluate(async () => (await (await fetch('/fixture-result')).json()).data.created);
+  check(orders === 0, 'navigation created a payment order');
+  return { passed: true, desktop: { width: desktop.width, height: desktop.height, filter: desktop.filter },
+    hover: hover.topBorder !== desktop.topBorder, keyboardFocus: focus.focus, mobile: { width: mobile.width, height: mobile.height, overflow: mobile.overflow },
+    reducedMotion: true, openedTopupByKeyboardAndTouchSizedClick: true, createdOrders: orders };
+}

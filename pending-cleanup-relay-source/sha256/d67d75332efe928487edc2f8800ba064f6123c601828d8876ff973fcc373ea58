@@ -1,0 +1,61 @@
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import json
+import subprocess
+import time
+import uuid
+
+here = Path(__file__).resolve().parent
+backend = here.parents[1] / "deploy/new-api/backend"
+prefix = "pikno-paymentqa-" + uuid.uuid4().hex[:8]
+image = "golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039"
+label = "codex.task=relay-payment-current"
+
+def docker(*args, check=True, timeout=90):
+    return subprocess.run(["docker", *args], check=check, capture_output=True, timeout=timeout)
+
+def verify(engine, db_image, env, probe, dsn, version_args):
+    db = prefix + "-" + engine
+    container = docker("run", "-d", "--name", db, "--network", prefix, "--label", label,
+                       "--tmpfs", ("/var/lib/mysql" if engine == "mysql" else "/var/lib/postgresql/data"),
+                       *env, db_image).stdout.decode().strip()
+    try:
+        deadline = time.monotonic() + 75
+        while time.monotonic() < deadline:
+            if docker("exec", container, *probe, check=False, timeout=6).returncode == 0:
+                time.sleep(2)
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError(engine + " did not start")
+        version = docker("exec", container, *version_args).stdout.decode().strip()
+        result = docker("run", "--rm", "--network", prefix, "--label", label, "--mount",
+                        "type=bind,source=" + str(backend) + ",target=/workspace,readonly",
+                        "-v", "relay-portal-gomod:/go/pkg/mod", "-v", "relay-portal-gobuild:/root/.cache/go-build",
+                        "-e", "CGO_ENABLED=0", "-e", "GOMAXPROCS=2", "-w", "/workspace",
+                        "-e", "PIKNO_TEST_DB_ENGINE=" + engine, "-e", "PIKNO_TEST_DB_DSN=" + dsn.format(db=db),
+                        image, "go", "test", "-count=1", "-p", "2", "./controller", "-run", "^TestPiknoFixedCNY$",
+                        check=False, timeout=240)
+        (here / ("go-" + engine + ".log")).write_bytes(result.stdout + result.stderr)
+        return {"engine": engine, "version": version, "exit_code": result.returncode}
+    finally:
+        docker("rm", "-f", container)
+
+docker("network", "create", "--internal", "--label", label, prefix)
+try:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pg = pool.submit(verify, "postgres", "postgres:16-alpine",
+                         ["-e", "POSTGRES_HOST_AUTH_METHOD=trust", "-e", "POSTGRES_DB=paymentqa"],
+                         ["pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "paymentqa"],
+                         "postgres://postgres@{db}:5432/paymentqa?sslmode=disable", ["postgres", "--version"])
+        my = pool.submit(verify, "mysql", "mysql:8.0",
+                         ["-e", "MYSQL_ALLOW_EMPTY_PASSWORD=yes", "-e", "MYSQL_DATABASE=paymentqa", "-e", "MYSQL_ROOT_HOST=%"],
+                         ["mysqladmin", "-h", "127.0.0.1", "ping"],
+                         "root@tcp({db}:3306)/paymentqa?charset=utf8mb4&parseTime=True&loc=UTC", ["mysqld", "--version"])
+        results = [pg.result(), my.result()]
+    (here / "go-database-matrix.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(results))
+    if any(item["exit_code"] for item in results):
+        raise SystemExit(1)
+finally:
+    docker("network", "rm", prefix)

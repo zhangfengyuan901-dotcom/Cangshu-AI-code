@@ -1,0 +1,74 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/QuantumNous/new-api/pkg/piknocatalog"
+)
+
+type record struct {
+	Provider      string `json:"provider"`
+	Accepted      bool   `json:"accepted"`
+	NotModified   bool   `json:"not_modified"`
+	ItemsCount    int    `json:"items_count"`
+	ClosuresCount int    `json:"closures_count"`
+	Code          string `json:"code"`
+}
+
+type publicOnly struct{ transport *http.Transport }
+
+func (t publicOnly) RoundTrip(request *http.Request) (*http.Response, error) {
+	allowed := request.URL.Scheme == "https" && request.URL.RawQuery == "" && request.URL.User == nil &&
+		(request.URL.Host == "sanbaobeauty.com" && request.URL.Path == "/api/public/openapi-models" ||
+			request.URL.Host == "see.ximeiedu.org" && request.URL.Path == "/health")
+	if request.Method != http.MethodGet || !allowed || request.Header.Get("Authorization") != "" ||
+		request.Header.Get("Cookie") != "" || request.Header.Get("If-None-Match") != "" || request.Header.Get("If-Modified-Since") != "" {
+		return nil, errors.New("harness_public_get_guard")
+	}
+	return t.transport.RoundTrip(request)
+}
+
+func main() {
+	transport := &http.Transport{Proxy: nil, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 20 * time.Second}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: 25 * time.Second, Transport: publicOnly{transport: transport}}
+	rows := make([]record, 0, 2)
+	passed := true
+	for _, provider := range []string{"sanbao", "canseedream"} {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		value, err := piknocatalog.FetchProviderSnapshot(ctx, client, provider, piknocatalog.ConditionalCatalog{}, time.Now())
+		cancel()
+		row := record{Provider: provider, NotModified: value.NotModified, Code: "CATALOG_VALIDATION_REJECTED"}
+		if value.Snapshot != nil {
+			row.ItemsCount = len(value.Snapshot.Items)
+		}
+		if value.Closures != nil {
+			row.ClosuresCount = len(value.Closures.ClosedIDs)
+		}
+		if err == nil && value.Snapshot != nil && !value.NotModified {
+			row.Accepted, row.Code = true, "ACCEPTED_COMPLETE_UNCONDITIONAL"
+		} else if err != nil {
+			switch text := err.Error(); {
+			case text == "catalog_network":
+				row.Code = "CATALOG_NETWORK_FAILED"
+			case text == "catalog_size":
+				row.Code = "CATALOG_SIZE_REJECTED"
+			case text == "unexpected_not_modified":
+				row.Code = "UNEXPECTED_NOT_MODIFIED"
+			case strings.HasPrefix(text, "catalog_http_"):
+				row.Code = "CATALOG_HTTP_REJECTED"
+			}
+		}
+		passed = passed && row.Accepted
+		rows = append(rows, row)
+	}
+	if json.NewEncoder(os.Stdout).Encode(rows) != nil || !passed {
+		os.Exit(1)
+	}
+}

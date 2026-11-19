@@ -1,0 +1,179 @@
+package model
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+func openPiknoLineTestDB(t *testing.T) {
+	t.Helper()
+	oldDB := DB
+	driver := os.Getenv("PIKNO_SETTLEMENT_TEST_DRIVER")
+	var dialector gorm.Dialector
+	switch driver {
+	case "mysql":
+		dialector = mysql.Open(os.Getenv("PIKNO_SETTLEMENT_TEST_DSN"))
+		common.SetDatabaseTypes(common.DatabaseTypeMySQL, common.DatabaseTypeMySQL)
+	case "postgres":
+		dialector = postgres.New(postgres.Config{DSN: os.Getenv("PIKNO_SETTLEMENT_TEST_DSN"), PreferSimpleProtocol: true})
+		common.SetDatabaseTypes(common.DatabaseTypePostgreSQL, common.DatabaseTypePostgreSQL)
+	default:
+		driver = "sqlite"
+		dialector = sqlite.Open(filepath.Join(t.TempDir(), "lines.db"))
+		common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	}
+	db, err := gorm.Open(dialector, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	DB = db
+	sqlDB, err := DB.DB()
+	require.NoError(t, err)
+	if driver == "sqlite" {
+		sqlDB.SetMaxOpenConns(1)
+	}
+	t.Cleanup(func() {
+		require.NoError(t, sqlDB.Close())
+		DB = oldDB
+		common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+		invalidatePiknoLineCache()
+	})
+	initCol()
+	require.NoError(t, DB.AutoMigrate(&Channel{}, &Ability{}, &PiknoLine{}))
+	invalidatePiknoLineCache()
+}
+
+func TestPiknoLineRegistry(t *testing.T) {
+	openPiknoLineTestDB(t)
+	baseURL := "https://cf.api.fan"
+	channel := Channel{
+		Type: constant.ChannelTypeOpenAI, Key: "test-only", Name: "pikno-line-packy",
+		Status: common.ChannelStatusManuallyDisabled, BaseURL: &baseURL, Group: "default",
+	}
+	require.NoError(t, channel.Insert())
+	seed := PiknoLineSeed{
+		PublicModel: "pikno-image-flare-test", SourceID: "gpt-image-2.5-flare",
+		DisplayName: "Flare test", Kind: "image", Provider: "packy",
+		UpstreamModel: "gpt-image-2.5-flare", Enabled: true,
+		UpstreamAvailable: true, Resolutions: []string{"1024x1024"}, MaxImages: 1,
+		Qualities: []string{"auto", "low", "medium", "high"},
+		Prices:    []PiknoLinePrice{{Resolution: "default", Unit: "image", SuggestedCNY: 0.1}},
+	}
+	seed.ChannelID = RecommendPiknoChannel(seed)
+	require.Equal(t, channel.Id, seed.ChannelID, "disabled internal channels must still be auto-bound")
+	require.NoError(t, SyncPiknoLines([]PiknoLineSeed{seed}, 101))
+	_, err := GetPublishedPiknoLine(seed.PublicModel)
+	require.ErrorIs(t, err, ErrPiknoLineNotFound)
+
+	view, err := GetPiknoLineAdmin(seed.PublicModel, 1)
+	require.NoError(t, err)
+	assert.Equal(t, seed.Qualities, view.Draft.Qualities, "qualities must survive stored draft JSON")
+	assert.False(t, view.CanPublish)
+	assert.Contains(t, view.BlockingReasons, "所有售价必须大于 0")
+	_, err = PublishPiknoLine(seed.PublicModel, 1, 101)
+	require.ErrorIs(t, err, ErrPiknoLineNotReady)
+
+	prices := []PiknoLinePrice{{Resolution: "default", Unit: "image", RetailQuota: 100_000}}
+	view, err = UpdatePiknoLineDraft(seed.PublicModel, PiknoLinePatch{ExpectedVersion: 1, Prices: &prices}, 101)
+	require.NoError(t, err)
+	require.True(t, view.CanPublish, view.BlockingReasons)
+	_, err = UpdatePiknoLineDraft(seed.PublicModel, PiknoLinePatch{ExpectedVersion: 1, Prices: &prices}, 101)
+	require.ErrorIs(t, err, ErrPiknoLineConflict)
+
+	view, err = PublishPiknoLine(seed.PublicModel, view.Version, 101)
+	require.NoError(t, err)
+	require.NotNil(t, view.Published)
+	assert.EqualValues(t, view.Version, view.Published.Revision)
+	assert.Equal(t, seed.Qualities, view.Published.Qualities)
+	published, err := GetPublishedPiknoLine(seed.PublicModel)
+	require.NoError(t, err)
+	assert.Equal(t, seed.Qualities, published.Qualities, "qualities must survive published readback")
+
+	var projected Channel
+	require.NoError(t, DB.First(&projected, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusEnabled, projected.Status)
+	assert.Equal(t, "image-standard", projected.Group)
+	assert.Contains(t, projected.GetModels(), seed.PublicModel)
+	mapping := map[string]string{}
+	require.NoError(t, common.UnmarshalJsonStr(projected.GetModelMapping(), &mapping))
+	assert.Equal(t, seed.UpstreamModel, mapping[seed.PublicModel])
+	var abilityCount int64
+	require.NoError(t, DB.Model(&Ability{}).Where("channel_id = ? AND model = ? AND enabled = ?", channel.Id, seed.PublicModel, true).Count(&abilityCount).Error)
+	assert.EqualValues(t, 1, abilityCount)
+	enabledModels, err := EnabledPiknoLineModelsForGroups([]string{"image-standard"})
+	require.NoError(t, err)
+	assert.True(t, enabledModels[seed.PublicModel])
+
+	quoteV1, err := QuotePublishedPiknoLine(seed.PublicModel, channel.Id, PiknoLineUsage{Resolution: "1024x1024", Images: 1})
+	require.NoError(t, err)
+	assert.Equal(t, 100_000, quoteV1.Quota)
+	assert.Equal(t, "image", quoteV1.Unit)
+
+	prices[0].RetailQuota = 125_000
+	view, err = UpdatePiknoLineDraft(seed.PublicModel, PiknoLinePatch{ExpectedVersion: view.Version, Prices: &prices}, 102)
+	require.NoError(t, err)
+	view, err = PublishPiknoLine(seed.PublicModel, view.Version, 102)
+	require.NoError(t, err)
+	quoteV2, err := QuotePublishedPiknoLine(seed.PublicModel, channel.Id, PiknoLineUsage{Resolution: "1024x1024", Images: 1})
+	require.NoError(t, err)
+	assert.Equal(t, 125_000, quoteV2.Quota)
+	assert.NotEqual(t, quoteV1.Revision, quoteV2.Revision)
+	assert.Equal(t, 100_000, quoteV1.Quota, "an accepted quote must remain immutable")
+
+	view, err = DisablePiknoLine(seed.PublicModel, view.Version, 103)
+	require.NoError(t, err)
+	_, err = GetPublishedPiknoLine(seed.PublicModel)
+	require.True(t, errors.Is(err, ErrPiknoLineNotFound))
+	require.NoError(t, DB.First(&projected, channel.Id).Error)
+	assert.NotContains(t, projected.GetModels(), seed.PublicModel)
+	require.NoError(t, DB.Model(&Ability{}).Where("channel_id = ? AND model = ?", channel.Id, seed.PublicModel).Count(&abilityCount).Error)
+	assert.Zero(t, abilityCount)
+
+	view, err = RollbackPiknoLine(seed.PublicModel, view.Version, 104)
+	require.NoError(t, err)
+	require.NotNil(t, view.Published)
+	assert.True(t, view.Published.Enabled)
+	assert.Equal(t, seed.Qualities, view.Published.Qualities, "rollback retains published qualities")
+	quoteAfterRollback, err := QuotePublishedPiknoLine(seed.PublicModel, channel.Id, PiknoLineUsage{Resolution: "1024x1024", Images: 1})
+	require.NoError(t, err)
+	assert.Equal(t, 125_000, quoteAfterRollback.Quota)
+}
+
+func TestPiknoLineVideoQuoteRejectsUnpublishedDuration(t *testing.T) {
+	openPiknoLineTestDB(t)
+	baseURL := "https://cf.api.fan"
+	channel := Channel{
+		Type: constant.ChannelTypeOpenAI, Key: "test-only", Name: "pikno-video-duration-test",
+		Status: common.ChannelStatusEnabled, BaseURL: &baseURL, Group: "video-standard",
+	}
+	require.NoError(t, channel.Insert())
+	cost := 0.55
+	config := PiknoLineConfig{
+		PublicModel: "pikno-video-duration-test", DisplayName: "Duration test",
+		Kind: "video", Provider: "packy", UpstreamModel: "duration-test",
+		ChannelID: channel.Id, Enabled: true, UpstreamAvailable: true,
+		Resolutions: []string{"720p"}, Durations: []float64{5, 6},
+		Prices:   []PiknoLinePrice{{Resolution: "720p", Unit: "second", CostCNY: &cost, RetailQuota: 1_100_000}},
+		Revision: 1,
+	}
+	raw, err := encodePiknoLineConfig(&config)
+	require.NoError(t, err)
+	require.NoError(t, DB.Create(&PiknoLine{PublicModel: config.PublicModel, Version: 1, PublishedConfig: raw}).Error)
+	invalidatePiknoLineCache()
+
+	_, err = QuotePublishedPiknoLine(config.PublicModel, channel.Id, PiknoLineUsage{Resolution: "720p", Seconds: 4})
+	require.ErrorContains(t, err, "duration is not supported")
+	quote, err := QuotePublishedPiknoLine(config.PublicModel, channel.Id, PiknoLineUsage{Resolution: "720p", Seconds: 5})
+	require.NoError(t, err)
+	require.Equal(t, 5_500_000, quote.Quota)
+}

@@ -1,0 +1,22 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('verify_retirement_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import importlib.util,json,pathlib
+p=pathlib.Path('/opt/piknoai-relay/portal68-20261112')
+s=importlib.util.spec_from_file_location('verified_release68',p/'release68-candidate.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+app,tool=m.current(old=False)
+engine=m.cleanup_engine();plan=json.loads((p/'private/cleanup-plan.json').read_text())
+remaining={}
+for table in engine.KEYS:
+ condition=engine._expected_match(table,'r',plan,'delete_keys')
+ remaining[table]=m.sql('SELECT json_build_object(\'count\',count(*)) FROM '+engine._identifier(table)+' r WHERE '+condition)['count']
+counts=m.sql("SELECT json_build_object('current_line_count',count(*),'sanbao_config_rows',count(*) FILTER (WHERE coalesce(nullif(draft_config,''),'{}')::jsonb->>'provider'='sanbao' OR coalesce(nullif(published_config,''),'{}')::jsonb->>'provider'='sanbao' OR coalesce(nullif(previous_config,''),'{}')::jsonb->>'provider'='sanbao')) FROM pikno_lines")
+assert all(v==0 for v in remaining.values()) and counts['sanbao_config_rows']==0
+print(json.dumps({'passed':True,'version':m.VERSION,'healthy':app['State']['Health']['Status']=='healthy','remaining_exact_target_rows':remaining,**counts,'opening_balance_snapshot_saved':False,'real_generation_calls':0}))
+'''
+value=transport.remote(code,timeout=75)
+(HERE/'post-erasure-remaining.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps(value))

@@ -1,0 +1,155 @@
+"""Apply only the six explicitly reviewed leaf-image capacity targets."""
+import importlib.util
+import json
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+plan=json.loads((HERE/'cleanup-plan.json').read_text(encoding='utf-8'))
+APPROVED=plan['capacity_preclean_candidates']
+assert len(APPROVED)==6 and sum(value['unique_bytes'] for value in APPROVED)==1177539313
+
+REMOTE=r'''
+import datetime,fcntl,hashlib,json,os,pathlib,re,shutil,subprocess
+TARGET_FREE=2147483648
+APPROVED=__APPROVED__
+JOURNAL=pathlib.Path('/opt/piknoai-relay/account71-20261112/private/gif72-capacity-preclean.json')
+def require(value,code):
+ if not value:raise RuntimeError(code)
+def run(args,timeout=90):
+ result=subprocess.run(args,capture_output=True,timeout=timeout)
+ require(result.returncode==0,'CONTROLLED_COMMAND_FAILED')
+ return result.stdout
+def hashed(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+def inventory():
+ ids=run(['docker','ps','-aq','--no-trunc']).decode().split()
+ containers=json.loads(run(['docker','inspect',*ids])) if ids else []
+ imageids=sorted(set(run(['docker','image','ls','-aq','--no-trunc']).decode().split()))
+ images=json.loads(run(['docker','image','inspect',*imageids])) if imageids else []
+ return containers,images
+def runtime_snapshot(containers):
+ return {value['Id']:hashed({'image':value['Image'],'config':value['Config'],'host':value['HostConfig'],
+          'mounts':value['Mounts'],'networks':value['NetworkSettings']['Networks']}) for value in containers}
+def reference_snapshot(containers):
+ groups=set()
+ for value in containers:
+  labels=value['Config'].get('Labels') or {}
+  project=labels.get('com.docker.compose.project')
+  files=labels.get('com.docker.compose.project.config_files','').split(',')
+  require(project and all(files),'UNMANAGED_CONTAINER_REQUIRES_REVIEW')
+  groups.add((project,tuple(files)))
+ references={'hamster-account71-release:local'}
+ fingerprints={}
+ allowed=tuple(pathlib.Path(path) for path in ('/opt/piknoai-relay','/opt/pikno-tool-control'))
+ for project,files in groups:
+  paths=[pathlib.Path(file) for file in files]
+  require(all(path.is_file() and any(base in path.resolve().parents for base in allowed) for path in paths),'COMPOSE_PATH_REQUIRES_REVIEW')
+  fingerprints.update({str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths})
+  command=['docker','compose','-p',project]
+  for file in files:command+=['-f',file]
+  process=subprocess.run([*command,'config','--format','json'],capture_output=True,timeout=60)
+  if process.returncode:
+   process=subprocess.run([*command,'config','--no-interpolate','--no-env-resolution','--format','json'],capture_output=True,timeout=60)
+  require(process.returncode==0,'ACTIVE_COMPOSE_REFERENCE_UNRESOLVED')
+  services=json.loads(process.stdout)['services']
+  for name,service in services.items():
+   ref=service.get('image')
+   if ref and '$' in ref:
+    running=[value for value in containers if value['Config'].get('Labels',{}).get('com.docker.compose.project')==project and value['Config'].get('Labels',{}).get('com.docker.compose.service')==name]
+    require(len(running)==1,'INTERPOLATED_IMAGE_REFERENCE_UNRESOLVED')
+    ref=running[0]['Config']['Image']
+   if ref:references.add(ref)
+   build=service.get('build')
+   if not build:continue
+   if isinstance(build,str):build={'context':build}
+   dockerfile=pathlib.Path(build['context'])/build.get('dockerfile','Dockerfile')
+   require(dockerfile.is_file() and any(base in dockerfile.resolve().parents for base in allowed),'ACTIVE_DOCKERFILE_UNRESOLVED')
+   fingerprints[str(dockerfile)]=hashlib.sha256(dockerfile.read_bytes()).hexdigest()
+   text=dockerfile.read_text();arguments={}
+   for line in text.splitlines():
+    match=re.match(r'^\s*ARG\s+(\w+)=(\S+)\s*$',line,re.I)
+    if match:arguments[match.group(1)]=match.group(2)
+   arguments.update({key:str(value) for key,value in (build.get('args') or {}).items()})
+   for line in text.splitlines():
+    match=re.match(r'^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)',line,re.I)
+    if not match:continue
+    image=match.group(1)
+    for key,value in arguments.items():image=image.replace('${'+key+'}',value).replace('$'+key,value)
+    require('$' not in image,'ACTIVE_FROM_REFERENCE_UNRESOLVED')
+    references.add(image)
+ return references,fingerprints
+def volume_snapshot():
+ values=sorted(run(['docker','volume','ls','-q']).decode().split())
+ return {'count':len(values),'sha256':hashed(values)}
+def healthy(containers):
+ return all(value['State']['Running'] and value['State'].get('Health',{}).get('Status','healthy')=='healthy' for value in containers)
+def save(value,initial=False):
+ temporary=JOURNAL.with_name(JOURNAL.name+'.tmp')
+ require(not JOURNAL.is_symlink() and not temporary.exists(),'JOURNAL_PATH_INVALID')
+ if initial:require(not JOURNAL.exists(),'PREVIOUS_CLEANUP_REQUIRES_REVIEW')
+ with temporary.open('x') as target:
+  os.chmod(temporary,0o600);json.dump(value,target,sort_keys=True);target.flush();os.fsync(target.fileno())
+ os.replace(temporary,JOURNAL)
+result={'status':'initializing','approved_image_ids':[value['id'] for value in APPROVED],
+        'target_root_free_bytes':TARGET_FREE,'deleted':[],'production_service_changes':0,'volumes_deleted':0,'business_data_deleted':0}
+with pathlib.Path('/run/pikno-model-gif-cleanup.lock').open('a') as lock:
+ fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ try:
+  before_containers,before_images=inventory()
+  require(len(before_containers)==7 and healthy(before_containers),'LIVE_SERVICES_NOT_HEALTHY')
+  baseline=runtime_snapshot(before_containers)
+  volumes=volume_snapshot()
+  refs,fingerprints=reference_snapshot(before_containers)
+  result.update({'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'status':'running',
+                 'root_free_bytes_before':shutil.disk_usage('/').free,'container_count':len(before_containers),
+                 'volume_inventory':volumes,'runtime_fingerprints':baseline,'configuration_fingerprints':fingerprints})
+  save(result,True)
+  for candidate in APPROVED:
+   if shutil.disk_usage('/').free>=TARGET_FREE:break
+   containers,images=inventory()
+   require(runtime_snapshot(containers)==baseline and healthy(containers),'LIVE_RUNTIME_CHANGED')
+   current_refs,current_fingerprints=reference_snapshot(containers)
+   require(current_fingerprints==fingerprints,'ACTIVE_CONFIGURATION_CHANGED')
+   matches=[value for value in images if value['Id']==candidate['id']]
+   require(len(matches)==1,'APPROVED_IMAGE_NOT_PRESENT')
+   image=matches[0]
+   require(sorted(image.get('RepoTags') or [])==candidate['tags'],'APPROVED_IMAGE_TAG_CHANGED')
+   require(not any(value['Image']==image['Id'] for value in containers),'IMAGE_HAS_CONTAINER_REFERENCE')
+   require(not any(value.get('Parent')==image['Id'] for value in images),'IMAGE_HAS_CHILD_REFERENCE')
+   require(not any(tag in current_refs for tag in candidate['tags']),'IMAGE_HAS_BUILD_OR_COMPOSE_REFERENCE')
+   before_free=shutil.disk_usage('/').free
+   run(['docker','image','rm','--no-prune',candidate['id']],timeout=120)
+   remaining=run(['docker','image','ls','-aq','--no-trunc']).decode().split()
+   require(candidate['id'] not in remaining,'IMAGE_DELETE_NOT_CONFIRMED')
+   after_free=shutil.disk_usage('/').free
+   result['deleted'].append({'id':candidate['id'],'tags':candidate['tags'],'engine_unique_bytes_at_audit':candidate['unique_bytes'],
+                            'root_free_before':before_free,'root_free_after':after_free,'observed_free_delta_bytes':after_free-before_free})
+   save(result)
+  after_containers,after_images=inventory()
+  require(runtime_snapshot(after_containers)==baseline and healthy(after_containers),'POST_CLEANUP_RUNTIME_CHANGED')
+  require(volume_snapshot()==volumes,'POST_CLEANUP_VOLUME_INVENTORY_CHANGED')
+  require(reference_snapshot(after_containers)[1]==fingerprints,'POST_CLEANUP_CONFIG_CHANGED')
+  result.update({'status':'completed','finished_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                 'root_free_bytes_after':shutil.disk_usage('/').free,'all_runtime_fingerprints_preserved':True,
+                 'all_services_healthy':True,'volume_inventory_preserved':True,'configuration_preserved':True,
+                 'target_capacity_reached':shutil.disk_usage('/').free>=TARGET_FREE})
+  save(result)
+ except Exception as error:
+  code=str(error) if isinstance(error,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(error)) else 'PRIVATE_DETAILS_WITHHELD'
+  result.update({'status':'stopped_for_review','code':code,'root_free_bytes_after':shutil.disk_usage('/').free})
+  if JOURNAL.exists():save(result)
+ print(json.dumps(result))
+'''.replace('__APPROVED__',repr(APPROVED))
+
+spec=importlib.util.spec_from_file_location('cleanup_transport',ROOT/'output/direct-media-production-current/transport.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+try:
+    value=module.remote(REMOTE,timeout=900)
+    (HERE/'capacity-preclean-result.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps({'status':value['status'],'images_deleted':len(value['deleted']),
+                      'root_free_bytes_after':value['root_free_bytes_after'],'target_capacity_reached':value.get('target_capacity_reached',False),
+                      'all_services_healthy':value.get('all_services_healthy',False),'code':value.get('code')}))
+    if value['status']!='completed':raise SystemExit(1)
+except Exception:
+    print(json.dumps({'status':'result_uncertain_check_remote_journal','code':'TRANSPORT_FAILED_NO_AUTOMATIC_REPLAY'}))
+    raise SystemExit(1)

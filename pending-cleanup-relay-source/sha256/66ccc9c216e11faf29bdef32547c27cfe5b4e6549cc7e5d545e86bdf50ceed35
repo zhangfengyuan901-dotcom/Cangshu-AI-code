@@ -1,0 +1,37 @@
+async (page) => {
+  const out = 'D:/PIKNO/output/playwright/relay-model-gif-current';
+  await page.waitForFunction(() => document.querySelectorAll('.portal-model-animation').length === 8);
+  const images = page.locator('.portal-model-animation');
+  for (let i = 0; i < 8; i++) {
+    await images.nth(i).scrollIntoViewIfNeeded();
+    await images.nth(i).evaluate(image => image.decode());
+  }
+  const cards = await page.locator('.portal-model-card').evaluateAll(elements => elements.map(card => {
+    const frame = card.querySelector('.portal-model-card-top').getBoundingClientRect();
+    const image = card.querySelector('.portal-model-animation');
+    return {id: card.querySelector('.portal-model-id').textContent,
+      source: new URL(image.currentSrc).pathname, fit: getComputedStyle(image).objectFit,
+      width: frame.width, height: frame.height, naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight, complete: image.complete};
+  }));
+  if (cards.length !== 8 || new Set(cards.map(card => card.source)).size !== 8 ||
+      cards.some(card => !card.complete || !card.naturalWidth || card.fit !== 'contain' ||
+        !card.source.endsWith('.gif') || Math.abs(card.width / card.height - 16 / 9) > 0.015)) {
+    throw new Error('model_artwork_layout_failed');
+  }
+  const frames = page.locator('.portal-model-card-top');
+  for (let i = 0; i < 8; i++) {
+    await frames.nth(i).screenshot({path: out + '/model-' + i + '-a.png'});
+    await page.waitForTimeout(900);
+    await frames.nth(i).screenshot({path: out + '/model-' + i + '-b.png'});
+  }
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo({top: 0, left: 0, behavior: 'instant'});
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({path: out + '/models-desktop.png', fullPage: true});
+  return {passed: true, cards, viewport: page.viewportSize(),
+    overflow: await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+    reducedMotion: await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)};
+}

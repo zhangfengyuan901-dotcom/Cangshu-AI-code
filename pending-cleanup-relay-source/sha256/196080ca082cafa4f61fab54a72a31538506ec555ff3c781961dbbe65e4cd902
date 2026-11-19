@@ -1,0 +1,117 @@
+# Retired: installer distribution is restricted to the user-supplied netdisk.
+import json as _retired_json
+print(_retired_json.dumps({"ok":False,"code":"R2_INSTALLER_DISTRIBUTION_RETIRED","replacement":"仓鼠AI/scripts/publish-website.py"}, ensure_ascii=True))
+raise SystemExit(1)
+
+from pathlib import Path
+import hashlib
+import json
+import re
+import shutil
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+TARGET = HERE / "website77-candidate"
+SOURCE = ROOT / "仓鼠AI/website"
+
+def digest(path):
+    with path.open("rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+def write(path, text):
+    path.write_text(text, encoding="utf-8")
+
+def main():
+    if TARGET.exists():
+        raise RuntimeError("CANDIDATE_ALREADY_EXISTS")
+    shutil.copytree(SOURCE, TARGET / "website", ignore=shutil.ignore_patterns("node_modules", ".wrangler", ".dev.vars*", ".env*", "README.md"))
+    tests = TARGET / "tests"
+    tests.mkdir()
+    for name in ["website-download.test.mjs", "website-quickstart.test.mjs", "website-video-cases.test.mjs"]:
+        shutil.copy2(ROOT / "仓鼠AI/tests" / name, tests / name)
+    site = TARGET / "website"
+    home = site / "public/index.html"
+    text = home.read_text(encoding="utf-8").replace("1.7.75", "1.7.77")
+    text = text.replace("约 159 MiB", "约 __RELEASE77_MIB__ MiB")
+    text = text.replace("166,567,203", "__RELEASE77_BYTES__")
+    text = text.replace("C123ABF1741F2489E1E3585335E8D2C68A3A9FFAA21AB3E8A92E8CC765DBD829", "__RELEASE77_SHA256__")
+    old = "<li>注册并登录账户</li><li>按需手动充值</li><li>开通并启用所需功能，检测通过后开始使用</li>"
+    new = "<li>在网页注册或登录，连接仓鼠AI</li><li>按需在网页充值</li><li>手动返回仓鼠AI，检测连接后开始使用</li>"
+    assert old in text
+    write(home, text.replace(old, new))
+
+    tutorial = site / "public/tutorials/index.html"
+    text = tutorial.read_text(encoding="utf-8").replace("1.7.75", "1.7.77")
+    text = text.replace("在本地账户主页登录、充值，按需开通并启用功能", "在网页注册、连接应用并充值，手动返回仓鼠AI开始创作")
+    text = text.replace("从本地账户主页登录、手动充值，按用途开通并启用 Key。启用一种即可使用对应功能，无需一次开通四类。", "从应用账户页点击「去中转站充值」，在系统浏览器完成注册或登录。首次连接时核对连接码并授权，应用会自动配置图片、视频、工具和对话用途；老用户继续使用已保存的有效 Key。网页充值完成后，手动返回仓鼠AI查看余额与连接状态。")
+    text = text.replace(old, new)
+    text = text.replace("下载 → 打开 → 注册 → 充值 → 开始使用", "下载 → 打开 → 网页连接 → 充值 → 返回应用")
+    start = text.index('  <section class="tutorial-chapter reveal" id="account">')
+    end = text.index('  <section class="tutorial-chapter reveal" id="quote">', start)
+    chapter = """  <section class="tutorial-chapter reveal" id="account"><div class="tutorial-chapter-head"><h2>1. 连接账户并充值</h2></div>
+    <ol class="tutorial-steps"><li><b>从应用打开中转站</b><p>进入仓鼠AI「账户」，点击「去中转站充值」。系统浏览器会打开中转站。新用户注册并完成安全验证后自动登录；已有账户可直接登录，原账户、余额与订单继续使用。</p></li>
+      <li><b>首次连接当前仓鼠AI</b><p>核对网页与应用显示的连接码一致，再点击「连接仓鼠 AI 并继续充值」。系统按账户与用途补齐应用 Key，并在本机加密保存。已有同账户的有效配置继续使用。网页账号与应用账号不一致时，请切换网页账号后继续。</p></li>
+      <li><b>在网页按需充值</b><p>核对充值到账账号，选择金额和支付方式，点击「充值」进入收银台。按收银台显示金额付款。付款成功后网页核对到账并更新余额，取消或付款状态未确认时请查询原订单，避免重复付款。</p></li>
+      <li><b>手动返回应用开始使用</b><p>回到仓鼠AI后，账户页自动读取中转站余额和本机连接状态。点击「检测连接」可免费核对功能配置，检测不创建生成任务、不扣费。账户首次连接尚未完成时，请按应用提示重新核对；已经付款的订单继续由中转站查询处理。</p></li></ol>
+    <p>图片、视频、工具与对话用途共用同一账户余额。数字人与黑白深度使用工具用途。Key 在本机受系统加密保护；手动更换和移除仍可在高级连接设置中操作。切换账户时，请先处理旧账户的本机配置，再连接新账户。</p>
+    <p>连接检测通过表示认证及当前可用线路已确认。生成结果与费用以实际任务和账户记录为准。右上角素材权限灯按当前功能分别检测，手动检测需要遵循页面显示的重试间隔。</p></section>
+"""
+    text = text[:start] + chapter + text[end:]
+    text = text.replace("对话需单独启用同账户的对话 Key。", "首次连接会自动配置对话用途，已有用户沿用同账户的对话 Key。")
+    write(tutorial, text)
+
+    quick = site / "public/quickstart.js"
+    text = quick.read_text(encoding="utf-8").replace("仓鼠AI-1.7.72.exe", "仓鼠AI-1.7.77.exe")
+    text = text.replace("点击「注册账户」，在应用内填写信息、完成图形验证码与邮箱验证，然后登录。", "点击「去中转站充值」，在系统浏览器注册或登录。核对连接码后连接当前仓鼠AI。")
+    text = text.replace("在账户主页点击「充值」，核对当前充值账户、选择金额与支付方式，确认创建订单后再进入安全收银台，完成后核对订单与账户余额。", "在中转站网页核对到账账号，选择金额和支付方式，点击「充值」进入收银台。付款后网页自动核对到账。")
+    text = text.replace("按用途点击「开通并启用」，免费检测通过后进入对应功能，无需一次开通全部功能。", "首次连接按用途自动配置。充值后手动返回仓鼠AI，余额自动刷新，免费检测连接后开始使用。")
+    text = text.replace('<div class="qs-mini-action">注册账户</div>', '<div class="qs-mini-action">去中转站充值</div>')
+    text = text.replace('<strong>注册账户</strong><span>欢迎来到仓鼠AI</span>', '<strong>网页注册或登录</strong><span>连接当前仓鼠AI</span>')
+    text = text.replace('<span>确认付款</span>', '<span>网页付款</span>')
+    text = text.replace('<strong>开通并启用</strong><span>✓ 免费检测通过</span>', '<strong>返回仓鼠AI</strong><span>✓ 自动配置并免费检测</span>')
+    write(quick, text)
+
+    handler = site / "src/download-handler.js"
+    text = handler.read_text(encoding="utf-8")
+    marker = "const DOWNLOADS = new Map([\n"
+    assert marker in text
+    entry = """  ['/download/HamsterAI-Portable-1.7.77.exe', {
+    key: 'releases/1.7.77/HamsterAI-Portable-1.7.77.exe',
+    filename: '仓鼠AI正式版-1.7.77.exe'
+  }],
+"""
+    write(handler, text.replace(marker, marker + entry, 1))
+
+    file = tests / "website-download.test.mjs"
+    text = file.read_text(encoding="utf-8").replace("1.7.75", "1.7.77").replace(r"1\.7\.75", r"1\.7\.77")
+    text = text.replace("for (const version of ['1.7.73','1.7.74'])", "for (const version of ['1.7.73','1.7.74','1.7.75'])")
+    for oldline, newline in [
+        ("  assert.match(tutorial, /点击「开通并启用」/);", "  assert.match(tutorial, /连接仓鼠 AI 并继续充值/);"),
+        ("  assert.match(tutorial, /已有 Key 可点击「使用已有 Key」或「更换 Key」，明确选择后启用/);", "  assert.match(tutorial, /已有同账户的有效配置继续使用/);"),
+        ("  assert.match(tutorial, /无需一次开通四类/);", "  assert.match(tutorial, /系统按账户与用途补齐应用 Key/);"),
+    ]:
+        assert oldline in text
+        text = text.replace(oldline, newline)
+    write(file, text)
+    file = tests / "website-quickstart.test.mjs"
+    text = file.read_text(encoding="utf-8").replace("1.7.75", "1.7.77").replace(r"1\.7\.75", r"1\.7\.77")
+    text = text.replace("assert.match(steps[2], /注册.*登录/)", "assert.match(steps[2], /网页注册或登录/)")
+    text = text.replace("assert.match(steps[3], /手动充值/)", "assert.match(steps[3], /网页充值/)")
+    text = text.replace("assert.match(steps[4], /开通并启用.*检测通过.*开始使用/)", "assert.match(steps[4], /手动返回仓鼠AI.*检测连接.*开始使用/)")
+    text = text.replace("['在应用内', '按用途', '开通并启用', '免费检测通过', '无需一次开通全部功能']", "['系统浏览器', '按用途', '自动配置', '免费检测', '手动返回']")
+    text = text.replace("['直接在应用内','沿用已有账号、余额与订单','点击「继续支付」进入独立安全收银台','当前登录账号与本机 Key 归属不一致'", "['系统浏览器会打开中转站','原账户、余额与订单继续使用','点击「充值」进入收银台','网页账号与应用账号不一致'")
+    write(file, text)
+    originals = {p.relative_to(SOURCE).as_posix(): digest(p) for p in SOURCE.rglob("*") if p.is_file() and ".wrangler" not in p.parts and "node_modules" not in p.parts and p.name != "README.md"}
+    changed = [name for name, value in originals.items() if digest(site / name) != value]
+    expected = ["public/index.html", "public/quickstart.js", "public/tutorials/index.html", "src/download-handler.js"]
+    assert sorted(changed) == sorted(expected)
+    record = {"version": "1.7.77", "status": "prepared_waiting_for_verified_artifact", "candidate": str(TARGET.relative_to(ROOT)),
+              "changed_files": sorted(changed), "unchanged_files": len(originals) - len(changed),
+              "baseline_hashes": originals, "baseline_worker_version": "fae142f3-27e0-4106-9c98-90f82572983d",
+              "previous_downloads_preserved": ["1.7.73", "1.7.74", "1.7.75"], "production_mutations": 0}
+    record["baseline_test_hashes"] = {p.name: digest(ROOT / "仓鼠AI/tests" / p.name) for p in tests.iterdir()}
+    write(HERE / "website77-candidate.json", json.dumps(record, indent=2) + "\n")
+    print(json.dumps({key: record[key] for key in ["version", "status", "changed_files", "unchanged_files", "production_mutations"]}))
+
+if __name__ == "__main__":
+    main()

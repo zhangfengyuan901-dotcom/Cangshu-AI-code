@@ -1,0 +1,416 @@
+// Package piknocatalog holds a publication-only model catalog. It never changes
+// gateway channels, prices, quotas, credentials or task-plugin definitions.
+package piknocatalog
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+)
+
+type Price struct {
+	Resolution string   `json:"resolution"`
+	Unit       string   `json:"unit"`
+	CostCNY    *float64 `json:"cost_cny,omitempty"`
+	RetailCNY  float64  `json:"retail_cny"`
+}
+type Entry struct {
+	ID                    string    `json:"id"`
+	Provider              string    `json:"provider"`
+	Name                  string    `json:"name"`
+	Kind                  string    `json:"kind"`
+	Available             bool      `json:"upstream_available"`
+	Resolutions           []string  `json:"resolutions"`
+	Ratios                []string  `json:"ratios"`
+	Qualities             []string  `json:"qualities,omitempty"`
+	Durations             []float64 `json:"durations"`
+	MaxImages             int       `json:"max_images"`
+	MaxVideos             int       `json:"max_videos"`
+	MaxAudio              int       `json:"max_audio"`
+	MaxMediaTotal         *int      `json:"max_media_total,omitempty"`
+	Prices                []Price   `json:"prices"`
+	BillingUnit           string    `json:"billing_unit"`
+	CostIssueCode         string    `json:"cost_issue_code"`
+	BillingIssueCode      string    `json:"billing_issue_code"`
+	PriceIssue            bool      `json:"price_issue"`
+	ReferenceSurchargeCNY float64   `json:"reference_surcharge_cny"`
+}
+type Snapshot struct {
+	Revision  string  `json:"revision"`
+	FetchedAt string  `json:"fetched_at"`
+	Models    []Entry `json:"models"`
+}
+
+var modelID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,120}$`)
+var token = regexp.MustCompile(`^[A-Za-z0-9:_./-]{1,32}$`)
+
+func list(raw any) []string {
+	result := []string{}
+	values, _ := raw.([]any)
+	for _, v := range values {
+		s, ok := v.(string)
+		if ok && token.MatchString(s) && !slices.Contains(result, s) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+func numbers(raw any) []float64 {
+	result := []float64{}
+	values, _ := raw.([]any)
+	for _, v := range values {
+		n, ok := v.(float64)
+		if ok && n > 0 && n <= 600 && !slices.Contains(result, n) {
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
+// sanbaoDurations applies verified provider exceptions without inventing
+// capabilities that are absent from the upstream catalog.
+func sanbaoDurations(id string, raw any) []float64 {
+	durations := numbers(raw)
+	if id == "sd2_5_limited_720p" {
+		durations = slices.DeleteFunc(durations, func(value float64) bool {
+			return value < 5 || value > 30
+		})
+	}
+	return durations
+}
+func numeric(raw any) (float64, bool) {
+	n, ok := raw.(float64)
+	return n, ok && !math.IsNaN(n) && !math.IsInf(n, 0) && n >= 0 && n <= 1000000
+}
+func limit(raw any) int {
+	n, ok := numeric(raw)
+	if !ok || n > 1000 || n != math.Trunc(n) {
+		return 0
+	}
+	return int(n)
+}
+
+// A missing aggregate limit keeps the legacy contract; an explicitly invalid
+// upstream value permits no references. Zero remains distinct from missing.
+func mediaTotal(raw map[string]any, field string) *int {
+	value, present := raw[field]
+	if !present {
+		return nil
+	}
+	maximum := limit(value)
+	return &maximum
+}
+
+func label(raw any, fallback string) string {
+	s, ok := raw.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	r := []rune(s)
+	if len(r) > 160 {
+		r = r[:160]
+	}
+	return string(r)
+}
+func validPriceDivisor(divisor float64) bool {
+	return !math.IsNaN(divisor) && !math.IsInf(divisor, 0) && divisor > 0 && divisor <= 1000000
+}
+
+func referenceCNY(points, divisor float64) (float64, float64, bool) {
+	if !validPriceDivisor(divisor) {
+		return 0, 0, false
+	}
+	cost := math.Round(points/divisor*1000000) / 1000000
+	retail := math.Round(points/divisor*2*1000000) / 1000000
+	return cost, retail, !math.IsNaN(cost) && !math.IsInf(cost, 0) && !math.IsNaN(retail) && !math.IsInf(retail, 0)
+}
+
+// referencePriceRows preserves the declared billing contract when the provider's
+// cost is unavailable. A nil cost is distinct from an explicitly free price.
+func referencePriceRows(resolutions []string, byResolution any, fallback any, divisor float64, unit string) ([]Price, string) {
+	rows := []Price{}
+	values, hasMap := byResolution.(map[string]any)
+	issue := ""
+	for _, resolution := range resolutions {
+		row := Price{Resolution: resolution, Unit: unit}
+		raw := fallback
+		if hasMap && len(values) > 0 {
+			raw = values[resolution]
+		}
+		code := ""
+		if !validPriceDivisor(divisor) {
+			code = "invalid_exchange_rate"
+		} else if byResolution != nil && !hasMap {
+			code = "invalid_cost"
+		} else if raw == nil {
+			code = "missing_cost"
+		} else if n, ok := numeric(raw); !ok {
+			code = "invalid_cost"
+		} else {
+			// Suggestions only; customer prices are stored separately by the operator.
+			cost, retail, valid := referenceCNY(n, divisor)
+			if !valid {
+				code = "invalid_exchange_rate"
+			} else {
+				row.CostCNY, row.RetailCNY = &cost, retail
+			}
+		}
+		if issue == "" {
+			issue = code
+		}
+		rows = append(rows, row)
+	}
+	return rows, issue
+}
+
+// priceRows retains the original helper contract for callers that only need a
+// cost-warning flag. Missing costs no longer remove the associated price row.
+func priceRows(resolutions []string, byResolution any, fallback any, divisor float64, unit string) ([]Price, bool) {
+	if unit != "second" && unit != "request" {
+		return []Price{}, true
+	}
+	if len(resolutions) == 0 {
+		resolutions = []string{"default"}
+	}
+	rows, issue := referencePriceRows(resolutions, byResolution, fallback, divisor, unit)
+	return rows, issue != ""
+}
+
+func setVideoBilling(entry *Entry, raw any, secondMode, requestMode string) {
+	entry.Prices = []Price{}
+	mode, ok := raw.(string)
+	switch {
+	case raw == nil || ok && strings.TrimSpace(mode) == "":
+		entry.BillingIssueCode = "unknown_billing_unit"
+	case mode == secondMode:
+		entry.BillingUnit = "second"
+	case mode == requestMode:
+		entry.BillingUnit = "request"
+	default:
+		entry.BillingIssueCode = "invalid_billing_unit"
+	}
+	if entry.BillingIssueCode == "" && len(entry.Resolutions) == 0 {
+		entry.BillingIssueCode = "unknown_price_spec"
+	}
+	entry.PriceIssue = entry.BillingIssueCode != ""
+}
+
+func setVideoPrices(entry *Entry, byResolution any, fallback any, divisor float64) {
+	if entry.PriceIssue {
+		return
+	}
+	entry.Prices, entry.CostIssueCode = referencePriceRows(entry.Resolutions, byResolution, fallback, divisor, entry.BillingUnit)
+}
+
+func clearReferenceCosts(entry *Entry, issue string) {
+	for index := range entry.Prices {
+		entry.Prices[index].CostCNY = nil
+		entry.Prices[index].RetailCNY = 0
+	}
+	if !entry.PriceIssue {
+		entry.CostIssueCode = issue
+	}
+}
+
+func ParseSanbao(body []byte) ([]Entry, error) {
+	var payload struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := common.Unmarshal(body, &payload); err != nil || payload.Data == nil || len(payload.Data) > 500 {
+		return nil, errors.New("Sanbao catalog format unavailable")
+	}
+	result := []Entry{}
+	seen := map[string]bool{}
+	for _, raw := range payload.Data {
+		kind, ok := raw["type"].(string)
+		if !ok || strings.TrimSpace(kind) == "" {
+			return nil, errors.New("Invalid Sanbao model type")
+		}
+		if kind != "video" {
+			continue
+		}
+		id, _ := raw["id"].(string)
+		if !modelID.MatchString(id) || seen[id] {
+			return nil, errors.New("Invalid or duplicate Sanbao model")
+		}
+		seen[id] = true
+		enabled, ok := raw["enabled"].(bool)
+		if !ok {
+			return nil, errors.New("Sanbao availability missing")
+		}
+		entry := Entry{ID: "sanbao/" + id, Provider: "sanbao", Name: label(raw["name"], id), Kind: "video", Available: enabled, Resolutions: list(raw["resolutions"]), Ratios: list(raw["ratios"]), Durations: sanbaoDurations(id, raw["durations"]), MaxImages: limit(raw["max_images"]), MaxVideos: limit(raw["max_videos"]), MaxAudio: limit(raw["max_audios"]), MaxMediaTotal: mediaTotal(raw, "max_media_total")}
+		setVideoBilling(&entry, raw["billing"], "per_second", "per_generation")
+		switch raw["billing"] {
+		case "per_second":
+			setVideoPrices(&entry, raw["price_per_second_by_resolution_credits"], raw["price_per_second_credits"], 10)
+		case "per_generation":
+			// The web_* fields describe website prices, not an API price contract.
+			setVideoPrices(&entry, nil, raw["price_credits"], 10)
+			if len(entry.Resolutions) > 1 {
+				issue := entry.CostIssueCode
+				if issue == "" {
+					issue = "conflicting_cost"
+				}
+				clearReferenceCosts(&entry, issue)
+			}
+		}
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+// Protocol routes publish their capabilities in protocolLines.profile while
+// older routes keep them in videoProviders. Never borrow a different route's
+// profile or invent defaults. When both lists exist, allow only their overlap.
+func canseeCapabilities[T comparable](primary any, profile any, parse func(any) []T) []T {
+	if primary == nil {
+		return parse(profile)
+	}
+	values := parse(primary)
+	if profile == nil {
+		return values
+	}
+	allowed := parse(profile)
+	return slices.DeleteFunc(values, func(value T) bool { return !slices.Contains(allowed, value) })
+}
+
+func ParseCansee(body []byte) ([]Entry, error) {
+	var payload struct {
+		Defaults struct {
+			VideoProviders []map[string]any `json:"videoProviders"`
+			ProtocolLines  []map[string]any `json:"protocolLines"`
+			PointPricing   struct {
+				PointsPerYuan any `json:"pointsPerYuan"`
+			} `json:"pointPricing"`
+		} `json:"defaults"`
+	}
+	if err := common.Unmarshal(body, &payload); err != nil || payload.Defaults.VideoProviders == nil || len(payload.Defaults.VideoProviders) > 500 || len(payload.Defaults.ProtocolLines) > 500 {
+		return nil, errors.New("CanSeeDream catalog format unavailable")
+	}
+	profiles := map[string]map[string]any{}
+	for _, raw := range payload.Defaults.ProtocolLines {
+		id, _ := raw["id"].(string)
+		profile, ok := raw["profile"].(map[string]any)
+		if !modelID.MatchString(id) || profiles[id] != nil || !ok {
+			return nil, errors.New("Invalid or duplicate CanSeeDream protocol profile")
+		}
+		profiles[id] = profile
+	}
+	result := []Entry{}
+	seen := map[string]bool{}
+	for _, raw := range payload.Defaults.VideoProviders {
+		id, _ := raw["id"].(string)
+		if !modelID.MatchString(id) || seen[id] {
+			return nil, errors.New("Invalid or duplicate CanSeeDream route")
+		}
+		seen[id] = true
+		limits, _ := raw["limits"].(map[string]any)
+		entry := Entry{ID: "canseedream/video/" + id, Provider: "canseedream", Name: label(raw["label"], id), Kind: "video", Available: true, Resolutions: list(raw["allowedResolutions"]), Ratios: list(limits["allowedRatios"]), Durations: numbers(raw["allowedDurations"]), MaxImages: limit(limits["maxImages"]), MaxVideos: limit(limits["maxVideos"]), MaxAudio: limit(limits["maxAudio"]), MaxMediaTotal: mediaTotal(limits, "maxAssets")}
+		if len(entry.Resolutions) == 0 {
+			entry.Resolutions = list([]any{raw["resolution"]})
+		}
+		if len(entry.Durations) == 0 {
+			entry.Durations = numbers([]any{raw["durationSeconds"]})
+		}
+		if raw["protocolLine"] == true {
+			if providerLine := raw["providerLine"]; providerLine != nil && providerLine != id {
+				return nil, errors.New("CanSeeDream protocol route identity mismatch")
+			}
+			if profile := profiles[id]; profile != nil {
+				entry.Ratios = canseeCapabilities(limits["allowedRatios"], profile["ratios"], list)
+				if raw["allowedResolutions"] != nil || profile["resolutions"] != nil {
+					entry.Resolutions = canseeCapabilities(raw["allowedResolutions"], profile["resolutions"], list)
+				}
+				if raw["allowedDurations"] != nil || profile["durations"] != nil {
+					entry.Durations = canseeCapabilities(raw["allowedDurations"], profile["durations"], numbers)
+				}
+			}
+		}
+		divisor, _ := numeric(payload.Defaults.PointPricing.PointsPerYuan)
+		setVideoBilling(&entry, raw["pricingMode"], "per_second", "fixed")
+		switch raw["pricingMode"] {
+		case "per_second":
+			// The current provider docs assign resolutionPoints the unit declared by
+			// pricingMode. Keep explicit per-second maps authoritative when present;
+			// pointsCost is a total/example amount and must not become a second rate.
+			byResolution := raw["resolutionPointsPerSecond"]
+			perSecondMap, validMap := byResolution.(map[string]any)
+			if byResolution == nil || validMap && len(perSecondMap) == 0 {
+				byResolution = raw["resolutionPoints"]
+			}
+			setVideoPrices(&entry, byResolution, raw["pointsPerSecond"], divisor)
+		case "fixed":
+			setVideoPrices(&entry, raw["resolutionPoints"], raw["pointsCost"], divisor)
+		}
+		if raw["videoReferenceSurchargeEnabled"] == true {
+			surcharge, ok := numeric(raw["videoReferenceSurchargePoints"])
+			_, retail, valid := referenceCNY(surcharge, divisor)
+			if !ok || !valid {
+				if entry.CostIssueCode == "" {
+					entry.CostIssueCode = "reference_cost_unknown"
+				}
+			} else {
+				entry.ReferenceSurchargeCNY = retail
+			}
+		} else if flag := raw["videoReferenceSurchargeEnabled"]; flag != nil && flag != false && entry.CostIssueCode == "" {
+			entry.CostIssueCode = "reference_cost_unknown"
+		}
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+// PackyImageEntry describes the Images API contract. Retail is the operator's
+// confirmed flat price, not an estimate of the provider's cost.
+func PackyImageEntry() Entry {
+	maximum := 5 // Conservative product limit for the reviewed multi-image contract.
+	return Entry{ID: "gpt-image-2", Provider: "packy", Name: "图片生成", Kind: "image", Available: true, BillingUnit: "image",
+		Resolutions: []string{"1024x1024", "auto", "1536x1024", "1024x1536", "1536x864", "864x1536", "2048x2048", "2048x1152", "1152x2048", "3840x2160", "2160x3840", "1536x1152", "1152x1536"},
+		Ratios:      []string{"1:1", "auto", "3:2", "2:3", "16:9", "9:16", "4:3", "3:4"},
+		Qualities:   []string{"auto", "low", "medium", "high"}, Durations: []float64{}, MaxImages: maximum, MaxMediaTotal: &maximum,
+		Prices: []Price{{Resolution: "default", Unit: "image", RetailCNY: 0.1}}}
+}
+
+func Fetch(ctx context.Context) ([]Entry, error) {
+	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("Catalog redirects are not allowed") }}
+	providers := []struct {
+		url   string
+		parse func([]byte) ([]Entry, error)
+	}{
+		{"https://sanbaobeauty.com/api/public/openapi-models", ParseSanbao},
+		{"https://see.ximeiedu.org/health", ParseCansee},
+	}
+	result := []Entry{PackyImageEntry()}
+	for _, provider := range providers {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, provider.url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		response, err := client.Do(req)
+		if err != nil {
+			return nil, errors.New("Upstream catalog connection failed; published catalog unchanged")
+		}
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024+1))
+		response.Body.Close()
+		if response.StatusCode != 200 || readErr != nil || len(body) > 2*1024*1024 {
+			return nil, fmt.Errorf("Upstream catalog response rejected (HTTP %d)", response.StatusCode)
+		}
+		entries, err := provider.parse(body)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, entries...)
+	}
+	slices.SortFunc(result, func(a, b Entry) int { return strings.Compare(a.ID, b.ID) })
+	return result, nil
+}

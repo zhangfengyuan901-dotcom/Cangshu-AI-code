@@ -1,0 +1,280 @@
+import concurrent.futures
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+ROOT = Path('D:/PIKNO')
+HERE = ROOT / 'output/relay-sanbao-retirement-current'
+SOURCE = ROOT / 'deploy/new-api/backend'
+NETWORK = 'relay-retire68-tests'
+TASK = 'relay-sanbao-retirement-current'
+LABELS = ['--label', 'codex.task=' + TASK, '--label', 'codex.component=database-matrix68']
+GO = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+RESOURCES = HERE / 'database-resources68.json'
+
+def run(args, timeout=90, check=True, data=None):
+    result = subprocess.run(args, input=data, capture_output=True, timeout=timeout)
+    if check and result.returncode:
+        raise RuntimeError('ISOLATED_MATRIX_COMMAND_FAILED_' + args[0])
+    return result
+
+def save(name, value):
+    (HERE / name).write_text(json.dumps(value, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+
+def progress(stage, **values):
+    value = {'stage': stage, **values}
+    save('database-matrix68-progress.json', value)
+    print(json.dumps(value), flush=True)
+
+def source_hashes():
+    paths = sorted(SOURCE.rglob('*.go')) + [SOURCE / 'go.mod', SOURCE / 'go.sum']
+    return {path.relative_to(SOURCE).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in paths if 'vendor' not in path.parts}
+
+def go_args(network='none', variables=None):
+    args = ['docker', 'run', '--rm', '--network', network, *LABELS,
+        '--mount', 'type=bind,source=' + SOURCE.as_posix() + ',target=/workspace,readonly',
+        '--mount', 'type=bind,source=' + HERE.as_posix() + ',target=/verify',
+        '--mount', 'type=bind,source=' + (SOURCE / 'pikno-tools.js').as_posix() + ',target=/build/pikno-tools.js,readonly',
+        '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+        '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+        '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2']
+    for name, value in (variables or {}).items():
+        args += ['-e', name + '=' + value]
+    return args + [GO]
+
+def prepare():
+    for kind, name in [('network', NETWORK), ('container', 'relay-retire68-mysql'), ('container', 'relay-retire68-pg')]:
+        if run(['docker', kind, 'inspect', name], check=False).returncode == 0:
+            raise RuntimeError('TASK_RESOURCE_NAME_ALREADY_IN_USE_' + name)
+    plan = {'format': 1, 'task': TASK, 'network': {'name': NETWORK, 'internal': True},
+        'containers': [], 'host_ports': [], 'production_resources': [], 'cleanup': 'retained_for_root_review'}
+    save(RESOURCES.name, plan)
+    network_id = run(['docker', 'network', 'create', '--internal', *LABELS, NETWORK]).stdout.decode().strip()
+    plan['network']['id'] = network_id
+    save(RESOURCES.name, plan)
+    specs = [
+        ('mysql', 'relay-retire68-mysql', 'mysql:8.0', ['/var/lib/mysql', '/var/run/mysqld'],
+         ['MYSQL_ALLOW_EMPTY_PASSWORD=yes', 'MYSQL_ROOT_HOST=%'],
+         ['--max-connections=40', '--innodb-buffer-pool-size=100M', '--skip-log-bin']),
+        ('postgres', 'relay-retire68-pg', 'postgres:16-alpine', ['/var/lib/postgresql/data'],
+         ['POSTGRES_HOST_AUTH_METHOD=trust', 'POSTGRES_USER=retire68', 'POSTGRES_DB=retire68'], [])]
+    for engine, name, image, tmpfs, variables, command in specs:
+        args = ['docker', 'run', '-d', '--name', name, '--network', NETWORK, '--network-alias', engine,
+            *LABELS, '--memory', '1536m', '--cpus', '2']
+        for directory in tmpfs:
+            args += ['--tmpfs', directory + ':rw,nosuid,size=512m']
+        for value in variables:
+            args += ['-e', value]
+        container_id = run(args + [image, *command]).stdout.decode().strip()
+        info = json.loads(run(['docker', 'inspect', container_id]).stdout)[0]
+        assert not info['HostConfig']['PortBindings'], 'HOST_PORT_BOUND'
+        assert not any(m['Type'] == 'bind' for m in info['Mounts']), 'DATABASE_HOST_MOUNT_FOUND'
+        assert info['Config']['Labels']['codex.task'] == TASK
+        plan['containers'].append({'engine': engine, 'name': name, 'id': container_id,
+            'image_id': info['Image'], 'tmpfs': tmpfs, 'host_ports': []})
+        save(RESOURCES.name, plan)
+    progress('isolated_database_containers_started', network_internal=True, host_ports=0)
+
+def ready():
+    deadline = time.monotonic() + 160
+    waiting = {'mysql', 'postgres'}
+    commands = {
+        'mysql': ['docker', 'exec', 'relay-retire68-mysql', 'mysql', '-h', '127.0.0.1', '-uroot', '-N', '-e', 'SELECT 1'],
+        'postgres': ['docker', 'exec', 'relay-retire68-pg', 'psql', '-h', '127.0.0.1', '-U', 'retire68', '-d', 'postgres', '-At', '-c', 'SELECT 1']}
+    while waiting and time.monotonic() < deadline:
+        for engine in sorted(waiting):
+            if run(commands[engine], timeout=8, check=False).returncode == 0:
+                waiting.remove(engine)
+        if waiting:
+            time.sleep(1)
+    assert not waiting, 'DATABASE_START_TIMEOUT'
+    mysql = run(['docker', 'exec', 'relay-retire68-mysql', 'mysql', '-h', '127.0.0.1', '-uroot', '-N', '-e', 'SELECT VERSION()']).stdout.decode().strip()
+    pg = run(['docker', 'exec', 'relay-retire68-pg', 'psql', '-h', '127.0.0.1', '-U', 'retire68', '-d', 'postgres', '-At', '-c', 'SELECT version()']).stdout.decode().strip()
+    return {'mysql': mysql, 'postgres': pg}
+
+def compile_tests():
+    binaries = HERE / 'matrix68-binaries'
+    binaries.mkdir(exist_ok=True)
+    result = run(go_args() + ['go', 'test', '-c', '-p', '2', '-o', '/verify/matrix68-binaries', './model', './controller', './pkg/piknocatalog'],
+        timeout=300, check=False)
+    (HERE / 'database-matrix68-build.log').write_bytes(result.stdout + result.stderr)
+    assert result.returncode == 0, 'TEST_BINARY_BUILD_FAILED'
+    helper = HERE / 'sqlite-version68.go'
+    helper.write_text('package main\nimport("fmt";"github.com/glebarez/sqlite";"gorm.io/gorm")\nfunc main(){d,e:=gorm.Open(sqlite.Open(":memory:"),&gorm.Config{});if e!=nil{panic("open")};var v string;if d.Raw("SELECT sqlite_version()").Scan(&v).Error!=nil{panic("query")};fmt.Print(v)}\n', encoding='utf-8')
+    sqlite = run(go_args() + ['go', 'run', '-p', '2', '/verify/sqlite-version68.go'], timeout=90).stdout.decode().strip()
+    return sqlite
+
+def execute_test(engine, package, expression, database=None):
+    variables = {}
+    if database:
+        assert re.fullmatch(r'retire68_[0-9]{3}', database)
+        if engine == 'mysql':
+            dsn = 'root@tcp(mysql:3306)/' + database + '?charset=utf8mb4&parseTime=True&loc=Local'
+        else:
+            dsn = 'host=postgres port=5432 user=retire68 dbname=' + database + ' sslmode=disable'
+        variables = {'PIKNO_SETTLEMENT_TEST_DRIVER': engine, 'PIKNO_SETTLEMENT_TEST_DSN': dsn}
+    network = NETWORK if database else 'none'
+    binary = 'piknocatalog' if package == 'pkg/piknocatalog' else package
+    args = go_args(network, variables) + ['go', 'tool', 'test2json', '-p', 'github.com/QuantumNous/new-api/' + package,
+        '/verify/matrix68-binaries/' + binary + '.test', '-test.v', '-test.count=1', '-test.timeout=240s', '-test.run', expression]
+    result = run(args, timeout=270, check=False)
+    key = engine + '-' + package.replace('/', '-') + '-' + (database or 'all')
+    (HERE / ('matrix68-' + key + '.jsonl')).write_bytes(result.stdout + result.stderr)
+    events = []
+    for line in result.stdout.decode(errors='replace').splitlines():
+        if line.startswith('{'):
+            events.append(json.loads(line))
+    tests = [item for item in events if item.get('Test') and item.get('Action') in ('pass', 'fail', 'skip')]
+    value = {'engine': engine, 'package': package, 'expression': expression, 'isolated_database': database,
+        'passed': result.returncode == 0 and not any(item.get('Action') == 'fail' for item in events),
+        'test_functions_passed': sum(item['Action'] == 'pass' and '/' not in item['Test'] for item in tests),
+        'test_cases_passed': sum(item['Action'] == 'pass' for item in tests),
+        'test_cases_skipped': sum(item['Action'] == 'skip' for item in tests),
+        'failed_tests': [item['Test'] for item in tests if item['Action'] == 'fail'], 'log': 'matrix68-' + key + '.jsonl'}
+    return value
+
+def engine_matrix(engine, names):
+    results = []
+    for index, name in enumerate(names):
+        database = 'retire68_' + f'{index:03d}'
+        # Each top-level test has its own fresh database; helpers do not clear
+        # server databases between invocations, unlike their SQLite temp files.
+        if engine == 'mysql':
+            run(['docker', 'exec', 'relay-retire68-mysql', 'mysql', '-h', '127.0.0.1', '-uroot', '-e',
+                'CREATE DATABASE `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'])
+        else:
+            run(['docker', 'exec', 'relay-retire68-pg', 'createdb', '-h', '127.0.0.1', '-U', 'retire68', database])
+        value = execute_test(engine, 'model', '^' + re.escape(name) + '$', database)
+        value['test_binary_sha256'] = hashlib.sha256((HERE / 'matrix68-binaries/model.test').read_bytes()).hexdigest()
+        value['database_created_in_task_owned_container'] = True
+        value['database_dropped_after_test'] = False
+        results.append(value)
+        save('database-matrix68-' + engine + '-partial.json', results)
+        if not value['passed']:
+            progress('database_test_failed', engine=engine, test=name, log=value['log'])
+            return results
+        validate_resources()
+        # Persist the precise disposable target before removing this test DB.
+        save('database-matrix68-' + engine + '-database-cleanup.json',
+            {'engine': engine, 'container': 'relay-retire68-mysql' if engine == 'mysql' else 'relay-retire68-pg',
+             'database': database, 'scope': 'one_completed_isolated_synthetic_test_database', 'production_resources': []})
+        if engine == 'mysql':
+            run(['docker', 'exec', 'relay-retire68-mysql', 'mysql', '-h', '127.0.0.1', '-uroot', '-e', 'DROP DATABASE `' + database + '`'])
+        else:
+            run(['docker', 'exec', 'relay-retire68-pg', 'dropdb', '-h', '127.0.0.1', '-U', 'retire68', database])
+        value['database_dropped_after_test'] = True
+        save('database-matrix68-' + engine + '-partial.json', results)
+    progress('database_engine_complete', engine=engine, top_level_tests=len(results), passed=all(x['passed'] for x in results))
+    return results
+
+def validate_resources():
+    plan = json.loads(RESOURCES.read_text(encoding='utf-8'))
+    network = json.loads(run(['docker', 'network', 'inspect', NETWORK]).stdout)[0]
+    assert network['Id'] == plan['network']['id'] and network['Internal'] and network['Labels']['codex.task'] == TASK, 'TASK_NETWORK_IDENTITY_DRIFT'
+    for item in plan['containers']:
+        info = json.loads(run(['docker', 'inspect', item['name']]).stdout)[0]
+        assert info['Id'] == item['id'] and info['Image'] == item['image_id'] and info['State']['Running'], 'TASK_DATABASE_IDENTITY_DRIFT'
+        assert info['Config']['Labels']['codex.task'] == TASK and info['HostConfig']['NetworkMode'] == NETWORK, 'TASK_DATABASE_LABEL_OR_NETWORK_DRIFT'
+        assert not info['HostConfig']['PortBindings'], 'TASK_DATABASE_PORT_EXPOSED'
+
+def servers():
+    validate_resources()
+    names = json.loads((HERE / 'database-matrix68-model-tests.json').read_text(encoding='utf-8'))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        pending = {engine: pool.submit(engine_matrix, engine, names) for engine in ('mysql', 'postgres')}
+        results = {engine: value.result() for engine, value in pending.items()}
+    save('database-matrix68-servers.json', results)
+    passed = all(len(v) == len(names) and all(x['passed'] for x in v) for v in results.values())
+    progress('server_engines_complete', passed=passed, mysql_tests=len(results['mysql']), postgres_tests=len(results['postgres']))
+    return 0 if passed else 1
+
+def finalize():
+    validate_resources()
+    frozen = source_hashes()
+    sqlite = compile_tests()
+    assert frozen == source_hashes(), 'SOURCE_CHANGED_DURING_FINAL_COMPILATION'
+    versions = ready()
+    versions['sqlite'] = sqlite
+    results = [execute_test('sqlite', package, '^TestPikno' if package != 'pkg/piknocatalog' else '.')
+        for package in ('model', 'controller', 'pkg/piknocatalog')]
+    save('database-matrix68-sqlite.json', results)
+    server_results = json.loads((HERE / 'database-matrix68-servers.json').read_text(encoding='utf-8'))
+    final_model = hashlib.sha256((HERE / 'matrix68-binaries/model.test').read_bytes()).hexdigest()
+    server_binary_matches = all(item.get('test_binary_sha256') == final_model for v in server_results.values() for item in v)
+    names = json.loads((HERE / 'database-matrix68-model-tests.json').read_text(encoding='utf-8'))
+    servers_passed = all(len(v) == len(names) and all(x['passed'] for x in v) for v in server_results.values())
+    save('database-matrix68-source-hashes-final.json', frozen)
+    value = {'format': 1, 'passed': all(x['passed'] for x in results) and servers_passed and server_binary_matches,
+        'engine_versions': versions, 'source_hashes_unchanged': frozen == source_hashes(),
+        'source_hash_manifest': 'database-matrix68-source-hashes-final.json',
+        'server_test_binary_identical_to_final_source_build': server_binary_matches,
+        'per_top_level_test_database_isolation': True, 'model_top_level_test_count_per_server_engine': len(names),
+        'results': results + server_results['mysql'] + server_results['postgres'],
+        'coverage': ['fresh databases', 'populated pre-retirement migration', 'startup migration repeated twice',
+            'current identities and indexes retained', 'retired provider no reimport', 'active provider row-lock isolation',
+            'shared seed/publish/rollback/cache guards', 'other unknown tasks and financial snapshots preserved'],
+        'fixture': {'path': 'deploy/new-api/backend/pikno-tools.js', 'sha256': hashlib.sha256((SOURCE / 'pikno-tools.js').read_bytes()).hexdigest()},
+        'resources': RESOURCES.name, 'task_resources_retained_for_root': True, 'production_mutations': 0,
+        'generation_requests': 0, 'payment_requests': 0}
+    value['passed'] = value['passed'] and value['source_hashes_unchanged']
+    save('database-matrix68.json', value)
+    progress('database_matrix_finished', passed=value['passed'], versions=versions,
+        sqlite_test_cases=sum(x['test_cases_passed'] for x in results),
+        mysql_top_level_tests=len(server_results['mysql']), postgres_top_level_tests=len(server_results['postgres']))
+    return 0 if value['passed'] else 1
+
+def main():
+    frozen = source_hashes()
+    save('database-matrix68-source-hashes.json', frozen)
+    prepare()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        readiness = pool.submit(ready)
+        sqlite = compile_tests()
+        versions = readiness.result()
+    versions['sqlite'] = sqlite
+    save('database-matrix68-engine-versions.json', versions)
+    progress('test_binaries_compiled', versions=versions)
+    assert frozen == source_hashes(), 'SOURCE_CHANGED_DURING_COMPILATION'
+    listing = run(go_args() + ['/verify/matrix68-binaries/model.test', '-test.list', '^TestPikno'], timeout=40).stdout.decode()
+    names = sorted(set(re.findall(r'^TestPikno[A-Za-z0-9_]+$', listing, re.M)))
+    assert len(names) >= 25, 'MODEL_TEST_LIST_INCOMPLETE'
+    save('database-matrix68-model-tests.json', names)
+    sqlite_results = [execute_test('sqlite', package, '^TestPikno' if package != 'pkg/piknocatalog' else '.')
+        for package in ('model', 'controller', 'pkg/piknocatalog')]
+    save('database-matrix68-sqlite.json', sqlite_results)
+    progress('sqlite_complete', passed=all(x['passed'] for x in sqlite_results), packages=len(sqlite_results))
+    if not all(x['passed'] for x in sqlite_results):
+        raise RuntimeError('SQLITE_MATRIX_FAILED')
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {engine: pool.submit(engine_matrix, engine, names) for engine in ('mysql', 'postgres')}
+        engines = {engine: future.result() for engine, future in futures.items()}
+    results = sqlite_results + engines['mysql'] + engines['postgres']
+    value = {'format': 1, 'passed': all(x['passed'] for x in results), 'engine_versions': versions,
+        'source_hashes_unchanged': frozen == source_hashes(), 'source_hash_manifest': 'database-matrix68-source-hashes.json',
+        'compiled_once': True, 'per_top_level_test_database_isolation': True,
+        'model_top_level_test_count_per_server_engine': len(names), 'results': results,
+        'coverage': ['fresh databases', 'populated pre-retirement migration', 'startup migration repeated twice',
+            'current identities and indexes retained', 'retired provider no reimport', 'active provider row-lock isolation',
+            'shared seed/publish/rollback/cache guards', 'other unknown tasks and financial snapshots preserved'],
+        'resources': RESOURCES.name, 'task_resources_retained_for_root': True, 'production_mutations': 0,
+        'generation_requests': 0, 'payment_requests': 0}
+    value['passed'] = value['passed'] and value['source_hashes_unchanged']
+    save('database-matrix68.json', value)
+    progress('database_matrix_finished', passed=value['passed'], versions=versions,
+        sqlite_test_cases=sum(x['test_cases_passed'] for x in sqlite_results),
+        mysql_top_level_tests=len(engines['mysql']), postgres_top_level_tests=len(engines['postgres']))
+    return 0 if value['passed'] else 1
+
+if __name__ == '__main__':
+    try:
+        action = sys.argv[1] if len(sys.argv) > 1 else 'all'
+        assert action in ('all', 'servers', 'finalize'), 'UNSUPPORTED_MATRIX_ACTION'
+        raise SystemExit({'all': main, 'servers': servers, 'finalize': finalize}[action]())
+    except Exception as error:
+        progress('matrix_aborted', code=str(error) if isinstance(error, (AssertionError, RuntimeError)) else 'MATRIX_DETAILS_WITHHELD')
+        raise SystemExit(1)

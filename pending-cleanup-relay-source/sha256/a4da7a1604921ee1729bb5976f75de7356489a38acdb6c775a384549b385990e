@@ -1,0 +1,60 @@
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+SOURCE = ROOT / 'build/hamster-trim44-web/dist'
+TARGET = ROOT / 'deploy/new-api/backend/web/dist'
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main():
+    assert SOURCE.is_dir() and TARGET.is_dir()
+    old = json.loads((HERE / 'backend-web-baseline.json').read_text(encoding='utf-8'))['files']
+    immutable = [row for row in old if re.search(r'[.-][a-f0-9]{8,}(?:[.-]|$)', Path(row['path']).name)
+                 and Path(row['path']).suffix in ('.js', '.css')]
+    for row in immutable:
+        assert digest(TARGET / row['path']) == row['sha256'], 'old_asset_changed_before_merge'
+    for relative in ['account-lite/index.html', 'api-guide.md', 'developer-guide.md', 'examples/media-edit.mjs']:
+        assert digest(SOURCE / relative) == digest(SOURCE.parent / 'public' / relative), 'latest_public_file_not_built'
+    marker = json.loads((SOURCE / 'lite-build.json').read_text(encoding='utf-8'))
+    assert 'account-lite/account.mjs' in marker['files'], 'fixed_account_compilation_missing'
+    compiled = []
+    for relative in ['account-lite/account.mjs', 'account-lite/account.css']:
+        source, built = SOURCE.parent / 'public' / relative, SOURCE / relative
+        assert built.stat().st_mtime_ns >= source.stat().st_mtime_ns, 'fixed_account_build_older_than_source'
+        compiled.append({'path': relative, 'source_sha256': digest(source), 'compiled_sha256': digest(built),
+                         'compiler': 'scripts/build-lite.mjs'})
+    records = []
+    for file in sorted(SOURCE.rglob('*')):
+        if not file.is_file():
+            continue
+        relative = file.relative_to(SOURCE)
+        target = TARGET / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(file, target)
+        assert digest(file) == digest(target), 'merged_file_hash_mismatch'
+        records.append({'path': relative.as_posix(), 'bytes': file.stat().st_size, 'sha256': digest(file)})
+    for row in immutable:
+        assert digest(TARGET / row['path']) == row['sha256'], 'old_asset_changed_after_merge'
+    result = {'format': 1, 'new_files': records, 'old_hashed_files_checked': len(immutable),
+              'old_hashed_files_unchanged': True, 'deleted_files': 0, 'new_file_count': len(records),
+              'compiled_fixed_account_assets': compiled}
+    (HERE / 'web-merge-manifest.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    log = (HERE / 'browser-qa-navigation-final.log').read_text(encoding='utf-8-sig')
+    qa = json.loads(log.split('### Result\n', 1)[1].split('\n', 1)[0])
+    assert qa['ok'] and qa['checks'] == 33
+    qa['embedded_index_sha256'] = digest(TARGET / 'index.html')
+    (HERE / 'browser-qa-verification.json').write_text(json.dumps(qa, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'merged_files': len(records), 'old_hashed_assets_preserved': len(immutable),
+                      'deleted_files': 0, 'browser_checks': qa['checks']}))
+
+
+if __name__ == '__main__':
+    main()

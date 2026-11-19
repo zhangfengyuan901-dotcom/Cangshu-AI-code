@@ -1,0 +1,94 @@
+"""Read-only service semantics audit and private 0600 review baseline."""
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import time
+
+STAGE=Path('/opt/piknoai-relay/account71-20261112')
+spec=importlib.util.spec_from_file_location('stage71',STAGE/'release71-candidate.py')
+stage=importlib.util.module_from_spec(spec);spec.loader.exec_module(stage)
+
+def env(values):
+    return dict(value.split('=',1) for value in values or [])
+
+def duration(value):
+    units={'ns':1,'us':1000,'ms':1000000,'s':1000000000,'m':60000000000,'h':3600000000000}
+    return int(sum(float(number)*units[unit] for number,unit in re.findall(r'([0-9.]+)(ns|us|ms|s|m|h)',str(value))))
+
+def audit(name,info,compose):
+    service=compose['services'][name]
+    image=json.loads(stage.run(['docker','image','inspect',info['Image']]))[0]['Config']
+    expected_env=env(image.get('Env'));expected_env.update({key:str(value) for key,value in service.get('environment',{}).items()})
+    checks={'environment':env(info['Config'].get('Env'))==expected_env}
+    for key,config_key in (('user','User'),('entrypoint','Entrypoint'),('command','Cmd'),('working_dir','WorkingDir')):
+        expected=service.get(key)
+        if expected is None:expected=image.get(config_key)
+        actual=info['Config'].get(config_key)
+        checks[key]=(actual or None)==(expected or None)
+    health=service.get('healthcheck') or image.get('Healthcheck',{})
+    if 'test' in health:
+        expected={key:duration(health[value]) if value in ('interval','timeout','start_period','start_interval') else health[value] for value,key in (('test','Test'),('interval','Interval'),('timeout','Timeout'),('start_period','StartPeriod'),('start_interval','StartInterval'),('retries','Retries')) if value in health}
+    else:expected=health
+    actual=info['Config'].get('Healthcheck',{})
+    checks['healthcheck']=all(actual.get(key,0)==expected.get(key,0) for key in set(actual)|set(expected))
+    mounts=[]
+    for value in service.get('volumes',[]):
+        source=value['source']
+        if value['type']=='volume':source=compose['volumes'][source]['name']
+        mounts.append({'type':value['type'],'source':source,'target':value['target'],'read_only':bool(value.get('read_only'))})
+    for value in service.get('secrets',[]):
+        secret=compose['secrets'][value['source']]
+        target=value.get('target') or value['source']
+        if not target.startswith('/'):target='/run/secrets/'+target
+        mounts.append({'type':'bind','source':secret['file'],'target':target,'read_only':True})
+    actual=[{'type':value['Type'],'source':value['Name'] if value['Type']=='volume' else value['Source'],'target':value['Destination'],'read_only':not value['RW']} for value in info['Mounts']]
+    ordered=lambda values:sorted(values,key=lambda value:(value['target'],value['source']))
+    checks['mount_sources_targets_permissions']=ordered(mounts)==ordered(actual)
+    networks=sorted(compose['networks'][key]['name'] for key in service.get('networks',{'default':{}}))
+    checks['networks']=sorted(info['NetworkSettings']['Networks'])==networks and info['HostConfig']['NetworkMode'] in networks
+    ports={}
+    for value in service.get('ports',[]):
+        ports.setdefault(str(value['target'])+'/'+value.get('protocol','tcp'),[]).append({'HostIp':value.get('host_ip',''),'HostPort':str(value['published'])})
+    checks['published_ports']=(info['HostConfig'].get('PortBindings') or {})==ports
+    restart=service.get('restart','no').split(':')
+    checks['restart_policy']=info['HostConfig']['RestartPolicy']=={'Name':restart[0],'MaximumRetryCount':int(restart[1]) if len(restart)>1 else 0}
+    log=service.get('logging',{})
+    checks['logging']=info['HostConfig']['LogConfig']=={'Type':log.get('driver','json-file'),'Config':log.get('options',{})}
+    host=info['HostConfig']
+    checks['resource_limits']=all(host.get(key,0)==0 for key in ('CpuShares','NanoCpus','CpuPeriod','CpuQuota','Memory','MemoryReservation','MemorySwap')) and host.get('CpusetCpus','')=='' and host.get('PidsLimit') in (None,0)
+    checks['security_defaults']=not host.get('Privileged') and not host.get('ReadonlyRootfs') and not host.get('CapAdd') and not host.get('CapDrop') and not host.get('SecurityOpt')
+    return checks
+
+def field_hashes(value,path=''):
+    result={path:stage.hashed(value)}
+    if isinstance(value,dict):
+        for key,child in value.items():result.update(field_hashes(child,path+'.'+key if path else key))
+    elif isinstance(value,list):
+        for index,child in enumerate(value):result.update(field_hashes(child,path+'['+str(index)+']'))
+    return result
+
+def main():
+    plan=json.loads((stage.PRIVATE/'stage.json').read_text())
+    app,bridge=stage.current()
+    compose=json.loads(stage.run([*stage.COMPOSE,'config','--format','json']))
+    checks={name:audit(name,info,compose) for name,info in (('new-api',app),('lanjing-bridge',bridge))}
+    original=plan['after']
+    checks['original']={'configuration_bytes':stage.files_fingerprint()==original['files'],'app_environment':stage.hashed(sorted(app['Config'].get('Env',[])))==original['app_environment_sha256'],'bridge_environment':stage.hashed(sorted(bridge['Config'].get('Env',[])))==original['bridge_environment_sha256'],'auth_billing_options':stage.database_fingerprints()['auth_billing_options']==original['database']['auth_billing_options']}
+    candidate_configs={}
+    for role,old,new in (('app',stage.OLD_APP_IMAGE,plan['candidate_app_image_id']),('bridge',stage.OLD_BRIDGE_IMAGE,plan['candidate_bridge_image_id'])):
+        configs=[json.loads(stage.run(['docker','image','inspect',image]))[0]['Config'] for image in (old,new)]
+        candidate_configs[role]=configs[0]==configs[1]
+    valid=all(all(values.values()) for values in checks.values()) and all(candidate_configs.values())
+    value={'verified':valid,'checks':checks,'candidate_image_configs_unchanged':candidate_configs,'production_service_mutations':0,'financial_restore':False}
+    if valid:
+        baseline={'recorded_at':time.time(),'original_stage_sha256':stage.digest(stage.PRIVATE/'stage.json'),'app':app,'bridge':bridge,'schema':stage.schema(),'compose':compose,'checks':checks,'app_runtime':stage.runtime(app),'bridge_runtime':stage.runtime(bridge),'field_hashes':{role:field_hashes({key:info[key] for key in ('Config','HostConfig','Mounts')}) for role,info in (('app',app),('bridge',bridge))}}
+        file=stage.PRIVATE/'reviewed-runtime-baseline.json'
+        with file.open('x') as output:
+            os.chmod(file,0o600);json.dump(baseline,output,sort_keys=True)
+        value['private_baseline_sha256']=stage.digest(file)
+    print(json.dumps(value))
+
+if __name__=='__main__':main()

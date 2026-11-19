@@ -1,0 +1,243 @@
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+import unittest
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location('cleanup68', HERE / 'cleanup68.py')
+C = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(C)
+
+DDL = '''
+CREATE TABLE users(id int PRIMARY KEY,quota int,used_quota int,request_count int,marker text);
+CREATE TABLE tokens(id int PRIMARY KEY,user_id int,remain_quota int,used_quota int,marker text);
+CREATE TABLE options(key text PRIMARY KEY,value text);
+CREATE TABLE top_ups(id int PRIMARY KEY,marker text);
+CREATE TABLE channels(id int PRIMARY KEY,setting text,key text);
+CREATE TABLE redemptions(id int PRIMARY KEY,marker text);
+CREATE TABLE pikno_llm_requests(id text PRIMARY KEY,marker text);
+CREATE TABLE pikno_reverse_operations(id text PRIMARY KEY,marker text);
+CREATE TABLE additional_keep(id int PRIMARY KEY,marker text);
+CREATE TABLE pikno_settlements(id text PRIMARY KEY,user_id int,channel_id int,upstream_task_id text,model text,line_provider text,reserved_quota int,settled_outcome text,generation_state text,financial_state text,review_reason text,net_quota int);
+CREATE TABLE tasks(id int PRIMARY KEY,task_id text,platform text,user_id int,channel_id int,status text,private_data jsonb,properties jsonb,data jsonb,quota int);
+CREATE TABLE pikno_settlement_events(id int PRIMARY KEY,order_id text REFERENCES pikno_settlements(id),operation_id text,wallet_delta int);
+CREATE TABLE pikno_settlement_outboxes(id int PRIMARY KEY,event_id int REFERENCES pikno_settlement_events(id),user_id int,payload text,recipient text);
+CREATE TABLE pikno_price_quote_slots(id text PRIMARY KEY,order_id text REFERENCES pikno_settlements(id),user_id int);
+CREATE TABLE logs(id int PRIMARY KEY,user_id int,request_id text,model_name text,other text,quota int);
+CREATE TABLE audit_logs(id int PRIMARY KEY,user_id int,request_id text,route text,content text);
+CREATE TABLE quota_data(id int PRIMARY KEY,user_id int,model_name text,count int,quota int);
+CREATE TABLE abilities("group" text,model text,channel_id int,enabled bool,PRIMARY KEY("group",model,channel_id));
+CREATE TABLE pikno_lines(public_model text PRIMARY KEY,draft_config text,published_config text,previous_config text,version int);
+CREATE TABLE pikno_line_sync_states(public_model text PRIMARY KEY,provider text,snapshot_hash text);
+CREATE TABLE pikno_sync_snapshots(hash text PRIMARY KEY,provider text,data text);
+CREATE TABLE pikno_sync_providers(provider text PRIMARY KEY,state text);
+CREATE TABLE task_plugins(id int PRIMARY KEY,key text,source text,version text);
+INSERT INTO users VALUES(101,100,20,7,'fixture-only'),(202,200,30,8,'fixture-only');
+INSERT INTO tokens VALUES(1,101,40,10,'fixture-only');
+INSERT INTO options VALUES('fixture-option','fixture-only');
+INSERT INTO top_ups VALUES(1,'fixture-only');
+INSERT INTO channels VALUES(1,'{}','synthetic-credential-not-secret');
+INSERT INTO redemptions VALUES(1,'fixture-only');
+INSERT INTO pikno_llm_requests VALUES('keep-llm','fixture-only');
+INSERT INTO pikno_reverse_operations VALUES('keep-reverse','fixture-only');
+INSERT INTO additional_keep VALUES(1,'must-remain-byte-identical');
+INSERT INTO pikno_settlements VALUES('local-one',101,1,'legacy-upstream','sb-model','sanbao',0,'succeeded','succeeded','settled','',10),('keep-order',202,1,'keep-upstream','keep-model','canseedream',0,'succeeded','succeeded','settled','',20);
+INSERT INTO tasks VALUES(1,'local-one','ordinary-platform',101,1,'SUCCESS','{}','{}','{}',10),(2,'legacy-upstream','ordinary-platform',101,1,'FAILURE','{}','{}','{}',0),(3,'keep-task','plugin:canseedream',202,1,'SUCCESS','{}','{"origin_model_name":"keep-model"}','{}',20),(4,'plugin-task','plugin:pikno-sanbao',101,1,'SUCCESS','{"execution":{"request_id":"task-request"}}','{}','{}',0);
+INSERT INTO pikno_settlement_events VALUES(1,'local-one','reserve',-10),(2,'keep-order','reserve',-20);
+INSERT INTO pikno_settlement_outboxes VALUES(1,1,101,'{"order_id":"local-one"}','fixture@example.invalid'),(2,NULL,101,'{"order_id":"local-one"}','fixture@example.invalid'),(3,2,202,'{"order_id":"keep-order"}','fixture@example.invalid');
+INSERT INTO pikno_price_quote_slots VALUES('sb-quote','local-one',101),('keep-quote','keep-order',202);
+INSERT INTO logs VALUES(1,101,'','sb-model','{}',10),(2,101,'request-chain','generic-model','{"admin_info":{"task_plugin":{"key":"pikno-sanbao"}}}',0),(3,101,'request-chain','','{}',0),(4,202,'request-chain','keep-model','{}',20),(5,202,'','keep-model','{"text":"pikno-sanbao is mentioned but not provenance"}',0);
+INSERT INTO audit_logs VALUES(1,101,'request-chain','/api/task','fixture-only'),(2,202,'request-chain','/api/user','fixture-only'),(3,101,'','/pikno-sanbao/tasks','fixture-only');
+INSERT INTO quota_data VALUES(1,101,'sb-model',3,10),(2,202,'keep-model',2,20);
+INSERT INTO abilities VALUES('g','sb-model',1,true),('g','keep-model',1,true);
+INSERT INTO pikno_lines VALUES('sb-model','{"provider":"sanbao"}','{"provider":"sanbao"}','{"provider":"sanbao"}',7),('keep-model','{"provider":"canseedream"}','','',8);
+INSERT INTO pikno_line_sync_states VALUES('sb-model','sanbao','sb-hash'),('keep-model','canseedream','keep-hash');
+INSERT INTO pikno_sync_snapshots VALUES('sb-hash','sanbao','fixture-source'),('keep-hash','canseedream','fixture-source');
+INSERT INTO pikno_sync_providers VALUES('sanbao','ready'),('canseedream','ready');
+INSERT INTO task_plugins VALUES(1,'pikno-sanbao','fixture-source','v1'),(2,'pikno-sanbao','fixture-source','v2'),(3,'pikno-canseedream','fixture-source','v1');
+'''
+
+
+class CleanupTests(unittest.TestCase):
+    container = None
+
+    @classmethod
+    def setUpClass(cls):
+        name = 'relay-sanbao68-cleanup-synthetic'
+        if subprocess.run(['docker', 'container', 'inspect', name], capture_output=True).returncode == 0:
+            raise RuntimeError('PREVIOUS_SYNTHETIC_CONTAINER_REQUIRES_REVIEW')
+        value = subprocess.run(['docker', 'run', '-d', '--name', name, '--network', 'none',
+            '--label', 'codex.task=sanbao68-cleanup-tests', '--memory', '384m', '--cpus', '1',
+            '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,size=256m',
+            '-e', 'POSTGRES_USER=fixture', '-e', 'POSTGRES_DB=fixture',
+            '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', 'postgres:16-alpine'], capture_output=True, timeout=30)
+        if value.returncode:
+            raise RuntimeError('SYNTHETIC_DATABASE_START_FAILED')
+        cls.container = value.stdout.decode().strip()
+        for _ in range(60):
+            ready = subprocess.run(['docker', 'exec', cls.container, 'pg_isready', '-U', 'fixture', '-d', 'fixture'], capture_output=True)
+            if ready.returncode == 0:
+                return
+            time.sleep(0.25)
+        raise RuntimeError('SYNTHETIC_DATABASE_START_TIMEOUT')
+
+    @classmethod
+    def tearDownClass(cls):
+        if not cls.container:
+            return
+        value = json.loads(subprocess.run(['docker', 'inspect', cls.container], capture_output=True, check=True).stdout)[0]
+        if value['Id'] != cls.container or value['Config']['Labels'].get('codex.task') != 'sanbao68-cleanup-tests' or value['HostConfig']['NetworkMode'] != 'none':
+            raise RuntimeError('SYNTHETIC_CLEANUP_IDENTITY_INVALID')
+        metadata = {'container_id': cls.container, 'task_label': 'sanbao68-cleanup-tests', 'network': 'none', 'tmpfs_only_database': True, 'remove_volumes': False}
+        (HERE / 'cleanup68-test-container-cleanup.json').write_text(json.dumps(metadata, indent=2)+'\n', encoding='utf-8')
+        subprocess.run(['docker', 'rm', '-f', cls.container], capture_output=True, check=True)
+        metadata['removed'] = True
+        (HERE / 'cleanup68-test-container-cleanup.json').write_text(json.dumps(metadata, indent=2)+'\n', encoding='utf-8')
+
+    def psql(self, script):
+        r = subprocess.run(['docker', 'exec', '-i', self.container, 'psql', '-X', '-qAt', '-U', 'fixture', '-d', 'fixture', '-v', 'ON_ERROR_STOP=1', '-f', '-'], input=script.encode(), capture_output=True, timeout=60)
+        if r.returncode:
+            # Synthetic diagnostics stay local, never contain production data.
+            (HERE / 'cleanup68-synthetic-last-psql-error.log').write_bytes(r.stderr)
+            raise RuntimeError('SYNTHETIC_PSQL_FAILED')
+        values = [s for s in r.stdout.decode().splitlines() if s.startswith(('{', '['))]
+        return json.loads(values[-1]) if values else None
+
+    def query(self, query):
+        return self.psql('BEGIN READ ONLY; ' + query + '; ROLLBACK;')
+
+    def setUp(self):
+        self.psql('DROP SCHEMA public CASCADE; CREATE SCHEMA public; ' + DDL)
+
+    def plan(self):
+        return C.preflight_inventory(self.query)
+
+    def execute(self, plan):
+        return C.apply(self.psql, plan, services_stopped=True, approved_plan_sha256=plan['plan_sha256'])
+
+    def test_exact_owned_links_children_first_and_all_other_tables_preserved(self):
+        plan = self.plan()
+        result = self.execute(plan)
+        self.assertTrue(result['protected_fingerprints_preserved'])
+        self.assertEqual(result['delete_counts']['tasks'], 3)
+        self.assertEqual(result['delete_counts']['logs'], 3)
+        self.assertEqual(result['delete_counts']['audit_logs'], 2)
+        self.assertEqual(result['delete_counts']['pikno_settlement_outboxes'], 2)
+        self.assertFalse(result['opening_balance_snapshot_saved'])
+        after = self.plan()
+        self.assertTrue(all(not v['delete_keys'] and not v['update_keys'] for v in after['tables'].values()))
+
+    def test_private_plan_contains_keys_and_hashes_not_rows_or_opening_amounts(self):
+        plan = self.plan()
+        encoded = json.dumps(plan)
+        self.assertNotIn('synthetic-credential', encoded)
+        self.assertNotIn('fixture@example.invalid', encoded)
+        self.assertNotIn('used_quota', encoded)
+        self.assertNotIn('opening', encoded)
+        self.assertNotIn('request-chain', encoded)
+        self.assertIn('additional_keep', plan['tables'])
+
+    def test_unknown_or_reserved_orders_block_before_delete(self):
+        for change in ("reserved_quota=1", "generation_state='unknown'", "settled_outcome=''", "financial_state='pending_review'"):
+            self.setUp()
+            self.psql("UPDATE pikno_settlements SET " + change + " WHERE line_provider='sanbao';")
+            with self.assertRaisesRegex(C.CleanupError, 'UNRESOLVED_OR_SHARED'):
+                self.plan()
+
+    def test_inflight_tasks_block_even_with_terminal_settlement(self):
+        self.psql("UPDATE tasks SET status='UNKNOWN' WHERE id=2;")
+        with self.assertRaisesRegex(C.CleanupError, 'UNRESOLVED_OR_SHARED'):
+            self.plan()
+
+    def test_shared_model_preserves_other_snapshot_and_ambiguous_buckets(self):
+        self.psql("UPDATE pikno_lines SET draft_config=' {\"provider\":\"canseedream\",\"retain\":true} ' WHERE public_model='sb-model';")
+        plan = self.plan()
+        self.assertEqual(plan['notes']['shared_model_identities_preserved'], 1)
+        self.assertEqual(plan['tables']['pikno_lines']['update_keys'], [['sb-model']])
+        self.assertEqual(plan['tables']['quota_data']['delete_keys'], [])
+        self.execute(plan)
+        value = self.query("SELECT jsonb_build_object('draft',draft_config,'published',published_config,'previous',previous_config) FROM pikno_lines WHERE public_model='sb-model'")
+        self.assertEqual(value, {'draft': ' {"provider":"canseedream","retain":true} ', 'published': '', 'previous': ''})
+
+    def test_conflicting_channel_binding_never_deletes_shared_channel(self):
+        self.psql("UPDATE channels SET setting='{\"task_extend_plugin_keys\":[\"pikno-sanbao\",\"keep-plugin\"]}';")
+        with self.assertRaisesRegex(C.CleanupError, 'UNRESOLVED_OR_SHARED'):
+            self.plan()
+
+    def test_drift_after_private_plan_rolls_back(self):
+        plan = self.plan()
+        self.psql("UPDATE logs SET quota=quota+1 WHERE id=1;")
+        with self.assertRaisesRegex(C.CleanupError, 'TRANSACTION_FAILED'):
+            self.execute(plan)
+        value = self.query('SELECT jsonb_build_object(\'count\',count(*)) FROM pikno_settlements')
+        self.assertEqual(value['count'], 2)
+
+    def test_post_delete_financial_trigger_mutation_rolls_back_everything(self):
+        self.psql("CREATE FUNCTION public.fixture_mutate_wallet() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN UPDATE users SET quota=quota+1 WHERE id=101; RETURN OLD; END$$; CREATE TRIGGER fixture_bad_trigger AFTER DELETE ON tasks FOR EACH ROW EXECUTE PROCEDURE public.fixture_mutate_wallet();")
+        plan = self.plan()
+        with self.assertRaisesRegex(C.CleanupError, 'TRANSACTION_FAILED'):
+            self.execute(plan)
+        self.assertEqual(self.plan(), plan)
+
+    def test_approval_and_stop_attestation_required(self):
+        plan = self.plan()
+        for kwargs in ({'services_stopped':False,'approved_plan_sha256':plan['plan_sha256']}, {'services_stopped':True,'approved_plan_sha256':'0'*64}):
+            with self.assertRaisesRegex(C.CleanupError, 'APPROVAL_OR_PLAN'):
+                C.apply(lambda _:self.fail('must not execute'), plan, **kwargs)
+
+    def test_protected_keys_are_rejected_even_if_manifest_digest_recomputed(self):
+        plan = self.plan()
+        plan['tables']['users']['delete_keys'] = [[101]]
+        plan.pop('plan_sha256')
+        plan['plan_sha256'] = C._digest(plan)
+        with self.assertRaisesRegex(C.CleanupError, 'PROTECTED_TABLE'):
+            self.execute(plan)
+
+    def test_primary_key_quotes_and_dollar_delimiters_remain_data(self):
+        unusual = "fixture'$cleanup68_0$\\path"
+        self.psql("INSERT INTO pikno_settlements VALUES(" + C._literal(unusual) + ",101,1,'','sb-model','sanbao',0,'failed','failed','settled','',0);")
+        plan = self.plan()
+        self.assertIn([unusual], plan['tables']['pikno_settlements']['delete_keys'])
+        self.execute(plan)
+        self.assertEqual(self.query("SELECT jsonb_build_object('count',count(*)) FROM users")['count'], 2)
+
+    def test_catalog_stage_commit_removes_provider_only_without_backup(self):
+        with tempfile.TemporaryDirectory(prefix='sanbao68-catalog-') as folder:
+            path = Path(folder).resolve() / 'catalog.json'
+            keep = {'provider':'canseedream','id':'keep-model','nested':{'preserve':True}}
+            state = {'revision':'old','draft':{'revision':'d','models':[{'provider':'sanbao','id':'old'},keep]},'published':{'revision':'p','models':[keep,{'provider':'sanbao','id':'older'}]},'previous':{'revision':'v','models':[keep]},'events':[{'action':'sync','revision':'historical-hash'}]}
+            path.write_text(json.dumps(state),encoding='utf-8')
+            original = path.read_bytes()
+            staged = C.stage_catalog(path,hashlib.sha256(original).hexdigest(),allowed_directory=Path(folder).resolve())
+            self.assertEqual(path.read_bytes(),original)
+            self.assertNotIn('old', json.dumps(staged['removed']))
+            C.commit_catalog(path,staged,allowed_directory=Path(folder).resolve())
+            actual = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual(actual['draft']['models'],[keep])
+            self.assertEqual(actual['published']['models'],[keep])
+            self.assertEqual(actual['previous'],state['previous'])
+            self.assertEqual(actual['events'],state['events'])
+            self.assertEqual(list(Path(folder).iterdir()),[path])
+
+    def test_catalog_changed_after_staging_never_overwrites_it(self):
+        with tempfile.TemporaryDirectory(prefix='sanbao68-catalog-') as folder:
+            path=Path(folder).resolve()/'catalog.json';path.write_text('{"draft":{"models":[{"provider":"sanbao"}]}}')
+            staged=C.stage_catalog(path,hashlib.sha256(path.read_bytes()).hexdigest(),allowed_directory=Path(folder).resolve())
+            path.write_text('{"concurrent":"change"}')
+            with self.assertRaisesRegex(C.CleanupError,'COMMIT_HASH_DRIFT'):
+                C.commit_catalog(path,staged,allowed_directory=Path(folder).resolve())
+
+
+if __name__=='__main__':
+    suite=unittest.defaultTestLoader.loadTestsFromTestCase(CleanupTests)
+    with (HERE/'cleanup68-tests.log').open('w',encoding='utf-8') as log:
+        result=unittest.TextTestRunner(stream=log,verbosity=2).run(suite)
+    evidence={'passed':result.wasSuccessful(),'tests':result.testsRun,'errors':len(result.errors),'failures':len(result.failures),
+              'scope':'isolated real PostgreSQL synthetic cleanup transactions and local catalog files',
+              'production_network':'none','production_mutations':0,'financial_database_restoration':False,'opening_balance_snapshot_saved':False}
+    (HERE/'cleanup68-tests.json').write_text(json.dumps(evidence,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps(evidence));raise SystemExit(0 if result.wasSuccessful() else 1)

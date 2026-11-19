@@ -1,0 +1,42 @@
+import json
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+load=lambda name:json.loads((HERE/name).read_text(encoding='utf-8'))
+counts=load('retirement-readonly-counts.json')['counts'];availability=load('retirement-readonly-availability.json');runtime=load('production-readonly-audit.json')
+statefile=ROOT/'.agents/project-state.json';state=json.loads(statefile.read_text(encoding='utf-8'))
+state['relay']['sanbao_retirement_assessment']={
+ 'status':'read_only_assessment_complete_pending_history_scope_clarification',
+ 'production_version_verified':'v1.0.0-rc.41-hamster.67','production_healthy':runtime['healthy'],
+ 'evidence':['output/relay-admin-operations-current/production-readonly-audit.json','output/relay-admin-operations-current/retirement-readonly-counts.json','output/relay-admin-operations-current/retirement-readonly-availability.json'],
+ 'current_draft_configs':availability['counts']['sanbao_draft_configs'],'disabled_published_configs':availability['counts']['sanbao_published_configs'],
+ 'public_catalog_entries':availability['counts']['sanbao_current_configs_in_public_catalog'],
+ 'sync_states':runtime['counts']['sanbao_sync_states'],'sync_snapshots':runtime['counts']['sanbao_sync_snapshots'],
+ 'sync_provider_records':runtime['counts']['sanbao_sync_providers'],'plugin_versions':runtime['counts']['sanbao_plugin_versions'],
+ 'enabled_active_plugin_versions':runtime['counts']['sanbao_enabled_active_plugins'],
+ 'historical_settlements':counts['sanbao_history_count'],'unsettled_history':counts['sanbao_history_unsettled'],
+ 'history_with_reserved_funds':counts['sanbao_history_reserved_nonzero'],
+ 'historical_success_tasks':counts['sanbao_tasks_success'],'historical_failed_tasks':counts['sanbao_tasks_failure'],
+ 'active_or_unknown_tasks':counts['sanbao_tasks_active']+counts['sanbao_tasks_unknown'],
+ 'historical_tasks_with_existing_channel':counts['sanbao_tasks_with_existing_channel'],
+ 'confirmed_previous_baseline':'delete_current_route_configuration_physically_preserve_historical_tasks_bills_settlement_snapshots_results',
+ 'pending_user_decision':'whether_new_erase_related_data_request_changes_previous_history_retention_baseline',
+ 'implementation_requirements':['remove_sanbao_from_startup_migration_and_scheduled_manual_sync','exclude_sanbao_from_legacy_catalog_sync_and_persisted_catalog_file',
+ 'delete_exact_current_configuration_and_provider_runtime_records_after_reference_inventory','do_not_promote_older_plugin_version_when_retiring_all_versions',
+ 'retain_shared_routes_and_non_sanbao_providers','define_read_only_history_result_compatibility_for_successful_tasks','restart_twice_and_verify_no_repopulation'],
+ 'production_mutations':0,'customer_rows_exported':0}
+state['relay']['admin_operations_assessment']={
+ 'status':'proposal_under_discussion_not_implemented','scope_explicitly_requested':['user_consumption_statistics','additional_admin_optimization_proposals'],
+ 'priority_question_pending':True,'existing_admin_home_is_personal_overview':True,'legacy_log_stats_do_not_cover_all_pikno_business':True,
+ 'legacy_data_export_option_on_record':availability['counts']['data_export_option_on']>0,
+ 'separate_log_database_configured':availability['flags']['separate_log_database_configured'],
+ 'recommended_first_phase':['unified_read_only_consumption_query_layer','admin_business_overview','user_id_based_consumption_rank_and_details','task_settlement_navigation','read_only_anomaly_center'],
+ 'money_invariants':['separate_net_charge_active_reservation_release_and_post_charge_refund','deduplicate_legacy_logs_and_ledgers','do_not_sum_cumulative_event_snapshots',
+ 'use_normalized_amount_units','distinguish_submission_cohort_from_money_movement_date','unknown_is_not_automatically_frozen_or_refundable'],
+ 'cost_reporting':'verified_estimated_missing_with_coverage_no_zero_filling_no_unverified_whole_site_actual_profit',
+ 'known_visual_issue':{'status':'identified_not_fixed','source':'build/hamster-trim44-web/src/features/usage-logs/components/usage-logs-table.tsx',
+ 'issue':'managed_row_surface_overrides_log_type_and_quota_saturation_class_backgrounds','followup':'preserve_semantic_log_alert_surfaces_in_admin_theme'},
+ 'source_changes':0,'production_mutations':0,'customer_acceptance':False}
+if 'output/relay-admin-operations-current/' not in state['protected_paths']:state['protected_paths'].append('output/relay-admin-operations-current/')
+state['updated_at']=datetime.now(timezone.utc).isoformat();statefile.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print('{"state_updated":true,"production_mutations":0,"scope_confirmation_pending":true}')

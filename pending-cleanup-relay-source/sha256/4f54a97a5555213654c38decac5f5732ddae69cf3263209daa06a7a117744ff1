@@ -1,0 +1,41 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('retirement_availability_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import json,subprocess
+def run(args):
+ r=subprocess.run(args,capture_output=True,timeout=30)
+ if r.returncode:raise RuntimeError('READONLY_AVAILABILITY_COMMAND_FAILED')
+ return r.stdout
+def sql(query):
+ raw=run(['docker','exec','-i','piknoai-relay-postgres-1','psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c',"BEGIN READ ONLY; SET LOCAL statement_timeout='15s'; "+query+'; ROLLBACK']).decode()
+ rows=[x for x in raw.splitlines() if x.startswith(('{','['))]
+ if len(rows)!=1:raise RuntimeError('READONLY_AVAILABILITY_SQL_SHAPE')
+ return json.loads(rows[0])
+info=json.loads(run(['docker','inspect','piknoai-relay-new-api-1']))[0]
+env=dict(item.split('=',1) for item in info['Config'].get('Env',[]) if '=' in item)
+flags={'separate_log_database_configured':bool(env.get('LOG_SQL_DSN')),'line_sync_enabled':env.get('PIKNO_LINE_SYNC_ENABLED')=='true'}
+value=sql("""WITH cfg AS (
+ SELECT public_model,coalesce(nullif(draft_config,''),'{}')::jsonb d,coalesce(nullif(published_config,''),'{}')::jsonb p FROM pikno_lines
+)
+SELECT json_build_object(
+ 'sanbao_draft_configs',(SELECT count(*) FROM cfg WHERE d->>'provider'='sanbao'),
+ 'sanbao_published_configs',(SELECT count(*) FROM cfg WHERE p->>'provider'='sanbao'),
+ 'sanbao_published_enabled',(SELECT count(*) FROM cfg WHERE p->>'provider'='sanbao' AND p->>'enabled'='true'),
+ 'sanbao_published_available',(SELECT count(*) FROM cfg WHERE p->>'provider'='sanbao' AND p->>'enabled'='true' AND p->>'upstream_available'='true'),
+ 'sanbao_sync_paused',(SELECT count(*) FROM pikno_line_sync_states WHERE provider='sanbao' AND paused=true),
+ 'sanbao_sync_missing_or_disabled',(SELECT count(*) FROM pikno_line_sync_states WHERE provider='sanbao' AND pause_reason IN ('missing','disabled')),
+ 'data_export_option_on',(SELECT count(*) FROM options WHERE key='DataExportEnabled' AND lower(value)='true'))""")
+models=sql("SELECT coalesce(json_agg(public_model),'[]'::json) FROM pikno_lines WHERE coalesce(nullif(draft_config,''),'{}')::jsonb->>'provider'='sanbao' OR coalesce(nullif(published_config,''),'{}')::jsonb->>'provider'='sanbao'")
+catalog=json.loads(run(['docker','exec','piknoai-relay-new-api-1','wget','-q','-T','10','-O','-','http://127.0.0.1:3000/api/pikno/catalog']))
+items=catalog.get('data',{}).get('models',[])
+value['sanbao_current_configs_in_public_catalog']=sum(item.get('id') in set(models) for item in items)
+value['public_model_count']=len(items)
+print(json.dumps({'read_only':True,'flags':flags,'counts':value,'customer_rows_exported':0,'mutations':0}))
+'''
+try:value=transport.remote(code,timeout=75)
+except Exception:print('{"passed":false,"code":"READONLY_AVAILABILITY_FAILED_DETAILS_WITHHELD"}');raise SystemExit(1)
+(HERE/'retirement-readonly-availability.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps(value))

@@ -1,0 +1,39 @@
+import hashlib,json,urllib.request
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+FRONT=ROOT/'build/hamster-trim44-web/dist'
+build=json.loads((HERE/'build68.json').read_text(encoding='utf-8'))
+base='https://www.piknoai.com'
+checks=[]
+def request(path,method='GET',headers=None):
+    from public_https import request as https_request
+    return https_request(path,method,headers)
+status,_,body=request('/api/status')
+assert status==200 and json.loads(body)['data']['version']==build['version'],'PUBLIC_VERSION_MISMATCH'
+checks.append({'case':'public_version68','passed':True})
+for path in ('/','/channels','/users','/line-management'):
+    status,_,body=request(path)
+    assert status==200 and build['frontend_entry_script'].encode() in body,'PUBLIC_ENTRY_MISMATCH'
+    checks.append({'case':'public_entry','path':path,'passed':True})
+for item in build['frontend_resources']:
+    status,headers,body=request(item['path'])
+    assert status==200 and hashlib.sha256(body).hexdigest()==item['sha256'],'PUBLIC_ASSET_HASH_DRIFT'
+    assert headers.get('Content-Type','').split(';')[0].lower()==item['content_type'],'PUBLIC_ASSET_MIME_DRIFT'
+    checks.append({'case':'public_resource_hash_mime','path':item['path'],'passed':True})
+video=(FRONT/'portal-media/hero-v1.mp4').read_bytes()
+status,headers,body=request('/portal-media/hero-v1.mp4',headers={'Range':'bytes=0-1023','Accept-Encoding':'gzip'})
+assert status==206 and body==video[:1024] and not headers.get('Content-Encoding'),'PUBLIC_VIDEO_RANGE_CHANGED'
+checks.append({'case':'silent_video_range_preserved','passed':True})
+status,headers,body=request('/portal-media/hero-v1.mp4',method='HEAD',headers={'Accept-Encoding':'gzip'})
+assert status==200 and body==b'' and int(headers.get('Content-Length','-1'))==len(video) and not headers.get('Content-Encoding'),'PUBLIC_VIDEO_HEAD_CHANGED'
+checks.append({'case':'silent_video_head_preserved','passed':True})
+old=(HERE/'baseline67-source/web/dist/index.html').read_text(encoding='utf-8')
+import re
+oldpath=re.search(r'src="(/static/js/index\.[a-z0-9]+\.js)"',old).group(1)
+status,_,body=request(oldpath)
+assert status==200 and hashlib.sha256(body).hexdigest()==hashlib.sha256((HERE/'baseline67-source/web/dist'/oldpath.lstrip('/')).read_bytes()).hexdigest(),'OLD_HASHED_ENTRY_MISSING'
+checks.append({'case':'previous_hashed_entry_retained','passed':True})
+value={'passed':True,'version':build['version'],'checks':checks,'check_count':len(checks),'real_customer_login':False,'real_generation_calls':0,'real_payment_calls':0}
+(HERE/'public-assets-verification.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'passed':True,'version':build['version'],'public_checks':len(checks)}))

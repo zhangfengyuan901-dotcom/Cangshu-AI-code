@@ -1,0 +1,25 @@
+import hashlib, json, subprocess
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+SOURCE=ROOT/'deploy/new-api/backend'
+baseline=json.loads((HERE/'baseline.json').read_text())
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+assert all(sha(SOURCE/item['file'])==item['sha256'] for item in baseline['runtime_source_files'])
+assert all(sha(SOURCE/'web/dist'/item['path'])==item['sha256'] for item in baseline['files'])
+image='golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+result=subprocess.run(['docker','run','--rm','--network','none','--label','codex.task=relay-admin-theme-current',
+    '--mount','type=bind,source='+str(SOURCE)+',target=/workspace,readonly',
+    '--mount','type=bind,source='+str(HERE)+',target=/out',
+    '--mount','type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+    '--mount','type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+    '-w','/workspace','-e','CGO_ENABLED=0','-e','GOMAXPROCS=2',image,
+    'go','build','-p','2','-ldflags','-s -w -X github.com/QuantumNous/new-api/common.Version='+baseline['version'],
+    '-o','/out/backend66-baseline'],capture_output=True,timeout=240)
+(HERE/'baseline66-build.log').write_bytes(result.stdout+result.stderr)
+assert result.returncode==0,'BASELINE66_BUILD_FAILED'
+actual=sha(HERE/'backend66-baseline')
+assert actual==baseline['production_binary_sha256'],'BASELINE66_HASH_MISMATCH'
+baseline['byte_identical_to_production66']=True
+(HERE/'baseline.json').write_text(json.dumps(baseline,indent=2)+'\n')
+print(json.dumps({'byte_identical_to_production66':True,'binary_sha256':actual}))

@@ -1,0 +1,750 @@
+package model
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/pkg/piknocatalog"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const PiknoSyncInterval = 60
+const PiknoSyncStaleSeconds = 600
+const PiknoSyncMissingThreshold = 1
+
+var ErrPiknoSyncLease = errors.New("line sync lease is unavailable")
+var ErrPiknoSyncRuntime = errors.New("line sync runtime is not ready")
+
+func PiknoLineSyncEnabled() bool { return os.Getenv("PIKNO_LINE_SYNC_ENABLED") == "true" }
+
+type PiknoSyncProvider struct {
+	Provider         string `gorm:"primaryKey;size:32" json:"provider"`
+	State            string `gorm:"size:24" json:"state"`
+	SnapshotHash     string `gorm:"size:64" json:"snapshot_hash"`
+	LastAttemptAt    int64  `json:"last_attempt_at"`
+	LastVerifiedAt   int64  `json:"last_verified_at"`
+	StartedAt        int64  `json:"-"`
+	NextAttemptAt    int64  `json:"next_attempt_at"`
+	ErrorCode        string `gorm:"size:48" json:"error_code"`
+	ETag             string `gorm:"type:text" json:"-"`
+	LastModified     string `gorm:"type:text" json:"-"`
+	PluginVersion    string `gorm:"size:64" json:"-"`
+	PluginSourceHash string `gorm:"size:64" json:"-"`
+	AdapterModels    string `gorm:"type:text" json:"-"`
+	LeaseOwner       string `gorm:"size:64" json:"-"`
+	LeaseEpoch       int64  `json:"-"`
+	LeaseUntil       int64  `json:"-"`
+}
+type PiknoSyncSnapshot struct {
+	Hash             string `gorm:"primaryKey;size:64" json:"hash"`
+	Provider         string `gorm:"index;size:32" json:"provider"`
+	Data             string `gorm:"type:text" json:"-"`
+	PluginVersion    string `gorm:"size:64" json:"plugin_version"`
+	PluginSourceHash string `gorm:"size:64" json:"plugin_source_hash"`
+	CreatedAt        int64  `json:"created_at"`
+}
+type PiknoLineSyncState struct {
+	PublicModel      string `gorm:"primaryKey;size:120" json:"-"`
+	Provider         string `gorm:"index;size:32" json:"-"`
+	SnapshotHash     string `gorm:"size:64" json:"snapshot_hash"`
+	LastSeenAt       int64  `json:"last_seen_at"`
+	MissingCount     int    `json:"missing_count"`
+	RetiredRevision  int64  `gorm:"not null;default:0" json:"-"`
+	Paused           bool   `json:"paused"`
+	PauseReason      string `gorm:"size:32" json:"pause_reason"`
+	CostChanged      bool   `json:"cost_changed"`
+	CostChangedAt    int64  `json:"cost_changed_at"`
+	AdapterIssue     string `gorm:"size:48" json:"adapter_issue"`
+	PriceIssue       bool   `json:"price_issue"`
+	BillingUnit      string `gorm:"size:16" json:"billing_unit,omitempty"`
+	CostIssueCode    string `gorm:"size:48" json:"cost_issue_code,omitempty"`
+	BillingIssueCode string `gorm:"size:48" json:"billing_issue_code,omitempty"`
+}
+type PiknoSyncStatus struct {
+	Enabled          bool                `json:"enabled"`
+	IntervalSeconds  int                 `json:"interval_seconds"`
+	MissingThreshold int                 `json:"missing_threshold"`
+	StaleSeconds     int                 `json:"stale_seconds"`
+	Providers        []PiknoSyncProvider `json:"providers"`
+}
+type PiknoSyncLease struct {
+	Provider, Owner string
+	Epoch           int64
+}
+
+func MigratePiknoLineSync(db *gorm.DB) error {
+	if db == nil {
+		return errors.New("line sync database unavailable")
+	}
+	if err := db.AutoMigrate(&PiknoSyncProvider{}, &PiknoSyncSnapshot{}, &PiknoLineSyncState{}); err != nil {
+		return err
+	}
+	for _, provider := range []string{"sanbao", "canseedream"} {
+		now := time.Now().Unix()
+		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&PiknoSyncProvider{Provider: provider, State: "syncing", StartedAt: now}).Error; err != nil {
+			return err
+		}
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			var p PiknoSyncProvider
+			if err := lockForUpdate(tx).First(&p, "provider = ?", provider).Error; err != nil {
+				return err
+			}
+			updates := map[string]any{}
+			if p.StartedAt == 0 {
+				updates["started_at"] = now
+			}
+			if p.AdapterModels == "" && tx.Migrator().HasTable(&TaskPlugin{}) {
+				var plugin TaskPlugin
+				lookup := tx.Where(map[string]any{"key": "pikno-" + provider, "active": true, "enabled": true}).First(&plugin).Error
+				if lookup == nil {
+					descriptors, err := piknocatalog.ReviewedAdapterModels(provider, string(plugin.Source))
+					if err != nil {
+						return err
+					}
+					encoded, _ := json.Marshal(descriptors)
+					updates["adapter_models"] = string(encoded)
+					updates["plugin_version"] = plugin.Version
+					updates["plugin_source_hash"] = plugin.SourceHash
+				} else if !errors.Is(lookup, gorm.ErrRecordNotFound) {
+					return lookup
+				}
+			}
+			if len(updates) == 0 {
+				return nil
+			}
+			return tx.Model(&PiknoSyncProvider{}).Where("provider = ?", provider).Updates(updates).Error
+		}); err != nil {
+			return err
+		}
+	}
+	// Existing customer prices, names and enabled intent are untouched. These
+	// fields only bind the old published data to its already installed adapter.
+	var rows []PiknoLine
+	if err := db.Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		published, err := decodePiknoLineConfig(row.PublishedConfig)
+		if err != nil {
+			return err
+		}
+		base := published
+		if base == nil {
+			base, err = decodePiknoLineConfig(row.DraftConfig)
+			if err != nil {
+				return err
+			}
+		}
+		if base == nil || (base.Provider != "sanbao" && base.Provider != "canseedream") {
+			continue
+		}
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			// Match the coordinator lock order. Rolling node startup cannot replace
+			// a newer publication or write an old lease epoch back to the provider.
+			var provider PiknoSyncProvider
+			if err := lockForUpdate(tx).First(&provider, "provider = ?", base.Provider).Error; err != nil {
+				return err
+			}
+			var fresh PiknoLine
+			if err := lockForUpdate(tx).First(&fresh, "public_model = ?", row.PublicModel).Error; err != nil {
+				return err
+			}
+			var count int64
+			if err := tx.Model(&PiknoLineSyncState{}).Where("public_model = ?", fresh.PublicModel).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return nil
+			}
+			active, err := decodePiknoLineConfig(fresh.PublishedConfig)
+			if err != nil {
+				return err
+			}
+			state := PiknoLineSyncState{PublicModel: fresh.PublicModel, Provider: base.Provider, LastSeenAt: provider.StartedAt}
+			if active != nil && active.Enabled {
+				active.AdapterVersion = provider.PluginVersion
+				active.SyncHash = piknocatalog.CanonicalDigest(active)
+				state.SnapshotHash = active.SyncHash
+				raw, err := encodePiknoLineConfig(active)
+				if err != nil {
+					return err
+				}
+				if err := tx.Model(&PiknoLine{}).Where("public_model = ?", fresh.PublicModel).Update("published_config", raw).Error; err != nil {
+					return err
+				}
+			}
+			return tx.Create(&state).Error
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func piknoSyncStale(p PiknoSyncProvider, now int64) bool {
+	baseline := p.LastVerifiedAt
+	if baseline == 0 {
+		baseline = p.StartedAt
+	}
+	return baseline == 0 || now-baseline >= 600
+}
+func PiknoSyncAdminStatus() PiknoSyncStatus {
+	result := PiknoSyncStatus{Enabled: PiknoLineSyncEnabled(), IntervalSeconds: 60, MissingThreshold: PiknoSyncMissingThreshold, StaleSeconds: 600, Providers: []PiknoSyncProvider{}}
+	if !result.Enabled {
+		return result
+	}
+	if DB == nil || DB.Order("provider").Find(&result.Providers).Error != nil {
+		return result
+	}
+	now := time.Now().Unix()
+	for i := range result.Providers {
+		p := &result.Providers[i]
+		if piknoSyncStale(*p, now) {
+			p.State = "stale"
+		}
+	}
+	return result
+}
+func PiknoLineSyncAdmin(publicModel string) *PiknoLineSyncState {
+	if !PiknoLineSyncEnabled() || DB == nil {
+		return nil
+	}
+	var state PiknoLineSyncState
+	if DB.First(&state, "public_model = ?", publicModel).Error != nil {
+		return nil
+	}
+	var provider PiknoSyncProvider
+	if DB.First(&provider, "provider = ?", state.Provider).Error != nil || piknoSyncStale(provider, time.Now().Unix()) {
+		state.Paused = true
+		state.PauseReason = "stale"
+	}
+	return &state
+}
+func NewPiknoSyncOwner() string {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(raw[:])
+}
+func AcquirePiknoSyncLease(provider, owner string, now int64) (PiknoSyncLease, PiknoSyncProvider, error) {
+	var result PiknoSyncProvider
+	lease := PiknoSyncLease{Provider: provider, Owner: owner}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).First(&result, "provider = ?", provider).Error; err != nil {
+			return err
+		}
+		if result.LeaseUntil > now || result.NextAttemptAt > now {
+			return ErrPiknoSyncLease
+		}
+		epoch := result.LeaseEpoch + 1
+		updated := tx.Model(&PiknoSyncProvider{}).Where("provider = ? AND lease_epoch = ? AND lease_until <= ?", provider, result.LeaseEpoch, now).Updates(map[string]any{"lease_owner": owner, "lease_epoch": epoch, "lease_until": now + 90, "last_attempt_at": now, "next_attempt_at": now + 60})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return ErrPiknoSyncLease
+		}
+		lease.Epoch = epoch
+		return nil
+	})
+	return lease, result, err
+}
+func syncLeaseProvider(tx *gorm.DB, lease PiknoSyncLease, now int64) (PiknoSyncProvider, error) {
+	var p PiknoSyncProvider
+	err := lockForUpdate(tx).First(&p, "provider = ?", lease.Provider).Error
+	if err != nil {
+		return p, err
+	}
+	if p.LeaseOwner != lease.Owner || p.LeaseEpoch != lease.Epoch || p.LeaseUntil <= now {
+		return p, ErrPiknoSyncLease
+	}
+	return p, nil
+}
+func RecordPiknoSyncFailure(lease PiknoSyncLease, code string, now int64) error {
+	if len(code) > 48 || strings.ContainsAny(code, "\n\r/ ") {
+		code = "catalog_invalid"
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		p, err := syncLeaseProvider(tx, lease, now)
+		if err != nil {
+			return err
+		}
+		state := "error"
+		if piknoSyncStale(p, now) {
+			state = "stale"
+		}
+		return tx.Model(&PiknoSyncProvider{}).Where("provider = ? AND lease_epoch = ?", p.Provider, lease.Epoch).Updates(map[string]any{"state": state, "error_code": code, "lease_until": 0, "next_attempt_at": now + 60}).Error
+	})
+}
+func PiknoSyncLastSnapshot(provider string) (*piknocatalog.ProviderSnapshot, error) {
+	var p PiknoSyncProvider
+	if err := DB.First(&p, "provider = ?", provider).Error; err != nil {
+		return nil, err
+	}
+	if p.SnapshotHash == "" {
+		return nil, errors.New("snapshot_missing")
+	}
+	var row PiknoSyncSnapshot
+	if err := DB.First(&row, "hash = ?", p.SnapshotHash).Error; err != nil {
+		return nil, err
+	}
+	var result piknocatalog.ProviderSnapshot
+	if json.Unmarshal([]byte(row.Data), &result) != nil {
+		return nil, errors.New("snapshot_invalid")
+	}
+	return &result, nil
+}
+
+// Only a complete provider response can reach this validator. An explicit empty
+// directory is valid; network, envelope and pagination failures are rejected by
+// the fetch/parser boundary before any current configuration is retired.
+func ValidatePiknoSyncSnapshot(previous *piknocatalog.ProviderSnapshot, next *piknocatalog.ProviderSnapshot) error {
+	if next == nil || next.Hash == "" || len(next.Items) > 500 {
+		return errors.New("catalog_invalid")
+	}
+	if next.Hash != piknocatalog.CanonicalDigest(struct {
+		Provider string
+		Items    []piknocatalog.SyncItem
+	}{next.Provider, next.Items}) {
+		return errors.New("catalog_digest_mismatch")
+	}
+	return nil
+}
+func costFingerprint(config *PiknoLineConfig) string {
+	if config == nil {
+		return ""
+	}
+	rows := make([]any, 0, len(config.Prices))
+	for _, p := range config.Prices {
+		rows = append(rows, []any{p.Resolution, p.Unit, p.CostCNY})
+	}
+	return piknocatalog.CanonicalDigest([]any{rows, config.CostIssueCode})
+}
+func configFingerprint(config *PiknoLineConfig) string {
+	if config == nil {
+		return ""
+	}
+	copy := *config
+	copy.Revision = 0
+	copy.FetchedAt = ""
+	return piknocatalog.CanonicalDigest(copy)
+}
+func preserveSyncOperatorFields(seed *PiknoLineConfig, base *PiknoLineConfig) {
+	seed.Enabled = false
+	for i := range seed.Prices {
+		seed.Prices[i].RetailQuota = 0
+	}
+	seed.ReferenceSurchargeQuota = 0
+	if base == nil {
+		return
+	}
+	seed.DisplayName = base.DisplayName
+	seed.Enabled = base.Enabled
+	seed.ExplicitFree = base.ExplicitFree
+	seed.ReferenceSurchargeQuota = base.ReferenceSurchargeQuota
+	known := map[string]int{}
+	for _, p := range base.Prices {
+		known[linePriceKey(p.Resolution, p.Unit)] = p.RetailQuota
+	}
+	for i := range seed.Prices {
+		if price, ok := known[linePriceKey(seed.Prices[i].Resolution, seed.Prices[i].Unit)]; ok {
+			seed.Prices[i].RetailQuota = price
+		}
+	}
+}
+
+// Automatic provider refresh must never undo an operator disabling a channel.
+// Explicit manual publication retains its existing operator-triggered behavior.
+func applyPiknoSyncProjection(tx *gorm.DB, oldConfig, newConfig *PiknoLineConfig) error {
+	ids := []int{}
+	if oldConfig != nil && oldConfig.ChannelID > 0 {
+		ids = append(ids, oldConfig.ChannelID)
+	}
+	if newConfig != nil && newConfig.ChannelID > 0 && (len(ids) == 0 || ids[0] != newConfig.ChannelID) {
+		ids = append(ids, newConfig.ChannelID)
+	}
+	var previous []Channel
+	if err := lockForUpdate(tx).Select("id", "status").Where("id IN ?", ids).Order("id").Find(&previous).Error; err != nil {
+		return err
+	}
+	if err := applyPiknoLineProjection(tx, oldConfig, newConfig); err != nil {
+		return err
+	}
+	for _, prior := range previous {
+		var channel Channel
+		if err := tx.First(&channel, "id = ?", prior.Id).Error; err != nil {
+			return err
+		}
+		if channel.Status == prior.Status {
+			continue
+		}
+		channel.Status = prior.Status
+		if err := tx.Model(&channel).Update("status", prior.Status).Error; err != nil {
+			return err
+		}
+		if err := channel.UpdateAbilities(tx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func syncPluginDeclared(tx *gorm.DB, config *PiknoLineConfig) bool {
+	if config.AdapterVersion == "" {
+		return false
+	}
+	var p TaskPlugin
+	return tx.Select("id").Where(map[string]any{"key": config.PluginKey, "version": config.AdapterVersion, "active": true, "enabled": true}).First(&p).Error == nil
+}
+
+// ApplyPiknoSyncSnapshot stores the candidate and active line projections in one
+// transaction. Until each node loads the exact plugin version, request guards
+// reject new work. Stale lease owners cannot mutate either half of the release.
+func ApplyPiknoSyncSnapshot(lease PiknoSyncLease, snapshot *piknocatalog.ProviderSnapshot, seeds []PiknoLineSeed, source, version, sourceHash string, models map[string]piknocatalog.AdapterDescriptor, fresh bool, now int64) error {
+	if snapshot == nil || snapshot.Provider != lease.Provider || len(seeds) != len(snapshot.Items) {
+		return errors.New("snapshot_contract")
+	}
+	digest := sha256.Sum256([]byte(source))
+	if hex.EncodeToString(digest[:]) != sourceHash {
+		return errors.New("adapter_source_hash")
+	}
+	var compiled *jsplugin.LoadedPlugin
+	var err error
+	if len(models) > 0 {
+		compiled, err = jsplugin.CompilePlugin(source, jsplugin.Options{Key: "pikno-" + snapshot.Provider, Version: version})
+		if err != nil {
+			return errors.New("adapter_compile")
+		}
+		if compiled.Meta.Key != "pikno-"+snapshot.Provider || compiled.Meta.Version != version {
+			return errors.New("adapter_identity")
+		}
+		for _, item := range snapshot.Items {
+			if item.Adapter != nil && !containsSyncModel(compiled.Meta.Models, item.Entry.ID) {
+				return errors.New("adapter_model_mismatch")
+			}
+		}
+	} else if source != "" || version != "" {
+		return errors.New("adapter_empty_contract")
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	modelsRaw, err := json.Marshal(models)
+	if err != nil {
+		return err
+	}
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		commitNow := max(now, time.Now().Unix())
+		provider, err := syncLeaseProvider(tx, lease, commitNow)
+		if err != nil {
+			return err
+		}
+		if !fresh && snapshot.Hash != provider.SnapshotHash {
+			return errors.New("cached_snapshot_mismatch")
+		}
+		existing, previousErr := syncSnapshotTx(tx, provider.SnapshotHash)
+		if previousErr != nil {
+			return previousErr
+		}
+		if err := ValidatePiknoSyncSnapshot(existing, snapshot); err != nil {
+			return err
+		}
+		if compiled != nil {
+			plugin := TaskPlugin{Key: compiled.Meta.Key, Version: version, APIVersion: 1, Source: LongText(source), SourceHash: sourceHash, Enabled: true, Active: false, CreatedAt: now, Remark: "validated line-sync37 snapshot"}
+			var oldPlugin TaskPlugin
+			lookup := tx.Where(map[string]any{"key": plugin.Key, "version": version}).First(&oldPlugin).Error
+			if errors.Is(lookup, gorm.ErrRecordNotFound) {
+				if err := tx.Create(&plugin).Error; err != nil {
+					return err
+				}
+			} else if lookup != nil {
+				return lookup
+			} else if oldPlugin.SourceHash != sourceHash {
+				return errors.New("adapter_version_conflict")
+			}
+			if err := tx.Model(&TaskPlugin{}).Where(map[string]any{"key": plugin.Key}).Update("active", false).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&TaskPlugin{}).Where(map[string]any{"key": plugin.Key, "version": version}).Updates(map[string]any{"active": true, "enabled": true}).Error; err != nil {
+				return err
+			}
+		}
+		record := PiknoSyncSnapshot{Hash: snapshot.Hash, Provider: snapshot.Provider, Data: string(raw), PluginVersion: version, PluginSourceHash: sourceHash, CreatedAt: now}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&record).Error; err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for i, item := range snapshot.Items {
+			seed := seeds[i]
+			if seed.Provider != snapshot.Provider || seed.UpstreamModel != item.Entry.ID {
+				return errors.New("snapshot_seed_mismatch")
+			}
+			seen[seed.PublicModel] = true
+			var row PiknoLine
+			rowErr := lockForUpdate(tx).First(&row, "public_model = ?", seed.PublicModel).Error
+			if rowErr != nil && !errors.Is(rowErr, gorm.ErrRecordNotFound) {
+				return rowErr
+			}
+			// A cached snapshot can refresh an existing route, but cannot restore
+			// a configuration removed by a later authoritative response.
+			if !fresh && errors.Is(rowErr, gorm.ErrRecordNotFound) {
+				continue
+			}
+			if !seed.UpstreamAvailable {
+				if fresh && rowErr == nil {
+					if err := retirePiknoLine(tx, row, snapshot.Provider, "disabled"); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			var published, draft *PiknoLineConfig
+			if rowErr == nil {
+				published, err = decodePiknoLineConfig(row.PublishedConfig)
+				if err != nil {
+					return err
+				}
+				draft, err = decodePiknoLineConfig(row.DraftConfig)
+				if err != nil {
+					return err
+				}
+			}
+			base := draft
+			if base == nil {
+				base = published
+			}
+			// Keep saved operator prices as inactive editing data while the
+			// provider's unit is unknown. PriceIssue still blocks publication and
+			// execution; restoring a contract matches resolution AND unit below.
+			if seed.PriceIssue && len(seed.Prices) == 0 {
+				retailBase := base
+				if retailBase != nil && len(retailBase.Prices) == 0 {
+					retailBase = published
+				}
+				if retailBase != nil {
+					for _, price := range retailBase.Prices {
+						price.CostCNY = nil
+						price.SuggestedCNY = 0
+						seed.Prices = append(seed.Prices, price)
+					}
+				}
+			}
+			preserveSyncOperatorFields(&seed, base)
+			// A temporary unknown unit can remove price rows from the generated
+			// draft. When that unit returns, recover matching published prices;
+			// do not manufacture a zero-price draft for an already priced line.
+			if published != nil && base != published {
+				known := map[string]int{}
+				for _, p := range published.Prices {
+					known[linePriceKey(p.Resolution, p.Unit)] = p.RetailQuota
+				}
+				for i := range seed.Prices {
+					if seed.Prices[i].RetailQuota == 0 {
+						seed.Prices[i].RetailQuota = known[linePriceKey(seed.Prices[i].Resolution, seed.Prices[i].Unit)]
+					}
+				}
+			}
+			seed.AdapterVersion = version
+			seed.SyncHash = piknocatalog.CanonicalDigest(item)
+			seed.Revision = 0
+			var state PiknoLineSyncState
+			stateErr := tx.First(&state, "public_model = ?", seed.PublicModel).Error
+			if stateErr != nil && !errors.Is(stateErr, gorm.ErrRecordNotFound) {
+				return stateErr
+			}
+			previousItemHash := state.SnapshotHash
+			state.PublicModel = seed.PublicModel
+			state.Provider = snapshot.Provider
+			state.SnapshotHash = seed.SyncHash
+			state.LastSeenAt = now
+			state.MissingCount = 0
+			state.PriceIssue = item.Entry.PriceIssue
+			state.BillingUnit = item.Entry.BillingUnit
+			state.CostIssueCode = item.Entry.CostIssueCode
+			state.BillingIssueCode = item.Entry.BillingIssueCode
+			state.AdapterIssue = item.AdapterIssue
+			state.Paused = false
+			state.PauseReason = ""
+			costBase := published
+			if costBase == nil {
+				costBase = base
+			}
+			if costBase != nil && seed.BillingIssueCode == "" && costFingerprint(costBase) != costFingerprint(&seed) {
+				state.CostChanged = true
+				state.CostChangedAt = now
+			}
+			if !seed.UpstreamAvailable {
+				state.Paused = true
+				state.PauseReason = "disabled"
+			} else if item.Adapter == nil {
+				state.Paused = true
+				state.PauseReason = "adapter_invalid"
+			} else if seed.PriceIssue {
+				state.Paused = true
+				state.PauseReason = "billing_unknown"
+			}
+			if errors.Is(rowErr, gorm.ErrRecordNotFound) {
+				encoded, _ := encodePiknoLineConfig(&seed)
+				row = PiknoLine{PublicModel: seed.PublicModel, Version: max(1, state.RetiredRevision+1), DraftConfig: encoded, UpdatedAt: now}
+				if err := tx.Create(&row).Error; err != nil {
+					return err
+				}
+			} else if previousItemHash != seed.SyncHash || base == nil || base.AdapterVersion != version {
+				// Candidate draft follows provider facts, retaining only explicit operator
+				// fields. Auto-publication uses the published operator prices independently
+				// so an unsaved price draft cannot become a live price by synchronization.
+				target := seed
+				target.Prices = append([]PiknoLinePrice(nil), seed.Prices...)
+				if published != nil && published.Enabled {
+					preserveSyncOperatorFields(&target, published)
+					if !state.Paused {
+						if reasons := validatePiknoLineConfig(tx, &row, &target); len(reasons) > 0 {
+							state.Paused = true
+							state.PauseReason = "schema_changed"
+						}
+					}
+					if !state.Paused && configFingerprint(published) != configFingerprint(&target) {
+						next := row.Version + 1
+						target.Revision = next
+						if err := applyPiknoSyncProjection(tx, published, &target); err != nil {
+							return err
+						}
+						encoded, _ := encodePiknoLineConfig(&target)
+						row.PreviousConfig = row.PublishedConfig
+						row.PublishedConfig = encoded
+						row.Version = next
+						row.UpdatedAt = now
+					}
+				}
+				encoded, _ := encodePiknoLineConfig(&seed)
+				// A semantically unchanged snapshot never changes the configuration or
+				// quote revision merely because fetched_at advanced.
+				if configFingerprint(draft) != configFingerprint(&seed) {
+					row.DraftConfig = encoded
+					row.Version++
+					row.UpdatedAt = now
+				}
+				if err := tx.Save(&row).Error; err != nil {
+					return err
+				}
+			} else if !state.Paused && published != nil && published.Enabled && published.SyncHash != seed.SyncHash {
+				state.Paused = true
+				state.PauseReason = "schema_changed"
+			}
+			if err := tx.Save(&state).Error; err != nil {
+				return err
+			}
+		}
+		var currentRows []PiknoLine
+		if fresh {
+			if err := lockForUpdate(tx).Order("public_model").Find(&currentRows).Error; err != nil {
+				return err
+			}
+		}
+		for _, row := range currentRows {
+			if seen[row.PublicModel] {
+				continue
+			}
+			config, err := decodePiknoLineConfig(row.PublishedConfig)
+			if err != nil {
+				return err
+			}
+			if config == nil {
+				config, err = decodePiknoLineConfig(row.DraftConfig)
+				if err != nil {
+					return err
+				}
+			}
+			if config == nil || config.Provider != snapshot.Provider {
+				continue
+			}
+			// Retained adapter descriptors serve accepted historical tasks only.
+			// One new complete directory omission retires current configuration.
+			if err := retirePiknoLine(tx, row, snapshot.Provider, "missing"); err != nil {
+				return err
+			}
+		}
+		result := tx.Model(&PiknoSyncProvider{}).Where("provider = ? AND lease_epoch = ? AND lease_owner = ? AND lease_until > ?", snapshot.Provider, lease.Epoch, lease.Owner, max(now, time.Now().Unix())).Updates(map[string]any{"snapshot_hash": snapshot.Hash, "last_verified_at": now, "next_attempt_at": now + 60, "state": "ready", "error_code": "", "e_tag": snapshot.ETag, "last_modified": snapshot.LastModified, "plugin_version": version, "plugin_source_hash": sourceHash, "adapter_models": string(modelsRaw), "lease_until": 0})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrPiknoSyncLease
+		}
+		return nil
+	})
+	if err == nil {
+		refreshPiknoRoutingCaches()
+	}
+	return err
+}
+func containsSyncModel(models []string, target string) bool {
+	for _, value := range models {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+func syncSnapshotTx(tx *gorm.DB, hash string) (*piknocatalog.ProviderSnapshot, error) {
+	if hash == "" {
+		return nil, nil
+	}
+	var row PiknoSyncSnapshot
+	if err := tx.First(&row, "hash = ?", hash).Error; err != nil {
+		return nil, err
+	}
+	var result piknocatalog.ProviderSnapshot
+	if json.Unmarshal([]byte(row.Data), &result) != nil {
+		return nil, errors.New("snapshot_invalid")
+	}
+	return &result, nil
+}
+
+func PiknoSyncLineReadyTx(tx *gorm.DB, config *PiknoLineConfig, now int64) error {
+	return piknoSyncLineReady(tx, config, now, false)
+}
+func PiknoSyncPublicationReadyTx(tx *gorm.DB, config *PiknoLineConfig, now int64) error {
+	return piknoSyncLineReady(tx, config, now, true)
+}
+func piknoSyncLineReady(tx *gorm.DB, config *PiknoLineConfig, now int64, publication bool) error {
+	if !PiknoLineSyncEnabled() || config == nil || (config.Provider != "sanbao" && config.Provider != "canseedream") {
+		return nil
+	}
+	var provider PiknoSyncProvider
+	if tx.First(&provider, "provider = ?", config.Provider).Error != nil || piknoSyncStale(provider, now) {
+		return ErrPiknoSyncRuntime
+	}
+	var state PiknoLineSyncState
+	if tx.First(&state, "public_model = ?", config.PublicModel).Error != nil || (state.Paused && !(publication && state.PauseReason == "schema_changed" && !state.PriceIssue && state.AdapterIssue == "")) || state.SnapshotHash != config.SyncHash {
+		return ErrPiknoSyncRuntime
+	}
+	plugin, ok := jsplugin.DefaultRegistry.Get(config.PluginKey)
+	if !ok || plugin.Meta.Version != config.AdapterVersion || plugin.Meta.Version != provider.PluginVersion || !containsSyncModel(plugin.Meta.Models, config.UpstreamModel) {
+		return ErrPiknoSyncRuntime
+	}
+	return nil
+}
+func PiknoSyncExpectedPlugin(config *PiknoLineConfig) string {
+	if !PiknoLineSyncEnabled() || config == nil {
+		return ""
+	}
+	return config.AdapterVersion
+}
+
+func PiknoSyncRetainedModels(provider PiknoSyncProvider) (map[string]piknocatalog.AdapterDescriptor, error) {
+	models := map[string]piknocatalog.AdapterDescriptor{}
+	if provider.AdapterModels != "" && json.Unmarshal([]byte(provider.AdapterModels), &models) != nil {
+		return nil, fmt.Errorf("stored adapter descriptor invalid")
+	}
+	return models, nil
+}

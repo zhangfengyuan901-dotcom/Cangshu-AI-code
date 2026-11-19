@@ -1,0 +1,398 @@
+"""Server-side release candidate. Writing actions require an explicit runner action."""
+import copy
+import fcntl
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import tarfile
+import time
+
+ROOT = Path('/opt/piknoai-relay/current')
+STAGE = Path('/opt/piknoai-relay/portal68-20261112')
+PRIVATE = STAGE / 'private'
+APP = 'piknoai-relay-new-api-1'
+PG = 'piknoai-relay-postgres-1'
+TOOL = 'pikno-tool-control-tool-control-1'
+OLD_IMAGE = 'sha256:8be2256d39ac20393e8c64b26f397763de19d70d730331d2a724bdd42788b51d'
+OLD_BINARY = 'a2fb567fe2683ecea4345488e7cad61d39712f0d2c00b717b3ea32a6297e7254'
+OLD_TOOL = 'sha256:d8542965a9e47d9db9eaf2bb612def9ff33e818c73ffc1aac6dde60886184b41'
+OLD_VERSION = 'v1.0.0-rc.41-hamster.67'
+NEW_IMAGE = 'hamster-portal68-release:local'
+VERSION = 'v1.0.0-rc.41-hamster.68'
+LAYERS = ('compose.yaml', 'compose.ecs.yaml', 'compose.payments.yaml', 'compose.tunnel.yaml', 'compose.llm36.yaml')
+COMPOSE = ['docker', 'compose', *[v for name in LAYERS for v in ('-f', str(ROOT / name))]]
+PROTECTED = ('users', 'tokens', 'options', 'top_ups', 'tasks', 'pikno_settlements', 'pikno_settlement_events',
+             'pikno_settlement_outboxes', 'pikno_llm_requests', 'pikno_reverse_operations', 'logs', 'redemptions')
+CATALOG = ('pikno_lines', 'pikno_line_sync_states', 'pikno_sync_providers', 'pikno_sync_snapshots', 'channels', 'abilities', 'task_plugins')
+
+
+
+
+def require(value, code):
+    if not value:
+        raise RuntimeError(code)
+
+def run(args, *, data=None, timeout=90):
+    result = subprocess.run(args, input=data, capture_output=True, timeout=timeout)
+    require(result.returncode == 0, 'RELEASE_COMMAND_FAILED_' + args[0])
+    return result.stdout
+
+def hashed(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+def digest(file):
+    with Path(file).open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+def inspect(name):
+    return json.loads(run(['docker', 'inspect', name]))[0]
+
+def runtime(info):
+    config = copy.deepcopy(info['Config'])
+    config.pop('Image', None)
+    config.pop('Hostname', None)
+    for key in ('com.docker.compose.config-hash', 'com.docker.compose.image', 'com.docker.compose.replace'):
+        config.get('Labels', {}).pop(key, None)
+    config['Env'] = sorted(config.get('Env', []))
+    mounts = [{key: value for key, value in entry.items() if key != 'Name'} for entry in info['Mounts']]
+    return hashed({'config': config, 'host': info['HostConfig'], 'mounts': mounts,
+                   'networks': sorted(info['NetworkSettings']['Networks'])})
+
+def sql(query):
+    raw = run(['docker', 'exec', '-i', PG, 'psql', '-U', 'pikno', '-d', 'newapi', '-At', '-v', 'ON_ERROR_STOP=1',
+               '-c', 'BEGIN READ ONLY; ' + query + '; ROLLBACK']).decode()
+    rows = [line for line in raw.splitlines() if line.startswith(('{', '['))]
+    require(len(rows) == 1, 'READONLY_SQL_SHAPE')
+    return json.loads(rows[0])
+
+def activity():
+    return sql("""WITH clock AS (SELECT extract(epoch FROM now())::bigint ts)
+    SELECT json_build_object(
+      'recent_tasks',(SELECT count(*) FROM tasks WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0),coalesce(start_time,0),coalesce(finish_time,0)) >= (SELECT ts-600 FROM clock)),
+      'recent_settlements',(SELECT count(*) FROM pikno_settlements WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0)) >= (SELECT ts-600 FROM clock)),
+      'tasks_active',(SELECT count(*) FROM tasks WHERE status NOT IN ('SUCCESS','FAILURE') AND NOT (status='UNKNOWN' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock))),
+      'settlements_active',(SELECT count(*) FROM pikno_settlements WHERE (coalesce(settled_outcome,'')='' OR reserved_quota<>0) AND NOT (generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock))),
+      'llm_active',(SELECT count(*) FROM pikno_llm_requests WHERE state NOT IN ('settled','released','unknown') OR state='unknown' AND updated_at>=(SELECT ts-900 FROM clock)),
+      'recent_llm',(SELECT count(*) FROM pikno_llm_requests WHERE greatest(coalesce(created_at,0),coalesce(updated_at,0)) >= (SELECT ts-600 FROM clock)),
+      'pending_recharges',(SELECT count(*) FROM top_ups WHERE status='pending' AND create_time>=(SELECT ts-600 FROM clock)),
+      'reverse_active',(SELECT count(*) FROM pikno_reverse_operations WHERE NOT ((kind='upload' AND state='ready' AND coalesce(financial_state,'')='') OR (kind='task' AND state='done' AND financial_state='settled') OR (kind='task' AND state IN ('error','cancelled') AND financial_state='released'))),
+      'old_unknown_settlements',(SELECT count(*) FROM pikno_settlements WHERE generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock)),
+      'old_unknown_llm',(SELECT count(*) FROM pikno_llm_requests WHERE state='unknown' AND updated_at<(SELECT ts-900 FROM clock)))""")
+
+def assert_quiet():
+    value = activity()
+    allowed = {'old_unknown_settlements', 'old_unknown_llm'}
+    require(all(type(number) is int and number == 0 for key, number in value.items() if key not in allowed), 'RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')
+    health = json.loads(run(['docker', 'exec', TOOL, 'node', '-e', "fetch('http://127.0.0.1:8090/healthz').then(async r=>{if(!r.ok)process.exit(1);console.log(await r.text())}).catch(()=>process.exit(1))"]))
+    require(health.get('active') == 0 and health.get('accepting') is True, 'CONTROL_ACTIVE_DEFER_RELEASE')
+    return value
+
+def files_fingerprint():
+    files = (*LAYERS, '.env', '.auth-challenge55.env', '.promptvv-reverse.env')
+    return {name: digest(ROOT / name) for name in files if (ROOT / name).is_file()}
+
+def save_private(name, value):
+    require(STAGE.parent.resolve() == STAGE.parent and not STAGE.is_symlink(), 'STAGE_PATH_INVALID')
+    require(not PRIVATE.is_symlink(), 'PRIVATE_PATH_INVALID')
+    PRIVATE.mkdir(parents=True, mode=0o700, exist_ok=True)
+    os.chmod(STAGE, 0o700)
+    os.chmod(PRIVATE, 0o700)
+    path = PRIVATE / name
+    with path.open('x', encoding='utf-8') as target:
+        os.chmod(path, 0o600)
+        json.dump(value, target, sort_keys=True)
+    return digest(path)
+
+def manifest():
+    value = json.loads((STAGE / 'build68.json').read_text())
+    require(value.get('version') == VERSION and re.fullmatch('[a-f0-9]{64}', value.get('binary_sha256', '')), 'CANDIDATE_MANIFEST_INVALID')
+    return value
+
+def current(old=True):
+    app, tool = inspect(APP), inspect(TOOL)
+    expected = OLD_IMAGE if old else json.loads((PRIVATE / 'stage.json').read_text())['candidate_image_id']
+    require(app['Image'] == expected and app['State']['Running'], 'LIVE_APP_IDENTITY_DRIFT')
+    require(tool['Image'] == OLD_TOOL and tool['State']['Running'], 'CONTROL_IDENTITY_DRIFT')
+    require(app['State'].get('Health', {}).get('Status') == 'healthy', 'LIVE_APP_UNHEALTHY')
+    require(tool['State'].get('Health', {}).get('Status') == 'healthy', 'LIVE_CONTROL_UNHEALTHY')
+    sha = run(['docker', 'exec', APP, 'sha256sum', '/new-api']).decode().split()[0]
+    require(sha == (OLD_BINARY if old else manifest()['binary_sha256']), 'LIVE_BINARY_DRIFT')
+    return app, tool
+
+def preflight():
+    app, tool = current()
+    values = activity()
+    return {'read_only': True, 'old_version': OLD_VERSION, 'app_image_id': app['Image'], 'app_binary_sha256': OLD_BINARY,
+            'app_runtime_fingerprint': runtime(app), 'tool_runtime_fingerprint': runtime(tool),
+            'activity': values, 'production_business_mutations': 0,
+            'compose_image_slot_verified': bool(compose_with_image(app['Config']['Image'], NEW_IMAGE))}
+
+def compose_with_image(expected, replacement):
+    path = ROOT / 'compose.yaml'
+    text = path.read_text()
+    lines = text.splitlines(keepends=True)
+    in_service = False
+    matches = []
+    for index, line in enumerate(lines):
+        if re.fullmatch(r'  new-api:\s*\n?', line):
+            in_service = True
+            continue
+        if in_service and re.match(r'^  [A-Za-z0-9_-]+:', line):
+            in_service = False
+        if in_service:
+            match = re.fullmatch(r'(    image:\s*)([^\s#]+)(\s*(?:#.*)?\n?)', line)
+            if match:
+                require(match.group(2) == expected, 'COMPOSE_IMAGE_REFERENCE_DRIFT')
+                matches.append(index)
+                lines[index] = match.group(1) + replacement + match.group(3)
+    require(len(matches) == 1, 'COMPOSE_IMAGE_SLOT_AMBIGUOUS')
+    return ''.join(lines)
+
+def replace_compose_image(expected, replacement):
+    path = ROOT / 'compose.yaml'
+    updated = compose_with_image(expected, replacement)
+    temporary = path.with_name(path.name + '.portal68')
+    with temporary.open('x') as target:
+        os.chmod(temporary, path.stat().st_mode & 0o777)
+        target.write(updated); target.flush(); os.fsync(target.fileno())
+    os.replace(temporary, path)
+
+def verify_frontend():
+    build = manifest()
+    entry = build.get('frontend_entry_script', '')
+    require(re.fullmatch(r'/[a-zA-Z0-9_./-]+\.js', entry) is not None, 'FRONTEND_ENTRY_MANIFEST_INVALID')
+    resources = build.get('frontend_resources', [])
+    require(1 <= len(resources) <= 24, 'FRONTEND_RESOURCES_MANIFEST_INVALID')
+    for item in resources:
+        path = item.get('path', '')
+        require(re.fullmatch(r'/[a-zA-Z0-9_./-]+\.(?:js|css|svg|png|ico|mjs|webp|jpg|jpeg|avif|mp4|html)', path) is not None and '..' not in path,
+                'FRONTEND_RESOURCE_PATH_INVALID')
+        response = subprocess.run(['docker', 'exec', APP, 'wget', '-S', '-q', '-T', '10', '-O', '-',
+                                   'http://127.0.0.1:3000' + path], capture_output=True, timeout=20)
+        require(response.returncode == 0, 'FRONTEND_RESOURCE_HTTP_FAILED')
+        body = response.stdout
+        if item.get('content_type'):
+            types = re.findall(r'Content-Type:\s*([^;\s]+)', response.stderr.decode(errors='replace'), re.IGNORECASE)
+            require(types and types[-1].lower() == item['content_type'], 'FRONTEND_RESOURCE_CONTENT_TYPE_DRIFT')
+        require(len(body) <= 8 * 1024 * 1024 and hashlib.sha256(body).hexdigest() == item['sha256'], 'FRONTEND_RESOURCE_HASH_DRIFT')
+        if path.endswith('.mp4'):
+            import urllib.request
+            import ipaddress
+            ip = next(n['IPAddress'] for n in inspect(APP)['NetworkSettings']['Networks'].values() if n.get('IPAddress'))
+            ipaddress.IPv4Address(ip)
+            url = 'http://' + ip + ':3000' + path
+            direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            request = urllib.request.Request(url,headers={'Range':'bytes=0-1023','Accept-Encoding':'gzip'})
+            with direct.open(request,timeout=15) as response:
+                require(response.status == 206 and response.read() == body[:1024] and not response.headers.get('Content-Encoding'), 'MP4_RANGE_OR_GZIP_DRIFT')
+            request = urllib.request.Request(url,method='HEAD',headers={'Accept-Encoding':'gzip'})
+            with direct.open(request,timeout=15) as response:
+                require(response.status == 200 and int(response.headers.get('Content-Length','-1')) == len(body) and not response.headers.get('Content-Encoding'), 'MP4_HEAD_OR_GZIP_DRIFT')
+    paths = build.get('public_paths', ['/'])
+    require(1 <= len(paths) <= 8, 'FRONTEND_PUBLIC_PATHS_INVALID')
+    for path in paths:
+        require(re.fullmatch(r'/[a-zA-Z0-9_/-]*', path) is not None and '..' not in path, 'FRONTEND_PUBLIC_PATH_INVALID')
+        body = run(['docker', 'exec', APP, 'wget', '-q', '-T', '10', '-O', '-', 'http://127.0.0.1:3000' + path])
+        require(entry.encode() in body, 'FRONTEND_PUBLIC_ROUTE_NOT_SERVING_CANDIDATE')
+    return {'checked_resources': len(resources), 'checked_public_paths': len(paths)}
+
+def wait_new():
+    for _ in range(90):
+        try:
+            current(old=False)
+            return
+        except RuntimeError:
+            time.sleep(2)
+    raise RuntimeError('CANDIDATE_HEALTH_TIMEOUT')
+
+def safe_failure_code(error):
+    value = str(error)
+    if isinstance(error, RuntimeError) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,159}', value):
+        return value
+    return 'PRIVATE_FAILURE_DETAILS_WITHHELD'
+
+
+# Appended to the vetted release transport/runtime helpers by prepare-release68.
+STRICT_TABLES = {'users','tokens','options','top_ups','redemptions','tasks','logs','audit_logs',
+ 'pikno_settlements','pikno_settlement_events','pikno_settlement_outboxes','pikno_price_quote_slots',
+ 'pikno_llm_requests','pikno_reverse_operations'}
+
+def cleanup_engine():
+    import importlib.util
+    path = STAGE / 'cleanup68.py'
+    require(path.is_file() and not path.is_symlink() and digest(path) == manifest()['cleanup_sha256'], 'CLEANUP_ENGINE_HASH_DRIFT')
+    spec = importlib.util.spec_from_file_location('approved_cleanup68', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def schema():
+    return sql("SELECT json_build_object('columns',(SELECT coalesce(json_agg(json_build_object('table',table_name,'column',column_name,'type',data_type,'nullable',is_nullable,'default',column_default) ORDER BY table_name,ordinal_position),'[]'::json) FROM information_schema.columns WHERE table_schema='public'), 'constraints',(SELECT coalesce(json_agg(json_build_object('table',r.relname,'name',c.conname,'type',c.contype,'definition',pg_get_constraintdef(c.oid)) ORDER BY r.relname,c.conname),'[]'::json) FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public'), 'indexes',(SELECT coalesce(json_agg(json_build_object('table',tablename,'name',indexname,'definition',indexdef) ORDER BY tablename,indexname),'[]'::json) FROM pg_indexes WHERE schemaname='public'))")
+
+def schema_allowed(before, after):
+    require(before == after, 'RETIREMENT_RELEASE_SCHEMA_CHANGED')
+
+def catalog_file(app):
+    from pathlib import PurePosixPath
+    env = dict(value.split('=',1) for value in app['Config'].get('Env',[]) if '=' in value)
+    inside = PurePosixPath(env.get('PIKNO_CATALOG_PATH') or '/data/pikno/catalog.json')
+    require(inside.is_absolute() and '..' not in inside.parts, 'CATALOG_CONTAINER_PATH_INVALID')
+    matches = []
+    for mount in app['Mounts']:
+        destination = PurePosixPath(mount['Destination'])
+        if inside.is_relative_to(destination):
+            matches.append((len(destination.parts), mount, inside.relative_to(destination)))
+    require(bool(matches), 'CATALOG_MOUNT_NOT_FOUND')
+    _, mount, suffix = max(matches,key=lambda item:item[0])
+    require(mount['Type'] in ('bind','volume') and mount.get('RW') is True, 'CATALOG_MOUNT_NOT_WRITABLE')
+    base = Path(mount['Source'])
+    target = base.joinpath(*suffix.parts)
+    require(base.is_absolute() and base.resolve()==base and target.resolve()==target and target.is_file() and not target.is_symlink(), 'CATALOG_HOST_PATH_INVALID')
+    return target
+
+def run_cleanup_sql(script):
+    raw = run(['docker','exec','-i',PG,'psql','-X','-qAt','-U','pikno','-d','newapi','-v','ON_ERROR_STOP=1','-f','-'],data=script.encode(),timeout=180)
+    values = [json.loads(line) for line in raw.decode().splitlines() if line.startswith(('{','['))]
+    require(bool(values), 'CLEANUP_SQL_RESULT_MISSING')
+    return values[-1]
+
+def preflight():
+    app,tool=current()
+    catalog=catalog_file(app)
+    content=json.loads(catalog.read_bytes())
+    return {'read_only':True,'old_version':OLD_VERSION,'app_image_id':app['Image'],'app_binary_sha256':OLD_BINARY,
+      'app_runtime_fingerprint':runtime(app),'tool_runtime_fingerprint':runtime(tool),'activity':activity(),
+      'catalog_path_resolved':True,'legacy_catalog_sanbao_counts':{key:sum(item.get('provider')=='sanbao' for item in (content.get(key) or {}).get('models',[])) for key in ('draft','published','previous')},
+      'compose_image_slot_verified':bool(compose_with_image(app['Config']['Image'],NEW_IMAGE)),'production_business_mutations':0}
+
+def stage():
+    app, tool = current()
+    build = manifest()
+    require(build.get('validation',{}).get('passed') is True, 'CANDIDATE_VALIDATION_REQUIRED')
+    require(digest(STAGE/'cleanup68.py') == build['cleanup_sha256'], 'CLEANUP_ENGINE_HASH_DRIFT')
+    dry_run=cleanup_engine().preflight_inventory(sql)
+    require(digest(STAGE/'backend68-new-api.gz') == build['gzip_sha256'], 'CANDIDATE_GZIP_HASH_DRIFT')
+    binary = STAGE/'backend68-new-api'
+    require(not binary.exists(), 'STAGED_BINARY_ALREADY_EXISTS')
+    with gzip.open(STAGE/'backend68-new-api.gz','rb') as source, binary.open('xb') as target:
+        while chunk := source.read(1024*1024): target.write(chunk)
+    os.chmod(binary,0o700)
+    require(binary.stat().st_size == build['binary_bytes'] and digest(binary)==build['binary_sha256'], 'CANDIDATE_BINARY_HASH_DRIFT')
+    before = {'old_runtime':runtime(app),'tool_runtime':runtime(tool),'files':files_fingerprint(),
+      'old_image_reference':app['Config']['Image'],'schema':schema()}
+    base='hamster-portal68-base:local'
+    run(['docker','tag',OLD_IMAGE,base])
+    recipe=('FROM '+base+'\nCOPY backend68-new-api /new-api\n').encode()
+    PRIVATE.mkdir(mode=0o700,parents=True,exist_ok=True)
+    os.chmod(PRIVATE,0o700)
+    with (PRIVATE/'stage-build.log').open('xb') as log:
+        os.chmod(log.name,0o600)
+        process=subprocess.Popen(['docker','build','--network','none','--pull=false','-t',NEW_IMAGE,'-'],stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,env=dict(os.environ,DOCKER_BUILDKIT='0'))
+        try:
+            with tarfile.open(fileobj=process.stdin,mode='w|') as bundle:
+                entry=tarfile.TarInfo('Dockerfile');entry.size=len(recipe);bundle.addfile(entry,io.BytesIO(recipe))
+                entry=tarfile.TarInfo('backend68-new-api');entry.size=binary.stat().st_size;entry.mode=0o755
+                with binary.open('rb') as source:bundle.addfile(entry,source)
+            process.stdin.close()
+            require(process.wait(timeout=240)==0,'CANDIDATE_IMAGE_BUILD_FAILED')
+        except Exception:
+            if process.poll() is None:process.kill();process.wait(timeout=10)
+            raise
+    candidate=json.loads(run(['docker','image','inspect',NEW_IMAGE]))[0]
+    require(run(['docker','run','--rm','--network','none','--entrypoint','sha256sum',NEW_IMAGE,'/new-api']).decode().split()[0]==build['binary_sha256'],'CANDIDATE_IMAGE_BINARY_DRIFT')
+    require(run(['docker','run','--rm','--network','none','--entrypoint','/new-api',NEW_IMAGE,'--version']).decode().strip()==VERSION,'CANDIDATE_VERSION_DRIFT')
+    before.update({'candidate_image_id':candidate['Id'],'manifest_sha256':digest(STAGE/'build68.json'),
+      'new_compose_sha256':hashlib.sha256(compose_with_image(before['old_image_reference'],NEW_IMAGE).encode()).hexdigest()})
+    save_private('stage.json',before)
+    return {'staged':True,'candidate_image_id':candidate['Id'],'version':VERSION,'application_restarted':False,'source_rows_backed_up':False,'opening_balance_snapshot_saved':False,'cleanup_readonly_dry_run':cleanup_engine().summary(dry_run)}
+
+def assert_strict_fingerprints(plan):
+    for table in sorted(STRICT_TABLES):
+        require(table in plan['tables'], 'PROTECTED_TABLE_MISSING_FROM_PLAN')
+        value=sql('SELECT jsonb_build_object(\'count\',count(*),\'digest\',md5(coalesce(jsonb_agg(row ORDER BY row::text),\'[]\'::jsonb)::text)) FROM (SELECT to_jsonb(r) row FROM "'+table+'" r) s')
+        require(value==plan['tables'][table]['preserved'], 'PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED_REVIEW_REQUIRED')
+
+def verify():
+    app,tool=current(old=False)
+    staged=json.loads((PRIVATE/'stage.json').read_text())
+    plan=json.loads((PRIVATE/'cleanup-plan.json').read_text())
+    require(runtime(app)==staged['old_runtime'] and runtime(tool)==staged['tool_runtime'],'RUNTIME_BINDINGS_CHANGED')
+    fingerprints=files_fingerprint()
+    require(fingerprints.get('compose.yaml')==staged['new_compose_sha256'],'POST_APPLY_COMPOSE_DRIFT')
+    require(all(fingerprints.get(k)==v for k,v in staged['files'].items() if k!='compose.yaml'),'POST_APPLY_CONFIG_DRIFT')
+    assert_strict_fingerprints(plan)
+    schema_allowed(staged['schema'],schema())
+    engine=cleanup_engine();remaining=engine.preflight_inventory(sql)
+    counts=engine.summary(remaining)
+    require(all(value==0 for value in counts['delete_counts'].values()) and not counts['update_counts'],'SANBAO_DATA_REPOPULATED')
+    catalog=catalog_file(app);content=json.loads(catalog.read_bytes())
+    require(all(not any(item.get('provider')=='sanbao' for item in (content.get(key) or {}).get('models',[])) for key in ('draft','published','previous')),'SANBAO_LEGACY_CATALOG_REPOPULATED')
+    frontend=verify_frontend()
+    return {'verified':True,'version':VERSION,'app_image_id':app['Image'],'healthy':True,'runtime_bindings_preserved':True,
+      'protected_history_and_financial_fingerprints_preserved':True,'schema_unchanged':True,'sanbao_remaining_rows':0,
+      'legacy_catalog_sanbao_entries':0,'frontend':frontend,'financial_restore':False,'wallet_or_counter_adjustments':False,
+      'opening_balance_snapshot_saved':False,'source_rows_backed_up':False,'real_generation_calls':0}
+
+def apply():
+    app,tool=current();staged=json.loads((PRIVATE/'stage.json').read_text())
+    require(runtime(app)==staged['old_runtime'] and runtime(tool)==staged['tool_runtime'],'PRE_APPLY_RUNTIME_DRIFT')
+    require(files_fingerprint()==staged['files'],'PRE_APPLY_CONFIG_DRIFT')
+    candidate=json.loads(run(['docker','image','inspect',NEW_IMAGE]))[0]
+    require(candidate['Id']==staged['candidate_image_id'] and digest(STAGE/'build68.json')==staged['manifest_sha256'],'STAGED_PAYLOAD_DRIFT')
+    require(not (PRIVATE/'cleanup-plan.json').exists(),'PRIOR_APPLY_REQUIRES_REVIEW')
+    require(manifest().get('validation',{}).get('passed') is True,'CANDIDATE_VALIDATION_REQUIRED')
+    assert_quiet();stopped=False;deletion_attempted=False
+    try:
+        stopped=True
+        run([*COMPOSE,'stop','-t','900','new-api'],timeout=930)
+        assert_quiet()
+        require(not inspect(APP)['State']['Running'],'APP_MUST_BE_STOPPED')
+        engine=cleanup_engine();plan=engine.preflight_inventory(sql)
+        save_private('cleanup-plan.json',plan)
+        save_private('cleanup-plan-summary.json',engine.summary(plan))
+        catalog=catalog_file(app)
+        catalog_stage=engine.stage_catalog(catalog,digest(catalog),allowed_directory=catalog.parent)
+        save_private('catalog-stage.json',catalog_stage)
+        deletion_attempted=True
+        outcome=engine.apply(run_cleanup_sql,plan,approved_plan_sha256=plan['plan_sha256'],services_stopped=True)
+        save_private('cleanup-committed.json',outcome)
+        catalog_outcome=engine.commit_catalog(catalog,catalog_stage,allowed_directory=catalog.parent)
+        save_private('catalog-committed.json',catalog_outcome)
+        replace_compose_image(staged['old_image_reference'],NEW_IMAGE)
+        run([*COMPOSE,'up','-d','--no-deps','--no-build','--pull','never','new-api'],timeout=180)
+        wait_new();first=verify();save_private('first-start-verification.json',first)
+        # Both startup and a second startup must leave the retired provider absent.
+        run([*COMPOSE,'restart','-t','900','new-api'],timeout=930)
+        wait_new();second=verify();save_private('second-start-verification.json',second)
+        second.update({'cleanup':outcome,'catalog_cleanup':catalog_outcome,'verified_startups':2})
+        return second
+    except Exception as error:
+        code=safe_failure_code(error)
+        if deletion_attempted:
+            # Never bring back the old refill-capable image, financial rows or opening balances.
+            fenced=False
+            try:
+                run([*COMPOSE,'stop','-t','900','new-api'],timeout=930)
+                fenced=not inspect(APP)['State']['Running']
+            except Exception:
+                pass
+            save_private('apply-failure-'+str(time.time_ns())+'.json',{'cleanup_attempted':True,'app_stopped':fenced,'code':code,'financial_restore':False})
+            raise RuntimeError('APPLY_REQUIRES_IMAGE_REPAIR_NO_DATA_RESTORE_'+('APP_STOPPED_' if fenced else 'FENCE_STOP_FAILED_')+code) from None
+        if stopped:
+            run([*COMPOSE,'up','-d','--no-deps','--no-build','--pull','never','new-api'],timeout=180)
+            current()
+        raise RuntimeError('APPLY_DEFERRED_BEFORE_DELETION_'+code) from None
+
+def main(action):
+    require(action in ('preflight','stage','apply','verify'),'UNKNOWN_RELEASE_ACTION')
+    if action=='preflight':return preflight()
+    require(STAGE.parent.resolve()==STAGE.parent and not STAGE.is_symlink(),'STAGE_PATH_INVALID')
+    STAGE.mkdir(mode=0o700,exist_ok=True)
+    with (STAGE/'.release68.lock').open('a') as lock:
+        os.chmod(lock.name,0o600);fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return {'stage':stage,'apply':apply,'verify':verify}[action]()

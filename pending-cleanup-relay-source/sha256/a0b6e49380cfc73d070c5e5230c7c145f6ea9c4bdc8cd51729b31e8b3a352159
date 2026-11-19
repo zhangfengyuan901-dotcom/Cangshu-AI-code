@@ -1,0 +1,33 @@
+"""Explicit single-attempt application of the already staged paired release."""
+import datetime
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+spec=importlib.util.spec_from_file_location('release71_runner',HERE/'release71-run.py')
+runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
+module=runner.transport()
+script=HERE/'release71-apply.py'
+digest=hashlib.sha256(script.read_bytes()).hexdigest()
+guard=json.loads((HERE/'release71-guard-verification.json').read_text())
+runner.require(guard.get('passed') is True,'APPLY_GUARD_VALIDATION_FAILED')
+runner.require(guard.get('apply_source_sha256')==digest,'APPLY_GUARD_SOURCE_DRIFT')
+prepared=module.remote("import json,pathlib,hashlib\np=pathlib.Path("+repr(runner.REMOTE_STAGE)+")/'private'\nassert (p/'stage.json').is_file()\nassert hashlib.sha256((p/'reviewed-runtime-baseline.json').read_bytes()).hexdigest()=='64f9b203a1c8d9affd6d4d1567834690831a81cb1e9cdff0819409943947437f'\nfiles=list(p.glob('apply-*.json'))\nfailures=[x for x in files if x.name.startswith('apply-failure-')]\nattempts=[x for x in files if x.name.startswith('apply-attempt-')]\nreservations=[x for x in files if x.name.startswith('apply-reservations-')]\nassert len(failures)==len(attempts)==3 and len(reservations)==2 and len(files)==8\nvalues=[json.loads(x.read_text()) for x in failures]\nassert sorted(x['code'] for x in values)==['PAIR_RUNTIME_BINDINGS_CHANGED','PAIR_RUNTIME_BINDINGS_CHANGED','RECENT_OR_ACTIVE_NONUNKNOWN_WORK']\nassert all(x.get('financial_restore') is False and x.get('image_only_rollback') is True for x in values)\nprint(json.dumps({'ready':True,'reviewed_retry_only':True}))")
+runner.require(prepared.get('ready'),'PREVIOUS_APPLY_REQUIRES_REVIEW')
+sent=subprocess.run([*runner.scp_arguments(module),str(script),module.SSH[-1]+':'+runner.REMOTE_STAGE+'/release71-apply.py'],capture_output=True,timeout=60)
+runner.require(sent.returncode==0,'APPLY_MODULE_TRANSFER_FAILED')
+source="import importlib.util,json,pathlib,hashlib,os\np=pathlib.Path("+repr(runner.REMOTE_STAGE)+")\nf=p/'release71-apply.py'\nassert f.is_file() and not f.is_symlink() and hashlib.sha256(f.read_bytes()).hexdigest()=="+repr(digest)+"\nos.chmod(f,0o600)\ns=importlib.util.spec_from_file_location('apply71',f)\nm=importlib.util.module_from_spec(s)\ns.loader.exec_module(m)\ntry:\n value=m.main()\n print(json.dumps({'ok':True,'result':value}))\nexcept Exception as error:\n import re\n code=str(error) if isinstance(error,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(error)) else 'APPLY_PRIVATE_DETAILS_WITHHELD'\n print(json.dumps({'ok':False,'code':code,'financial_restore':False}))\n"
+stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')
+try:
+    value=module.remote(source,timeout=2400)
+except Exception:
+    value={'ok':False,'code':'APPLY_RESULT_UNKNOWN_CHECK_REMOTE_EVIDENCE_NO_AUTOMATIC_REPLAY','financial_restore':False}
+file=HERE/('release71-apply-'+stamp+'.json')
+file.write_text(json.dumps(value,indent=2)+'\n')
+print(json.dumps({'evidence':file.name,**value}))
+if not value.get('ok'):
+    raise SystemExit(1)

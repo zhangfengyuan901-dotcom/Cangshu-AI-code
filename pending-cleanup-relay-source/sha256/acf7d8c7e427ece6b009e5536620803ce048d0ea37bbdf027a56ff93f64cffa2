@@ -1,0 +1,54 @@
+import json
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+load=lambda name:json.loads((HERE/name).read_text(encoding='utf-8'))
+base=load('production-readonly-audit.json');old=load('retirement-readonly-counts.json');history=load('history-deletion-readonly-scope.json');logs=load('history-deletion-log-links.json');availability=load('retirement-readonly-availability.json')
+counts={
+ 'current_line_rows':old['counts']['sanbao_lines_current'],
+ 'draft_configs':availability['counts']['sanbao_draft_configs'],
+ 'disabled_published_configs':availability['counts']['sanbao_published_configs'],
+ 'previous_config_snapshots':old['counts']['sanbao_lines_previous_config'],
+ 'sync_states':base['counts']['sanbao_sync_states'],'sync_providers':base['counts']['sanbao_sync_providers'],
+ 'sync_snapshots':base['counts']['sanbao_sync_snapshots'],'plugin_versions':base['counts']['sanbao_plugin_versions'],
+ 'active_enabled_plugin_versions':base['counts']['sanbao_enabled_active_plugins'],
+ 'tasks':old['counts']['sanbao_tasks'],'successful_tasks':old['counts']['sanbao_tasks_success'],'failed_tasks':old['counts']['sanbao_tasks_failure'],
+ 'settlements':old['counts']['sanbao_history_count'],'settlement_events':history['counts']['settlement_events'],
+ 'settlement_outboxes':history['counts']['settlement_outboxes'],'quote_slots':history['counts']['quote_slots'],
+ 'usage_logs':logs['usage_log_rows'],'audit_logs':logs['related_audit_rows'],'hourly_statistics':history['counts']['quota_data_by_verified_models'],
+ 'channel_bindings':old['counts']['sanbao_current_plugin_bound_channels'],'ability_rows':history['counts']['ability_rows_by_verified_models'],
+ 'affected_users':history['counts']['affected_user_count'],'nonzero_net_settlements':history['counts']['settlements_nonzero_net'],
+ 'unsettled_or_reserved_orders':history['counts']['unsettled_or_reserved_orders'],'active_or_unknown_tasks':history['counts']['task_active_or_unknown'],
+ 'legacy_catalog_draft_entries':history['catalog']['sanbao_entries']['draft'],
+ 'legacy_catalog_published_entries':history['catalog']['sanbao_entries']['published'],
+ 'legacy_catalog_previous_entries':history['catalog']['sanbao_entries']['previous'],
+ 'stored_result_references':history['counts']['distinct_result_url_references']}
+assert counts['unsettled_or_reserved_orders']==0 and counts['active_or_unknown_tasks']==0
+value={'format':1,'status':'reviewable_proposal_not_approved_not_executed','as_of_utc':datetime.now(timezone.utc).isoformat(),
+ 'production_image_id':base['image_id'],'counts':counts,
+ 'row_selection_contract':{'current_configuration':'provider=sanbao; per_snapshot_provider_matching; no_shared_provider_deletion',
+ 'tasks':'exact_sanbao_plugin_provenance_or_verified_order_task_link_with_owner',
+ 'settlement_events':'order_id_in_exact_settlement_set','settlement_outboxes':'event_id_in_exact_event_set_with_orphan_payload_order_check',
+ 'logs':'verified_provider_model_set_or_exact_owned_task_request_plugin_provenance',
+ 'audit_logs':'matched_request_or_dedicated_provider_route_only','hourly_statistics':'verified_exclusive_provider_model_buckets_no_user_channel_wide_deletion'},
+ 'before_execution_requirements':['explicit_user_confirmation_after_count_and_impact_review','stop_startup_scheduled_manual_and_legacy_sanbao_sync_sources',
+ 'lock_exact_primary_key_inventory_and_verify_all_order_task_terminal_states_again','separate_memory_cache_handling_to_prevent_statistics_repopulation',
+ 'protect_other_provider_models_shared_routes_customer_keys_wallet_balances_and_unrelated_history'],
+ 'financial_effect':'no_automatic_refund_no_wallet_rewind_no_counter_recalculation',
+ 'opening_balance_snapshot':'pending_user_choice; optional_account_and_key_aggregate_without_provider_model_order_media_or_secret',
+ 'proposed_storage_boundary':'online_relay_database_catalog_runtime_configuration_and_owned_history_references_only',
+ 'outside_this_online_proposal':['upstream_original_media_files','client_local_downloads','backup_or_WAL_storage','shared_R2_input_media_without_proven_exclusive_task_mapping'],
+ 'erasure_claim':'not_full_storage_or_external_copy_erasure',
+ 'production_mutations':0,'deleted_rows':0,'customer_rows_exported':0,'material_urls_exported':0}
+(HERE/'history-deletion-proposal.json').write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+path=ROOT/'.agents/project-state.json';state=json.loads(path.read_text(encoding='utf-8'));r=state['relay']
+r['sanbao_retirement_assessment'].update({'status':'history_included_in_requested_scope_reviewable_proposal_pending_execution_confirmation',
+ 'user_history_intent':'include_history_but_show_exact_scope_and_impact_then_obtain_execution_confirmation',
+ 'proposal':'output/relay-admin-operations-current/history-deletion-proposal.json',
+ 'latest_counts':counts,'runtime_sync_repopulation_observed':True,
+ 'opening_balance_snapshot_choice':'pending','online_storage_boundary_choice':'pending',
+ 'production_mutations':0,'deleted_rows':0})
+r['admin_operations_assessment'].update({'priority_question_pending':False,'confirmed_priority':['business_reconciliation','abnormal_consumption_monitoring'],
+ 'execution_scope_approved':False,'history_policy_impact':'deleted_history_not_reconstructable; opening_balance_snapshot_choice_pending'})
+r['current_line_count']=base['counts']['current_line_configs_total'];state['updated_at']=datetime.now(timezone.utc).isoformat();path.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'proposal_prepared':True,'current_line_rows':counts['current_line_rows'],'sync_snapshots':counts['sync_snapshots'],'execution_confirmation_pending':True,'production_mutations':0}))

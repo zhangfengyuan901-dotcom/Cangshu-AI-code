@@ -1,0 +1,56 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const cp=require('node:child_process');
+
+const workspace=path.resolve(__dirname,'../../..');
+const official=path.join(workspace,'仓鼠AI');
+const candidate=path.join(workspace,'output/payment-desktop-current/source');
+const stage=path.join(__dirname,'source');
+const spec=JSON.parse(fs.readFileSync(path.join(official,'release/current.json'),'utf8'));
+const manifest=JSON.parse(fs.readFileSync(path.join(official,spec.sourceManifest),'utf8'));
+const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const changes={};
+for(const name of ['electron/account-desktop.cjs','electron/account-service.cjs','electron/account-payment.cjs','electron/app-events.cjs','public/account.mjs','public/account-native.mjs']){
+  const original=path.join(stage,name);
+  const changed=path.join(candidate,name);
+  assert.equal(hash(original),manifest.files[name].sha256);
+  changes[name]={before:hash(original),after:hash(changed)};
+  fs.copyFileSync(changed,original);
+}
+const packageFile=path.join(stage,'package.json');
+assert.equal(hash(packageFile),manifest.runtimePackageSHA256);
+const pkg=JSON.parse(fs.readFileSync(packageFile,'utf8'));
+assert.equal(pkg.version,'1.7.75');
+pkg.version='1.7.75-internal.20261112.2';
+pkg.hamsterInternalCandidate=true;
+fs.writeFileSync(packageFile,JSON.stringify(pkg,null,2)+'\n');
+
+const builderFile=path.join(__dirname,'builder.json');
+const builder=JSON.parse(fs.readFileSync(builderFile,'utf8'));
+assert.equal(builder.electronVersion,'33.4.11');
+builder.portable.artifactName='仓鼠AI-支付验证-${version}.exe';
+const candidateBuilder=path.join(__dirname,'builder-payment.json');
+fs.writeFileSync(candidateBuilder,JSON.stringify(builder,null,2)+'\n',{flag:'wx'});
+const cli=path.join(official,'node_modules/electron-builder/cli.js');
+const log=fs.openSync(path.join(__dirname,'build-payment.log'),'wx');
+const result=cp.spawnSync(process.execPath,[cli,'--config',candidateBuilder,'--win','portable','--publish','never'],{
+  cwd:stage,stdio:['ignore',log,log],windowsHide:true,
+});
+fs.closeSync(log);
+assert.equal(result.status,0,'Payment candidate build failed');
+const artifact=path.join(builder.directories.output,`仓鼠AI-支付验证-${pkg.version}.exe`);
+const asarPath=path.join(builder.directories.output,'win-unpacked/resources/app.asar');
+const asar=require(path.join(official,'node_modules/@electron/asar'));
+for(const [name,change] of Object.entries(changes)){
+  assert.equal(crypto.createHash('sha256').update(asar.extractFile(asarPath,name.replaceAll('/',path.sep))).digest('hex'),change.after);
+}
+const builtMetadata=JSON.parse(asar.extractFile(asarPath,'package.json'));
+assert.equal(builtMetadata.hamsterInternalCandidate,true);
+assert.equal(builtMetadata.version,pkg.version);
+const verification={ok:true,version:pkg.version,scope:'isolated_portable_candidate_not_published',
+  baseVersion:spec.version,baseAsarSha256:spec.asarSHA256,portableSha256:hash(artifact),asarSha256:hash(asarPath),
+  portable:path.basename(artifact),changes,formalSourceUnchanged:true,realPaymentCalls:0};
+fs.writeFileSync(path.join(__dirname,'package-verification.json'),JSON.stringify(verification,null,2)+'\n',{flag:'wx'});
+console.log(JSON.stringify({ok:true,version:pkg.version,portable:verification.portable,portableSha256:verification.portableSha256,asarSha256:verification.asarSha256}));

@@ -1,0 +1,135 @@
+"""Collect only deployment metadata for a reviewed server cleanup plan."""
+from datetime import datetime, timezone
+import importlib.util
+import json
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+
+REMOTE = r'''
+import datetime,hashlib,json,os,pathlib,re,shutil,subprocess
+BASE=pathlib.Path('/opt/piknoai-relay')
+CURRENT=BASE/'current'
+LAYERS=('compose.yaml','compose.ecs.yaml','compose.payments.yaml','compose.tunnel.yaml','compose.llm36.yaml')
+def run(args,timeout=90):
+ p=subprocess.run(args,capture_output=True,timeout=timeout)
+ if p.returncode:raise RuntimeError('READONLY_COMMAND_FAILED')
+ return p.stdout
+def hashed(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+def inspect(kind,ids):return json.loads(run(['docker',kind,'inspect',*ids])) if ids else []
+container_ids=run(['docker','ps','-aq','--no-trunc']).decode().split()
+raw_containers=inspect('container',container_ids)
+image_ids=sorted(set(run(['docker','image','ls','-aq','--no-trunc']).decode().split()))
+raw_images=inspect('image',image_ids)
+image_map={value['Id']:value for value in raw_images}
+mount_sources=[]
+containers=[]
+for value in raw_containers:
+ labels=value['Config'].get('Labels') or {}
+ mounts=[]
+ for mount in value.get('Mounts',[]):
+  source=mount.get('Source','')
+  if source:mount_sources.append(pathlib.Path(source))
+  mounts.append({'type':mount.get('Type'),'destination':mount.get('Destination'),
+                 'source_sha256':hashlib.sha256(source.encode()).hexdigest(),
+                 'volume_name':mount.get('Name') if mount.get('Type')=='volume' else None,
+                 'rw':mount.get('RW')})
+ config=dict(value['Config']);config.pop('Hostname',None)
+ containers.append({'id':value['Id'],'name':value['Name'].lstrip('/'),'image_id':value['Image'],
+                    'image_reference':value['Config']['Image'],'state':value['State']['Status'],
+                    'running':value['State']['Running'],'health':value['State'].get('Health',{}).get('Status'),
+                    'project':labels.get('com.docker.compose.project'),'service':labels.get('com.docker.compose.service'),
+                    'mounts':mounts,'runtime_sha256':hashed({'config':config,'host':value['HostConfig'],
+                    'mounts':value['Mounts'],'networks':sorted(value['NetworkSettings']['Networks'])})})
+references={key:[] for key in image_ids}
+for value in containers:references.setdefault(value['image_id'],[]).append(value['id'])
+children={key:[] for key in image_ids}
+for value in raw_images:
+ parent=value.get('Parent')
+ if parent:children.setdefault(parent,[]).append(value['Id'])
+protected=set(value['image_id'] for value in containers)
+ancestors=set()
+for current in tuple(protected):
+ seen=set()
+ while current in image_map and image_map[current].get('Parent'):
+  parent=image_map[current]['Parent']
+  if parent in seen:raise RuntimeError('IMAGE_ANCESTRY_CYCLE')
+  seen.add(parent);ancestors.add(parent);current=parent
+compose_args=['docker','compose']
+for file in LAYERS:compose_args+=['-f',str(CURRENT/file)]
+effective=json.loads(run([*compose_args,'config','--format','json']))
+compose=[]
+for name,value in effective['services'].items():
+ image=value.get('image')
+ found=[entry['Id'] for entry in raw_images if image in (entry.get('RepoTags') or [])]
+ compose.append({'service':name,'image_reference':image,'resolved_image_ids':found,
+                 'build_declared':bool(value.get('build')),'build_sha256':hashed(value.get('build')) if value.get('build') else None})
+ protected.update(found)
+for current in tuple(protected):
+ seen=set()
+ while current in image_map and image_map[current].get('Parent'):
+  parent=image_map[current]['Parent']
+  if parent in seen:raise RuntimeError('IMAGE_ANCESTRY_CYCLE')
+  seen.add(parent);ancestors.add(parent);current=parent
+images=[]
+for value in raw_images:
+ images.append({'id':value['Id'],'tags':value.get('RepoTags') or [],'digests':value.get('RepoDigests') or [],
+                'parent':value.get('Parent') or None,'children':children.get(value['Id'],[]),
+                'created':value['Created'],'bytes_including_shared_layers':value['Size'],
+                'rootfs_layer_count':len(value.get('RootFS',{}).get('Layers',[])),
+                'container_references':references.get(value['Id'],[]),
+                'current_or_compose_reference':value['Id'] in protected,
+                'required_parent_of_referenced_image':value['Id'] in ancestors})
+known_stages=[]
+for entry in sorted(BASE.iterdir(),key=lambda value:value.name):
+ if entry.is_symlink():continue
+ if not entry.is_dir() or not re.fullmatch(r'(?:account|portal|admin|brand|release|direct|trim|preload)[A-Za-z0-9_-]*',entry.name):continue
+ files=[]
+ for file in sorted(entry.iterdir(),key=lambda value:value.name):
+  if file.is_symlink() or not file.is_file():continue
+  allowed=re.fullmatch(r'(?:backend\d*[-_]new-api(?:\.gz)?|new-api(?:\.gz)?|server\.mjs|(?:stage[-_]manifest|stage|plan)\.json|release\d+[-_][A-Za-z0-9_-]+\.py|Dockerfile[A-Za-z0-9_.-]*)',file.name)
+  if not allowed:continue
+  overlap=any(file==source or file in source.parents or source in file.parents for source in mount_sources)
+  size=file.stat().st_size
+  content_hash=None
+  if size>=1024*1024 and (file.name.endswith('.gz') or 'new-api' in file.name):
+   checksum=hashlib.sha256()
+   with file.open('rb') as source:
+    for chunk in iter(lambda:source.read(1024*1024),b''):checksum.update(chunk)
+   content_hash=checksum.hexdigest()
+  files.append({'name':file.name,'bytes':size,'mtime_unix':int(file.stat().st_mtime),'mounted_overlap':overlap,'sha256':content_hash})
+ private=entry/'private'
+ known_stages.append({'path':str(entry),'real_path':str(entry.resolve()),'private_exists':private.is_dir(),
+                      'private_preserve':True,'files':files})
+volumes=sorted(run(['docker','volume','ls','-q']).decode().split())
+df=[]
+for line in run(['docker','system','df','--format','{{json .}}']).decode().splitlines():
+ if line.strip():df.append(json.loads(line))
+disk=shutil.disk_usage('/')
+print(json.dumps({'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+ 'host':{'root_disk_total_bytes':disk.total,'root_disk_used_bytes':disk.used,'root_disk_free_bytes':disk.free},
+ 'docker_disk_summary':df,'containers':containers,'images':images,'compose_services':compose,
+ 'compose_source_sha256':{name:hashlib.sha256((CURRENT/name).read_bytes()).hexdigest() for name in LAYERS},
+ 'volume_inventory':{'count':len(volumes),'sha256':hashed(volumes)},'stages':known_stages,
+ 'customer_data_read':False,'production_mutations':0}))
+'''
+
+
+def main():
+    spec = importlib.util.spec_from_file_location('cleanup_transport', ROOT / 'output/direct-media-production-current/transport.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    value = module.remote(REMOTE, timeout=240)
+    HERE.mkdir(parents=True, exist_ok=True)
+    (HERE / 'server-readonly-audit.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'saved': True, 'containers': len(value['containers']), 'images': len(value['images']),
+                      'stages': len(value['stages']), 'production_mutations': 0}))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print(json.dumps({'saved': False, 'code': 'READONLY_AUDIT_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

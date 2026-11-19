@@ -1,0 +1,18 @@
+import hashlib,json,sys,urllib.request
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+phase=sys.argv[1];assert phase in ('before','after')
+from public_https import request
+status,headers,body=request('/api/pikno/catalog')
+assert status==200
+value=json.loads(body)
+assert value.get('success') is True
+models=value['data']['models'];ids=sorted(x['id'] for x in models)
+digest=lambda x:hashlib.sha256(json.dumps(x,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+record={'public_model_count':len(ids),'model_id_set_sha256':digest(ids),'model_details_sha256':digest(sorted(models,key=lambda x:x['id'])),'real_generation_calls':0}
+if phase=='after':
+ before=json.loads((HERE/'public-catalog-before.json').read_text(encoding='utf-8'))
+ record['same_published_model_ids']=record['model_id_set_sha256']==before['model_id_set_sha256']
+ record['same_published_model_details']=record['model_details_sha256']==before['model_details_sha256']
+(HERE/('public-catalog-'+phase+'.json')).write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
+print(json.dumps(record))

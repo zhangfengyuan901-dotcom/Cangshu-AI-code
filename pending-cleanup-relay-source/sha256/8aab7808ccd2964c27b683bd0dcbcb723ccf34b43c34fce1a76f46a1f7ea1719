@@ -1,0 +1,396 @@
+import { createServer } from 'node:http';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const MAX_BODY_BYTES = 16 * 1024;
+const ALLOWED_PAY_TYPES = new Map([
+  ['wxpay', '1'],
+  ['alipay', '2'],
+]);
+
+export function md5(value) {
+  return createHash('md5').update(value, 'utf8').digest('hex');
+}
+
+export function safeEqual(left, right) {
+  const a = Buffer.from(String(left).toLowerCase(), 'utf8');
+  const b = Buffer.from(String(right).toLowerCase(), 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function epaySign(input, key) {
+  const payload = Object.entries(input)
+    .filter(([name, value]) => name !== 'sign' && name !== 'sign_type' && value !== '' && value != null)
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    .map(([name, value]) => `${name}=${value}`)
+    .join('&');
+  return md5(payload + key);
+}
+
+export function lanjingCreateSign({ payId, param, type, price }, key) {
+  return md5(`${payId}${param}${type}${price}${key}`);
+}
+
+export function lanjingNotifySign({ payId, param, type, price, reallyPrice }, key) {
+  return md5(`${payId}${param}${type}${price}${reallyPrice}${key}`);
+}
+
+export function canonicalMoney(value) {
+  const raw = String(value ?? '').trim();
+  const match = /^(0|[1-9]\d{0,6})(?:\.(\d{1,2}))?$/.exec(raw);
+  if (!match) throw new Error('invalid money');
+  const cents = BigInt(match[1]) * 100n + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
+  if (cents < 1n) throw new Error('money must be positive');
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
+}
+
+function stateKeyBuffer(key) {
+  const decoded = Buffer.from(key, 'base64url');
+  if (decoded.length !== 32) throw new Error('state key must be 32 bytes encoded as base64url');
+  return decoded;
+}
+
+export function sealState(state, key) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', stateKeyBuffer(key), iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(state), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([Buffer.from([1]), iv, tag, ciphertext]).toString('base64url');
+}
+
+export function openState(token, key, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const packed = Buffer.from(String(token), 'base64url');
+  if (packed.length < 30 || packed[0] !== 1) throw new Error('invalid state');
+  const iv = packed.subarray(1, 13);
+  const tag = packed.subarray(13, 29);
+  const ciphertext = packed.subarray(29);
+  const decipher = createDecipheriv('aes-256-gcm', stateKeyBuffer(key), iv);
+  decipher.setAuthTag(tag);
+  const state = JSON.parse(Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8'));
+  if (state.v !== 1 || !Number.isInteger(state.exp) || state.exp < nowSeconds) throw new Error('expired state');
+  return state;
+}
+
+// The refresh cookie is scoped to /api/user/auth. Refresh in the browser so
+// rotation Set-Cookie headers reach it; never copy session tokens to the provider.
+function authenticationPage(params, nonce) {
+  const encoded = Buffer.from(new URLSearchParams(params).toString()).toString('base64');
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>仓鼠AI 安全支付</title><p id="status">正在验证账户并前往支付…</p><script nonce="${nonce}">
+  (async()=>{try{
+    const auth=await fetch('/api/user/auth/refresh',{method:'POST',credentials:'same-origin'}).then(r=>r.json());
+    if(!auth.success||!auth.data?.access_token)throw new Error('请先登录仓鼠AI，再重新发起充值。');
+    const response=await fetch('/pay/lanjing/epay/authorize',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',authorization:'Bearer '+auth.data.access_token},body:atob('${encoded}')});
+    if(!response.ok)throw new Error('充值订单验证失败，请返回账户重新发起充值。');
+    const payment=await response.json();
+    const form=document.createElement('form');form.method='POST';form.action=payment.action;
+    for(const [name,value] of Object.entries(payment.fields)){const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.appendChild(input);}
+    document.body.appendChild(form);form.submit();
+  }catch(error){document.getElementById('status').textContent=error.message;}})();
+  </script></html>`;
+}
+
+function htmlHeaders(nonce) {
+  return securityHeaders({
+    'content-type': 'text/html; charset=utf-8',
+    'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action https://2347637.pay.lanjingzf.com`,
+  });
+}
+
+function securityHeaders(extra = {}) {
+  return {
+    'cache-control': 'no-store',
+    'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action https://2347637.pay.lanjingzf.com",
+    'referrer-policy': 'no-referrer',
+    'x-content-type-options': 'nosniff',
+    ...extra,
+  };
+}
+
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, securityHeaders({
+    'content-type': 'text/plain; charset=utf-8',
+    ...headers,
+  }));
+  res.end(body);
+}
+
+async function readBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) throw new Error('body too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function strictParams(searchParams, required, optional = []) {
+  const allowed = new Set([...required, ...optional]);
+  const result = {};
+  for (const [name] of searchParams) {
+    if (!allowed.has(name) || searchParams.getAll(name).length !== 1) throw new Error('invalid parameters');
+  }
+  for (const name of required) {
+    const value = searchParams.get(name);
+    if (value == null || value === '' || value.length > 4096) throw new Error('missing parameter');
+    result[name] = value;
+  }
+  for (const name of optional) {
+    const value = searchParams.get(name);
+    if (value != null) {
+      if (value.length > 4096) throw new Error('parameter too long');
+      result[name] = value;
+    }
+  }
+  return result;
+}
+
+function validateReturnUrl(value, publicOrigin) {
+  const url = new URL(value);
+  if (url.origin !== publicOrigin || url.username || url.password) throw new Error('invalid return URL');
+  return url.toString();
+}
+
+function parseTradeUserId(tradeNo) {
+  const match = /^USR(\d+)NO[A-Za-z0-9]+$/.exec(tradeNo);
+  if (!match) throw new Error('invalid trade number');
+  return Number(match[1]);
+}
+
+function normalizedConfig(input) {
+  const required = ['lanjingKey', 'epayKey', 'stateKey'];
+  for (const name of required) if (!input[name]) throw new Error(`missing ${name}`);
+  return {
+    listenHost: input.listenHost ?? '0.0.0.0',
+    listenPort: Number(input.listenPort ?? 8080),
+    publicOrigin: input.publicOrigin ?? 'https://www.piknoai.com',
+    lanjingBase: input.lanjingBase ?? 'https://2347637.pay.lanjingzf.com',
+    lanjingMerchantId: String(input.lanjingMerchantId ?? '2347637'),
+    lanjingKey: input.lanjingKey,
+    epayKey: input.epayKey,
+    stateKey: input.stateKey,
+    newApiOrigin: input.newApiOrigin ?? 'http://new-api:3000',
+    resendKey: input.resendKey ?? '',
+    resendFrom: input.resendFrom ?? 'PIKNO <notify@mail.piknoai.com>',
+    stateLifetimeSeconds: Number(input.stateLifetimeSeconds ?? 24 * 60 * 60),
+    diagnosticReceiptDir: input.diagnosticReceiptDir ?? '/data/diagnostics',
+  };
+}
+
+function validateOrder(params, config) {
+  if (params.pid !== config.lanjingMerchantId) throw new Error('invalid merchant');
+  if (!ALLOWED_PAY_TYPES.has(params.type)) throw new Error('invalid payment type');
+  if (String(params.sign_type).toUpperCase() !== 'MD5') throw new Error('invalid signature type');
+  if (!safeEqual(params.sign, epaySign(params, config.epayKey))) throw new Error('invalid signature');
+  const userId = parseTradeUserId(params.out_trade_no);
+  const money = canonicalMoney(params.money);
+  if (!['50.00', '100.00', '200.00'].includes(money)) throw new Error('invalid topup amount: only CNY 50, 100 or 200 allowed');
+  const returnUrl = validateReturnUrl(params.return_url, config.publicOrigin);
+  if (params.notify_url !== `${config.publicOrigin}/api/user/epay/notify`) throw new Error('invalid notify URL');
+  return { userId, money, returnUrl };
+}
+
+async function authenticateOrder(params, req, config, fetchImpl) {
+  const { userId, money, returnUrl } = validateOrder(params, config);
+  if (!/^Bearer \S+$/.test(req.headers.authorization ?? '')) throw new Error('invalid authorization');
+  const authResponse = await fetchImpl(`${config.newApiOrigin}/api/user/self`, {
+    headers: { authorization: req.headers.authorization, 'New-Api-User': String(userId) },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!authResponse.ok) throw new Error('authentication unavailable');
+  const payload = await authResponse.json();
+  const user = payload?.data;
+  if (!payload?.success || Number(user?.id) !== userId || !user?.email) throw new Error('account mismatch');
+  const email = String(user.email).trim();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('invalid email');
+  return { money, returnUrl, email };
+}
+
+function providerNotifyFields(params) {
+  return strictParams(params, ['payId', 'param', 'type', 'price', 'reallyPrice', 'sign']);
+}
+
+function verifyProviderNotify(fields, config) {
+  if (!safeEqual(fields.sign, lanjingNotifySign(fields, config.lanjingKey))) throw new Error('invalid provider signature');
+  const state = openState(fields.param, config.stateKey);
+  if (state.o !== fields.payId || state.m !== canonicalMoney(fields.price)) {
+    throw new Error('order mismatch');
+  }
+  if (ALLOWED_PAY_TYPES.get(state.t) !== fields.type) throw new Error('payment type mismatch');
+  // Blue Whale can vary reallyPrice by cents to distinguish simultaneous QR
+  // orders. Its signed notification binds that collected amount to this order.
+  canonicalMoney(fields.reallyPrice);
+  validateReturnUrl(state.r, config.publicOrigin);
+  return state;
+}
+
+async function creditNewApi(state, config, fetchImpl) {
+  const callback = {
+    pid: config.lanjingMerchantId,
+    type: state.t,
+    out_trade_no: state.o,
+    trade_no: state.o,
+    name: 'PIKNO充值',
+    money: state.m,
+    trade_status: 'TRADE_SUCCESS',
+    sign_type: 'MD5',
+  };
+  callback.sign = epaySign(callback, config.epayKey);
+  const response = await fetchImpl(`${config.newApiOrigin}/api/user/epay/notify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(callback),
+    signal: AbortSignal.timeout(10000),
+  });
+  const body = await response.text();
+  if (!response.ok || body.trim() !== 'success') throw new Error('credit rejected');
+}
+
+async function sendRechargeEmail(state, config, fetchImpl) {
+  if (!config.resendKey) throw new Error('email is not configured');
+  const response = await fetchImpl('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${config.resendKey}`,
+      'content-type': 'application/json',
+      'idempotency-key': `pikno-topup-${state.o}`,
+    },
+    body: JSON.stringify({
+      from: config.resendFrom,
+      to: [state.e],
+      subject: 'PIKNO 充值成功通知',
+      text: `你的 PIKNO 账户已成功充值 ¥${state.m}。订单号：${state.o}。如非本人操作，请立即联系管理员。`,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error('email delivery failed');
+}
+
+export function createHandler(rawConfig, { fetchImpl = globalThis.fetch, now = () => Date.now(), logger = console } = {}) {
+  const config = normalizedConfig(rawConfig);
+  return async function handler(req, res) {
+    const requestUrl = new URL(req.url, config.publicOrigin);
+    try {
+      if (req.method === 'GET' && requestUrl.pathname === '/pay/lanjing/health') {
+        send(res, 200, JSON.stringify({ ok: true, paymentConfigured: true }), { 'content-type': 'application/json; charset=utf-8' });
+        return;
+      }
+
+      if ((req.method === 'POST' || req.method === 'GET') && ['/pay/lanjing/epay/submit.php', '/pay/lanjing/epay/authorize'].includes(requestUrl.pathname)) {
+        const source = req.method === 'POST' ? new URLSearchParams(await readBody(req)) : requestUrl.searchParams;
+        const params = strictParams(source,
+          ['pid', 'type', 'out_trade_no', 'notify_url', 'return_url', 'name', 'money', 'sign_type', 'sign'],
+          ['device']);
+        validateOrder(params, config);
+        if (requestUrl.pathname.endsWith('/submit.php')) {
+          const nonce = randomBytes(18).toString('base64');
+          res.writeHead(200, htmlHeaders(nonce));
+          res.end(authenticationPage(params, nonce));
+          return;
+        }
+        if (req.method !== 'POST') throw new Error('invalid method');
+        const verified = await authenticateOrder(params, req, config, fetchImpl);
+        const state = {
+          v: 1,
+          o: params.out_trade_no,
+          m: verified.money,
+          t: params.type,
+          e: verified.email,
+          r: verified.returnUrl,
+          exp: Math.floor(now() / 1000) + config.stateLifetimeSeconds,
+        };
+        const param = sealState(state, config.stateKey);
+        const type = ALLOWED_PAY_TYPES.get(params.type);
+        const fields = {
+          payId: params.out_trade_no,
+          type,
+          price: verified.money,
+          param,
+          isHtml: '1',
+          notifyUrl: `${config.publicOrigin}/pay/lanjing/notify`,
+          returnUrl: `${config.publicOrigin}/pay/lanjing/return`,
+        };
+        fields.sign = lanjingCreateSign(fields, config.lanjingKey);
+        send(res, 200, JSON.stringify({ action: `${config.lanjingBase}/createOrder`, fields }), { 'content-type': 'application/json; charset=utf-8' });
+        return;
+      }
+
+      if (req.method === 'GET' && requestUrl.pathname === '/pay/lanjing/notify') {
+        const fields = providerNotifyFields(requestUrl.searchParams);
+        const state = verifyProviderNotify(fields, config);
+        if (state.p === 'diagnostic') throw new Error('invalid callback purpose');
+        await creditNewApi(state, config, fetchImpl);
+        await sendRechargeEmail(state, config, fetchImpl);
+        logger.info(JSON.stringify({ event: 'recharge_completed', order: state.o }));
+        send(res, 200, 'success');
+        return;
+      }
+
+      if (req.method === 'GET' && requestUrl.pathname === '/pay/lanjing/diagnostic/notify') {
+        const fields = providerNotifyFields(requestUrl.searchParams);
+        const state = verifyProviderNotify(fields, config);
+        if (state.p !== 'diagnostic' || !/^PIKNOTEST[A-Za-z0-9]+$/.test(state.o) || state.m !== '1.00') throw new Error('invalid diagnostic order');
+        mkdirSync(config.diagnosticReceiptDir, { recursive: true, mode: 0o700 });
+        const receipt = { receivedAt: new Date(now()).toISOString(), order: state.o, quotedCny: state.m, collectedCny: canonicalMoney(fields.reallyPrice), type: state.t, diagnosticOnly: true };
+        try {
+          writeFileSync(join(config.diagnosticReceiptDir, `${state.o}.json`), JSON.stringify(receipt), { flag: 'wx', mode: 0o600 });
+        } catch (error) { if (error.code !== 'EEXIST') throw error; }
+        logger.info(JSON.stringify({ event: 'diagnostic_payment_received', order: state.o }));
+        send(res, 200, 'success');
+        return;
+      }
+
+      if (req.method === 'GET' && requestUrl.pathname === '/pay/lanjing/return') {
+        const fields = providerNotifyFields(requestUrl.searchParams);
+        const state = verifyProviderNotify(fields, config);
+        if (state.p === 'diagnostic') {
+          send(res, 200, '已收到支付返回信息。这是人民币1元收款诊断订单，不自动增加账户余额。请回到对话核验服务器回调记录。');
+          return;
+        }
+        res.writeHead(303, securityHeaders({ location: state.r }));
+        res.end();
+        return;
+      }
+
+      send(res, 404, 'not found');
+    } catch (error) {
+      const status = /signature|merchant|account mismatch|invalid|expired|order mismatch|payment type|parameter|body too large/.test(error.message) ? 403 : 502;
+      logger.error(JSON.stringify({ event: 'payment_bridge_error', path: requestUrl.pathname, reason: error.message }));
+      send(res, status, 'fail');
+    }
+  };
+}
+
+function readSecret(path) {
+  return readFileSync(path, 'utf8').trim();
+}
+
+export function configFromEnvironment(env = process.env) {
+  const resend = JSON.parse(readSecret(env.RESEND_CONFIG_FILE ?? '/run/secrets/resend_config'));
+  return normalizedConfig({
+    listenHost: env.LISTEN_HOST,
+    listenPort: env.LISTEN_PORT,
+    publicOrigin: env.PUBLIC_ORIGIN,
+    lanjingBase: env.LANJING_BASE,
+    lanjingMerchantId: env.LANJING_MERCHANT_ID,
+    newApiOrigin: env.NEW_API_ORIGIN,
+    lanjingKey: readSecret(env.LANJING_KEY_FILE ?? '/run/secrets/lanjing_key'),
+    epayKey: readSecret(env.EPAY_KEY_FILE ?? '/run/secrets/epay_key'),
+    stateKey: readSecret(env.STATE_KEY_FILE ?? '/run/secrets/state_key'),
+    resendKey: resend.apiKey,
+    resendFrom: resend.smtpFrom,
+  });
+}
+
+export function startServer(config = configFromEnvironment()) {
+  const server = createServer(createHandler(config));
+  server.listen(config.listenPort, config.listenHost, () => {
+    console.info(JSON.stringify({ event: 'payment_bridge_started', port: config.listenPort }));
+  });
+  return server;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) startServer();

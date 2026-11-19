@@ -1,0 +1,169 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Isolated UI fixtures only. This server never proxies requests or writes data.
+const root = path.resolve('D:/PIKNO/build/hamster-trim44-web/dist');
+const port = 48276;
+const now = Math.floor(Date.now() / 1000);
+const events = new Set();
+const stats = {catalogReads: 0, accountReads: 0, authRefreshes: 0, blockedWrites: 0, blockedActions: 0, unknownReads: 0};
+const revision = '1'.padStart(64, '0');
+const modelNames = ['PIKNO 合成图像模型', 'PIKNO 合成视频模型', 'PIKNO 合成参考图模型', 'PIKNO 合成长视频模型', 'PIKNO 合成高清模型'];
+const groups = ['default', 'image-standard', 'video-standard', 'tool-standard', 'chat-standard'];
+const users = Array.from({length: 5}, (_, i) => ({
+  id: 900001 + i, username: `synthetic-ui-${i + 1}`, display_name: i === 0 ? '合成超级管理员' : `合成验证用户 ${i + 1}`,
+  email: `ui-${i + 1}@example.invalid`, role: [100, 10, 1, 1, 1][i], status: i === 4 ? 2 : 1,
+  group: groups[i], quota: 123450000 + i * 7300000, used_quota: 6789000 + i * 500000,
+  request_count: 42 + i * 13, created_at: now - 86400 * (i + 5), updated_at: now - 3600,
+  last_login_at: now - 300 * (i + 1), remark: '本地界面验证的合成记录', has_password: true,
+  aff_count: 0, aff_quota: 0, aff_history_quota: 0, inviter_id: 0,
+}));
+const authUser = {...users[0], language: 'zh-CN', setting: '{}', permissions: {sidebar_settings: true, sidebar_modules: {}}};
+const channels = Array.from({length: 5}, (_, i) => ({
+  id: 910001 + i, type: [1, 1, 1, 1, 1][i], key: '', name: `合成上游连接 ${i + 1}`,
+  status: [1, 1, 0, 2, 1][i], weight: 10 + i, priority: 5 - i,
+  created_time: now - 86400 * 7, test_time: now - 1800, response_time: 240 + i * 80,
+  base_url: 'https://upstream.example.invalid', other: '', balance: 100 + i * 12.5,
+  balance_updated_time: now - 3600, models: `pikno-synthetic-${i + 1}`, group: groups[i],
+  used_quota: 7300000 * (i + 1), model_mapping: '{}', status_code_mapping: '{}',
+  auto_ban: 1, other_info: '{}', tag: ['PackyAPI', 'CanSeeDream', 'PackyAPI', 'CanSeeDream', '合成通用'][i],
+  setting: '{}', settings: '{}', param_override: '{}', header_override: '{}', remark: '合成数据，未连接真实上游', max_input_tokens: 0,
+  channel_info: {is_multi_key: false, multi_key_size: 0, multi_key_polling_index: 0, multi_key_mode: 'random'},
+}));
+const models = Array.from({length: 5}, (_, i) => ({
+  id: `pikno-synthetic-${i + 1}`, name: modelNames[i], kind: i % 2 ? 'video' : 'image',
+  resolutions: i % 2 ? ['720p', '1080p'] : ['1024x1024', '1536x1024'], ratios: ['16:9', '1:1'],
+  qualities: ['auto', 'high'], durations: i % 2 ? [5, 10] : [], max_images: 9,
+  max_videos: i % 2 ? 3 : 0, max_audio: 0, max_media_total: 12, reference_surcharge_cny: '0',
+  prices: [{resolution: i % 2 ? '720p' : '1024x1024', unit: i % 2 ? 'second' : 'image', retail_cny: '0.123456'}],
+}));
+const lines = models.map((model, i) => {
+  const config = {
+    public_model: model.id, source_id: `synthetic/source-${i + 1}`, name: model.name, kind: model.kind,
+    provider: i % 2 ? 'canseedream' : 'packy', upstream_model: `synthetic/upstream-${i + 1}`,
+    plugin_key: i % 2 ? 'pikno-canseedream' : 'pikno-packy', channel_id: channels[i].id,
+    enabled: i !== 2, upstream_available: true, resolutions: model.resolutions, ratios: model.ratios,
+    durations: model.durations, max_images: model.max_images, max_videos: model.max_videos,
+    max_audio: 0, prices: model.resolutions.map(resolution => ({resolution, unit: i % 2 ? 'second' : 'image',
+      cost_cny: 0.061728, suggested_cny: 0.123456, retail_quota: 123456})),
+    price_issue: false, reference_surcharge_quota: 0, fetched_at: new Date(now * 1000).toISOString(), revision: 1,
+  };
+  return {public_model: model.id, version: 1 + i, draft: config, published: i === 1 ? null : {...config},
+    previous: null, can_publish: true, has_pending_changes: i === 1, blocking_reasons: [],
+    updated_at: now - 600 * i, updated_by: authUser.id,
+    sync: {snapshot_hash: revision, last_seen_at: now - 60, missing_count: 0, paused: false,
+      pause_reason: '', cost_changed: false, cost_changed_at: 0, adapter_issue: '', price_issue: false}};
+});
+const sync = {enabled: true, interval_seconds: 300, missing_threshold: 1, stale_seconds: 1800,
+  providers: [{provider: 'canseedream', state: 'ready', snapshot_hash: revision, last_attempt_at: now - 60,
+    last_verified_at: now - 60, next_attempt_at: now + 240, error_code: ''}]};
+const permissionCatalog = {
+  resources: ['audit', 'channel', 'task_plugin'].map(resource => ({resource, label_key: resource,
+    actions: ['read', 'operate', 'write', 'sensitive_write', 'secret_view', 'bind'].map(action => ({action, label_key: action, description_key: ''}))})),
+  roles: [{key: 'admin', name: 'Admin', built_in: true, superuser: false, grants: {channel: {read: true, operate: true}}},
+    {key: 'root', name: 'Root', built_in: true, superuser: true, grants: {}}],
+};
+const types = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4', '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2', '.md': 'text/markdown; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.ico': 'image/x-icon'};
+const json = (res, body, status = 200) => {res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}); res.end(JSON.stringify(body));};
+const ok = (res, data) => json(res, {success: true, data});
+const page = (records, url) => {
+  let filtered = [...records];
+  const keyword = (url.searchParams.get('keyword') || '').toLowerCase();
+  if (keyword) filtered = filtered.filter(item => [item.name, item.username, item.display_name, item.id].join(' ').toLowerCase().includes(keyword));
+  for (const field of ['status', 'group', 'role', 'type']) {
+    const value = url.searchParams.get(field);
+    if (value && value !== 'all' && value !== '-1') filtered = filtered.filter(item => String(item[field]) === value);
+  }
+  const model = url.searchParams.get('model');
+  if (model) filtered = filtered.filter(item => String(item.models || '').includes(model));
+  const sortBy = url.searchParams.get('sort_by') || 'id';
+  const direction = url.searchParams.get('sort_order') === 'asc' ? 1 : -1;
+  filtered.sort((a, b) => typeof a[sortBy] === 'number' ? direction * (a[sortBy] - b[sortBy]) : direction * String(a[sortBy] || '').localeCompare(String(b[sortBy] || '')));
+  const currentPage = Math.max(1, Number(url.searchParams.get('p')) || 1);
+  const size = Math.min(100, Math.max(1, Number(url.searchParams.get('page_size')) || 10));
+  return {items: filtered.slice((currentPage - 1) * size, currentPage * size), total: filtered.length, page: currentPage, page_size: size};
+};
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, `http://127.0.0.1:${port}`);
+    const name = url.pathname;
+    if (name === '/api/user/auth/refresh' && req.method === 'POST') {
+      stats.authRefreshes++;
+      return ok(res, {access_token: 'synthetic-local-admin-ui-session', token_type: 'Bearer', access_expires_at: Math.floor(Date.now() / 1000) + 3600,
+        user: authUser, session: {sid: 'synthetic-ui-session-only', current: true, login_method: 'synthetic', ip: '127.0.0.1',
+          user_agent: 'PIKNO isolated UI fixture', created_at: now, last_active_at: now, expires_at: now + 86400}});
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      stats.blockedWrites++;
+      return json(res, {success: false, message: 'Synthetic preview is read-only', synthetic: true}, 405);
+    }
+    if (name === '/__qa/state') return json(res, {synthetic: true, readOnly: true, modelCount: models.length,
+      channelCount: channels.length, userCount: users.length, lineCount: lines.length, generationCalls: 0, ...stats});
+    if (name === '/api/pikno/catalog/events') {
+      res.writeHead(200, {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive'});
+      res.write(`event: catalog-change\ndata: ${JSON.stringify({revision})}\n\n`);
+      events.add(res); req.once('close', () => events.delete(res)); return;
+    }
+    if (name === '/api/pikno/catalog') {stats.catalogReads++; return ok(res, {revision, models});}
+    if (name === '/api/status') return ok(res, {system_name: 'PIKNO', version: 'synthetic-admin-ui', quota_per_unit: 7300000,
+      usd_exchange_rate: 7.3, quota_display_type: 'CNY', display_in_currency: true, enable_drawing: true,
+      announcements_enabled: false, announcements: [], password_login_enabled: true, password_register_enabled: true,
+      self_use_mode_enabled: false, checkin_enabled: false, email_verification: false});
+    if (name === '/api/notice' || name === '/api/about') return ok(res, '');
+    if (name === '/api/user/self') {stats.accountReads++; return ok(res, authUser);}
+    if (name === '/api/user/self/groups') return ok(res, Object.fromEntries(groups.map(group => [group, {desc: '合成验证分组', ratio: 1}])));
+    if (name === '/api/group' || name === '/api/group/') return ok(res, groups);
+    if (name === '/api/authz/catalog') return ok(res, permissionCatalog);
+    if (name === '/api/user/' || name === '/api/user' || name === '/api/user/search') return ok(res, page(users, url));
+    const userMatch = /^\/api\/user\/(\d+)\/?$/.exec(name);
+    if (userMatch) return ok(res, users.find(item => item.id === Number(userMatch[1])) || users[1]);
+    if (/^\/api\/user\/\d+\/oauth\/bindings$/.test(name)) return ok(res, []);
+    if (name === '/api/channel' || name === '/api/channel/' || name === '/api/channel/search') return ok(res, {...page(channels, url), type_counts: {'1': 5}});
+    if (name === '/api/channel/ops') return ok(res, {retry_times: 2, request_policy: {automatic_disable: false, source: 'synthetic'}});
+    if (name === '/api/channel/default_base_urls') return ok(res, {'1': 'https://upstream.example.invalid'});
+    if (name === '/api/channel/models') return ok(res, models.map(model => ({id: model.id, object: 'model', owned_by: 'synthetic'})));
+    if (name === '/api/channel/models_enabled' || name === '/api/user/models' || name === '/api/channel/tag/models') return ok(res, models.map(model => model.id));
+    if (name === '/api/prefill_group') return ok(res, []);
+    const channelMatch = /^\/api\/channel\/(\d+)\/?$/.exec(name);
+    if (channelMatch) return ok(res, channels.find(item => item.id === Number(channelMatch[1])) || channels[0]);
+    if (name === '/api/task_plugin_options') return ok(res, [{key: 'pikno-canseedream', name: '合成视频插件', models: models.filter(model => model.kind === 'video').map(model => model.id), channelTypes: [1]}]);
+    if (name === '/api/pikno/lines/admin') return ok(res, {lines, sync});
+    if (name === '/api/pikno/rh-connections') return ok(res, {tools: [
+      {id: 920001, name: '合成数字人连接', status: 1, kind: 'digital-human'},
+      {id: 920002, name: '合成深度连接', status: 0, kind: 'depth'}], legacy: []});
+    if (name === '/api/pikno/rh-config') return ok(res, {configured: true, enabled: true, ready: true, authorization_valid: true, version: 'synthetic', updated_at: new Date(now * 1000).toISOString()});
+    if (name === '/api/token/' || name === '/api/log/self' || name === '/api/pikno/settlements/self' || name === '/api/user/topup/self') return ok(res, {items: [], total: 0});
+    if (name === '/api/user/topup/info') return ok(res, {fixed_cny_topup: true, enable_online_topup: false, amount_options: [], pay_methods: []});
+    // Some legacy GET routes can trigger upstream requests or state changes.
+    if (/^\/api\/channel\/(test|update_balance|fetch_models)(\/|$)/.test(name) || name.includes('/auth/logout') || name.endsWith('/reset-credits')) {
+      stats.blockedActions++; return json(res, {success: false, message: 'Synthetic preview blocks action endpoints'}, 405);
+    }
+    if (name.startsWith('/api/') || name.startsWith('/v1/')) {stats.unknownReads++; return json(res, {success: false, message: 'Synthetic endpoint unavailable'}, 404);}
+    let decoded;
+    try {decoded = decodeURIComponent(name);} catch {return json(res, {error: 'invalid path'}, 400);}
+    let file = path.resolve(root, '.' + decoded);
+    if (file !== root && !file.startsWith(root + path.sep)) return json(res, {error: 'invalid path'}, 400);
+    if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
+    if (!fs.existsSync(file) && !path.extname(decoded)) file = path.join(root, 'index.html');
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return json(res, {error: 'not found'}, 404);
+    const bytes = fs.statSync(file).size;
+    const mediaType = types[path.extname(file)] || 'application/octet-stream';
+    if (path.extname(file) === '.mp4' && req.headers.range) {
+      const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range);
+      const start = range ? Number(range[1]) : -1;
+      const end = range && range[2] ? Math.min(Number(range[2]), bytes - 1) : bytes - 1;
+      if (!range || start < 0 || start >= bytes || end < start) {res.writeHead(416, {'Content-Range': `bytes */${bytes}`}); return res.end();}
+      res.writeHead(206, {'Content-Type': mediaType, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${bytes}`});
+      if (req.method === 'HEAD') return res.end(); return fs.createReadStream(file, {start, end}).pipe(res);
+    }
+    res.writeHead(200, {'Content-Type': mediaType, 'Content-Length': bytes, 'Accept-Ranges': 'bytes'});
+    if (req.method === 'HEAD') return res.end(); fs.createReadStream(file).pipe(res);
+  } catch {if (!res.headersSent) return json(res, {error: 'synthetic fixture failure'}, 500); res.destroy();}
+});
+server.listen(port, '127.0.0.1', () => console.log(JSON.stringify({url: `http://127.0.0.1:${port}`, synthetic: true, readOnly: true})));
+function stop() {for (const response of events) response.end(); server.closeAllConnections(); server.close();}
+process.on('SIGINT', stop); process.on('SIGTERM', stop);

@@ -1,0 +1,217 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { setTimeout as wait } from 'node:timers/promises';
+import {
+  createHandler, lanjingCreateSign, lanjingNotifySign, md5,
+} from '/app/server.mjs';
+
+const site = 'https://checkout-fixture.invalid';
+const provider = 'https://provider-fixture.invalid';
+const api = 'http://backend:3000';
+const bridge = 'http://bridge:8080';
+const providerKey = 'synthetic-provider-only';
+const config = {
+  publicOrigin: site, newApiOrigin: api, lanjingBase: provider, lanjingMerchantId: '1',
+  lanjingKey: providerKey, epayKey: 'synthetic-epay-only',
+  stateKey: Buffer.alloc(32, 7).toString('base64url'),
+};
+const counts = { create: 0, get: 0, close: 0, confirm: 0, callbacks: 0 };
+const providerOrders = new Map();
+let phase = 'boot';
+let auth = {};
+
+function callback(order) {
+  const fields = { payId: order.payId, param: order.param, type: String(order.payType),
+    price: String(order.price), reallyPrice: String(order.reallyPrice) };
+  fields.sign = lanjingNotifySign(fields, providerKey);
+  return new URLSearchParams(fields).toString();
+}
+
+async function routedFetch(url, options) {
+  const target = new URL(url);
+  if (target.origin === api) {
+    if (target.pathname === '/api/user/epay/notify') counts.callbacks++;
+    return fetch(url, options);
+  }
+  if (target.origin !== provider || options.method !== 'POST') throw new Error('unexpected_fixture_request');
+  const fields = Object.fromEntries(options.body);
+  if (target.pathname === '/createOrder') {
+    assert.equal(fields.sign, lanjingCreateSign(fields, providerKey));
+    assert.equal(fields.isHtml, '0');
+    assert.equal(fields.notifyUrl, site + '/pay/lanjing/notify');
+    assert.equal(fields.returnUrl, site + '/pay/lanjing/return');
+    const orderId = 'order-' + ++counts.create;
+    const data = { orderId, payId: fields.payId, param: fields.param, payType: Number(fields.type),
+      price: Number(fields.price), reallyPrice: Number(fields.price) + 0.01, state: 0 };
+    providerOrders.set(orderId, data);
+    return Response.json({ code: 1, data });
+  }
+  const data = providerOrders.get(fields.orderId);
+  if (!data) return Response.json({ code: -1 });
+  if (target.pathname === '/getOrder') {
+    counts.get++;
+    return Response.json({ code: 1, data });
+  }
+  if (target.pathname === '/checkOrder') {
+    counts.confirm++;
+    assert.ok([1, 2].includes(data.state));
+    return Response.json({ code: 1, data: site + '/pay/lanjing/return?' + callback(data) });
+  }
+  if (target.pathname === '/closeOrder') {
+    counts.close++;
+    assert.equal(fields.sign, md5(data.orderId + providerKey));
+    if (data.state !== 0) return Response.json({ code: -1 });
+    if (data.payDuringClose) {
+      data.state = 1;
+      return Response.json({ code: -1 });
+    }
+    data.state = -1;
+    return Response.json({ code: 1 });
+  }
+  throw new Error('unexpected_provider_path');
+}
+
+const handler = createHandler(config, { fetchImpl: routedFetch, logger: { info() {}, error() {} } });
+const server = createServer(handler);
+
+async function json(path, body, method = 'POST') {
+  const options = { signal: AbortSignal.timeout(28000), headers: { ...auth } };
+  if (body !== undefined) {
+    options.method = method;
+    options.headers['content-type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(api + path, options);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+async function createOrder(method = 'alipay') {
+  const result = await json('/api/user/pay', { amount: 50, payment_method: method });
+  assert.equal(result.message, 'success');
+  assert.equal(result.trade_no, result.data.out_trade_no);
+  assert.equal(result.url, site + '/pay/lanjing/epay/submit.php');
+  assert.equal(Object.hasOwn(result.data, 'param'), false);
+  return result;
+}
+
+async function openOrder(payment) {
+  const response = await fetch(bridge + '/pay/lanjing/epay/authorize', {
+    method: 'POST', headers: auth, body: new URLSearchParams(payment.data),
+    signal: AbortSignal.timeout(28000),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const url = new URL(body.checkout_url);
+  assert.equal(url.origin, provider);
+  assert.equal(url.pathname, '/payPage/pay.html');
+  return providerOrders.get(url.searchParams.get('orderId'));
+}
+
+async function status(order) {
+  const result = await json('/api/user/topup/status?trade_no=' + order.trade_no);
+  assert.equal(result.success, true);
+  assert.equal(result.data.trade_no, order.trade_no);
+  return result.data.status;
+}
+
+async function cancel(order) {
+  const result = await json('/api/user/topup/cancel', { trade_no: order.trade_no });
+  assert.equal(result.success, true);
+  assert.equal(result.data.trade_no, order.trade_no);
+  return result.data.status;
+}
+
+try {
+  await new Promise(resolve => server.listen(8080, '0.0.0.0', resolve));
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(api + '/api/status', { signal: AbortSignal.timeout(2000) }).catch(() => null);
+    if (response?.ok) break;
+    if (attempt >= 30) throw new Error('backend_health_timeout');
+    await wait(1000);
+  }
+  phase = 'synthetic_login';
+  const username = 'paymentqa';
+  const password = 'isolated-fixture-account-69';
+  const setup = await json('/api/setup', { username, password, confirmPassword: password });
+  if (setup.success !== true) throw new Error('synthetic_setup_rejected');
+  const login = await json('/api/user/login', { username, password });
+  assert.equal(login.success, true);
+  auth = { authorization: 'Bearer ' + login.data.access_token, 'New-Api-User': String(login.data.user.id) };
+
+  phase = 'synthetic_payment_settings';
+  for (const [key, value] of Object.entries({ ServerAddress: site, PayAddress: site + '/pay/lanjing/epay',
+    EpayId: config.lanjingMerchantId, EpayKey: config.epayKey, QuotaPerUnit: '7300000',
+    USDExchangeRate: '7.3', 'general_setting.quota_display_type': 'CNY' })) {
+    const update = await json('/api/option/', { key, value }, 'PUT');
+    if (update.success !== true) throw new Error('setting_rejected_' + key);
+  }
+  assert.equal((await json('/api/option/payment_compliance', { confirmed: true })).success, true);
+  const info = (await json('/api/user/topup/info')).data;
+  assert.equal(info.payment_cancel_supported, true);
+  assert.equal(info.fixed_cny_topup, true);
+  const startingQuota = (await json('/api/user/self')).data.quota;
+
+  phase = 'closed_before_upstream_create';
+  const early = await createOrder();
+  assert.equal(await cancel(early), 'cancelled');
+  const rejected = await fetch(bridge + '/pay/lanjing/epay/authorize', {
+    method: 'POST', headers: auth, body: new URLSearchParams(early.data),
+  });
+  assert.equal(rejected.status, 200);
+  assert.equal(new URL((await rejected.json()).return_url).searchParams.get('trade_no'), early.trade_no);
+  assert.equal(counts.create, 0);
+
+  phase = 'bound_checkout_and_immediate_close';
+  const close = await createOrder('wxpay');
+  const closeGateway = await openOrder(close);
+  assert.equal(await openOrder(close), closeGateway);
+  assert.equal(counts.create, 1);
+  assert.equal(await cancel(close), 'cancelled');
+  assert.equal(closeGateway.state, -1);
+  assert.equal(await status(close), 'cancelled');
+
+  phase = 'return_then_silent_payment_confirmation';
+  const paid = await createOrder();
+  const paidGateway = await openOrder(paid);
+  paidGateway.state = 2;
+  const returned = await fetch(bridge + '/pay/lanjing/return?' + callback(paidGateway), { redirect: 'manual' });
+  assert.equal(returned.status, 303);
+  const returnUrl = new URL(returned.headers.get('location'));
+  assert.equal(returnUrl.origin, site);
+  assert.equal(returnUrl.pathname, '/account-lite/index.html');
+  assert.equal(returnUrl.searchParams.get('trade_no'), paid.trade_no);
+  assert.equal(returnUrl.searchParams.get('payment_return'), '1');
+  assert.equal((await json('/api/user/self')).data.quota, startingQuota);
+  assert.equal(await status(paid), 'success');
+  assert.equal(await (await fetch(bridge + '/pay/lanjing/notify?' + callback(paidGateway))).text(), 'success');
+
+  phase = 'payment_wins_close_race';
+  const racing = await createOrder();
+  const racingGateway = await openOrder(racing);
+  racingGateway.payDuringClose = true;
+  assert.equal(await cancel(racing), 'success');
+  assert.equal(await (await fetch(bridge + '/pay/lanjing/notify?' + callback(racingGateway))).text(), 'success');
+  assert.equal((await json('/api/user/self')).data.quota - startingQuota, 100_000_000);
+  assert.equal(counts.create, 3);
+  assert.equal(counts.close, 2);
+  assert.equal(counts.confirm, 2);
+  assert.equal(counts.callbacks, 4);
+
+  phase = 'embedded_web_resource';
+  const page = await fetch(api + '/account-lite/index.html?tab=topup');
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /cancel-payment/);
+  console.log(JSON.stringify({ passed: true, cases: 5, counts, quotaIncrease: 100_000_000,
+    syntheticProvider: true, realPaymentCalls: 0, productionMutations: 0 }));
+} catch (error) {
+  console.error(JSON.stringify({ passed: false, phase,
+    code: error.code || (/^(setting_rejected_|synthetic_setup_rejected$)/.test(error.message) ? error.message : error.name),
+    fixtureLine: /\/app\/fixture\.mjs:(\d+)/.exec(error.stack)?.[1],
+    ...(typeof error.actual === 'number' ? { actual: error.actual } : {}),
+    ...(typeof error.expected === 'number' ? { expected: error.expected } : {}),
+  }));
+  process.exitCode = 1;
+} finally {
+  server.close();
+}

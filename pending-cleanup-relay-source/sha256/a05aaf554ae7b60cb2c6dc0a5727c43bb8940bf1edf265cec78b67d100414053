@@ -1,0 +1,54 @@
+"""Merge built 66 frontend resources without deleting any existing resource."""
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+FRONTEND = ROOT / 'build/hamster-trim44-web/dist'
+EMBEDDED = ROOT / 'deploy/new-api/backend/web/dist'
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main():
+    baseline = json.loads((HERE / 'baseline.json').read_text(encoding='utf-8'))
+    old = {item['path']: item for item in baseline['files']}
+    protected = {name: item for name, item in old.items() if re.search(r'\.[0-9a-f]{8,}\.', Path(name).name)}
+    for name, item in protected.items():
+        assert digest(EMBEDDED / name) == item['sha256'], 'OLD_HASHED_RESOURCE_DRIFT_BEFORE_MERGE'
+    sources = [path for path in sorted(FRONTEND.rglob('*')) if path.is_file()]
+    assert (FRONTEND / 'index.html').is_file() and sources, 'FRONTEND_BUILD_MISSING'
+    records = []
+    for source in sources:
+        name = source.relative_to(FRONTEND).as_posix()
+        sha = digest(source)
+        if name in protected:
+            assert sha == protected[name]['sha256'], 'IMMUTABLE_RESOURCE_HASH_COLLISION'
+        if name.startswith(('auth-lite/', 'account-lite/', 'examples/', 'portal-artwork/', 'portal-media/')) and name in old:
+            assert sha == old[name]['sha256'], 'UNRELATED_NATIVE_OR_EXAMPLE_RESOURCE_CHANGED'
+        records.append({'path': name, 'bytes': source.stat().st_size, 'sha256': sha})
+    for source, item in zip(sources, records):
+        target = EMBEDDED / item['path']
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    assert all((EMBEDDED / name).is_file() for name in old), 'OLD_RESOURCE_DELETED'
+    assert all(digest(EMBEDDED / name) == item['sha256'] for name, item in protected.items()), 'OLD_HASHED_RESOURCE_CHANGED'
+    assert all(digest(EMBEDDED / item['path']) == item['sha256'] for item in records), 'NEW_RESOURCE_MERGE_DRIFT'
+    value = {'format': 1, 'passed': True, 'new_files': records, 'old_file_count': len(old),
+             'old_hashed_files_checked': len(protected), 'old_hashed_files_unchanged': True,
+             'deleted_files': 0, 'production_mutations': 0}
+    (HERE / 'web67-merge-manifest.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'merged': True, 'new_files': len(records), 'old_hashed_files_preserved': len(protected), 'deleted_files': 0}))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, AssertionError) else 'WEB66_MERGE_FAILED_DETAILS_WITHHELD'}))
+        raise SystemExit(1)

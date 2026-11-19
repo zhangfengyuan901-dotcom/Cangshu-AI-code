@@ -1,0 +1,234 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { mkdtempSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, test } from 'node:test';
+import {
+  canonicalMoney,
+  createHandler,
+  epaySign,
+  lanjingCreateSign,
+  lanjingNotifySign,
+  openState,
+  sealState,
+} from '../server.mjs';
+
+const stateKey = Buffer.alloc(32, 7).toString('base64url');
+const config = {
+  publicOrigin: 'https://www.piknoai.com',
+  lanjingBase: 'https://2347637.pay.lanjingzf.com',
+  lanjingMerchantId: '2347637',
+  lanjingKey: 'provider-secret',
+  epayKey: 'bridge-secret',
+  stateKey,
+  newApiOrigin: 'http://new-api:3000',
+  resendKey: 'resend-secret',
+  resendFrom: 'PIKNO <notify@mail.piknoai.com>',
+  diagnosticReceiptDir: mkdtempSync(join(tmpdir(), 'pikno-payment-test-')),
+};
+
+let server;
+let origin;
+let calls;
+
+beforeEach(async () => {
+  calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith('/api/user/self')) {
+      return new Response(JSON.stringify({ success: true, data: { id: 12, email: 'buyer@example.com' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (String(url).endsWith('/api/user/epay/notify')) return new Response('success');
+    if (String(url) === 'https://api.resend.com/emails') return new Response('{}', { status: 200 });
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  server = createServer(createHandler(config, { fetchImpl, now: () => 1_800_000_000_000, logger: { info() {}, error() {} } }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  origin = `http://127.0.0.1:${server.address().port}`;
+});
+
+afterEach(async () => {
+  await new Promise((resolve) => server.close(resolve));
+});
+
+function epayOrder(overrides = {}) {
+  const order = {
+    pid: '2347637',
+    type: 'alipay',
+    out_trade_no: 'USR12NOABC123',
+    notify_url: 'https://www.piknoai.com/api/user/epay/notify',
+    return_url: 'https://www.piknoai.com/console/topup',
+    name: '充值 50 元',
+    money: '50.00',
+    sign_type: 'MD5',
+    ...overrides,
+  };
+  order.sign = epaySign(order, config.epayKey);
+  return order;
+}
+
+function providerCallback(stateOverrides = {}, fieldOverrides = {}) {
+  const state = {
+    v: 1,
+    o: 'USR12NOABC123',
+    m: '10.00',
+    t: 'alipay',
+    e: 'buyer@example.com',
+    r: 'https://www.piknoai.com/console/topup',
+    exp: 1_800_003_600,
+    ...stateOverrides,
+  };
+  const fields = {
+    payId: state.o,
+    param: sealState(state, stateKey),
+    type: '2',
+    price: state.m,
+    reallyPrice: state.m,
+    ...fieldOverrides,
+  };
+  fields.sign = lanjingNotifySign(fields, config.lanjingKey);
+  return fields;
+}
+
+test('one-yuan diagnostic callback persists once without crediting or emailing', async () => {
+  const fields = providerCallback({ o: 'PIKNOTEST123', m: '1.00', p: 'diagnostic' });
+  const url = `${origin}/pay/lanjing/diagnostic/notify?${new URLSearchParams(fields)}`;
+  for (let i = 0; i < 2; i++) assert.equal(await (await fetch(url)).text(), 'success');
+  assert.equal(calls.length, 0);
+  assert.deepEqual(readdirSync(config.diagnosticReceiptDir), ['PIKNOTEST123.json']);
+  const wrongRoute = await fetch(`${origin}/pay/lanjing/notify?${new URLSearchParams(fields)}`);
+  assert.equal(wrongRoute.status, 403);
+  assert.equal(calls.length, 0);
+});
+
+test('signing and money helpers are deterministic', () => {
+  assert.equal(canonicalMoney('1.2'), '1.20');
+  assert.equal(epaySign({ b: '2', a: '1', sign_type: 'MD5' }, 'k'), epaySign({ a: '1', b: '2' }, 'k'));
+  assert.equal(lanjingCreateSign({ payId: 'o', param: 'p', type: '2', price: '1.00' }, 'k'), lanjingCreateSign({ payId: 'o', param: 'p', type: '2', price: '1.00' }, 'k'));
+});
+
+test('encrypted state round-trips and rejects tampering and expiry', () => {
+  const state = { v: 1, exp: 100, o: 'order' };
+  const token = sealState(state, stateKey);
+  assert.deepEqual(openState(token, stateKey, 99), state);
+  const tampered = Buffer.from(token, 'base64url');
+  tampered[13] ^= 1;
+  assert.throws(() => openState(tampered.toString('base64url'), stateKey, 99));
+  assert.throws(() => openState(token, stateKey, 101), /expired/);
+});
+
+test('valid Epay authorize verifies the bearer user and creates signed provider fields', async () => {
+  const response = await fetch(`${origin}/pay/lanjing/epay/authorize`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: 'Bearer test' },
+    body: new URLSearchParams(epayOrder()),
+  });
+  const payment = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payment.action, 'https://2347637.pay.lanjingzf.com/createOrder');
+  assert.equal(payment.fields.notifyUrl, 'https://www.piknoai.com/pay/lanjing/notify');
+  assert.equal(payment.fields.sign, lanjingCreateSign(payment.fields, config.lanjingKey));
+  assert.equal(calls[0].options.headers.authorization, 'Bearer test');
+  assert.equal(payment.fields.price, '50.00');
+});
+
+test('both payment methods accept exactly the three CNY tiers and reject custom amounts before authentication', async () => {
+  for (const type of ['alipay', 'wxpay']) {
+    for (const money of ['50.00', '100.00', '200.00']) {
+      const response = await fetch(`${origin}/pay/lanjing/epay/authorize`, {
+        method: 'POST', headers: { authorization: 'Bearer test' },
+        body: new URLSearchParams(epayOrder({ type, money })),
+      });
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).fields.price, money);
+    }
+  }
+  const before = calls.length;
+  for (const money of ['1.00', '49.99', '50.01', '150.00', '365.00']) {
+    const response = await fetch(`${origin}/pay/lanjing/epay/authorize`, {
+      method: 'POST', headers: { authorization: 'Bearer test' },
+      body: new URLSearchParams(epayOrder({ money })),
+    });
+    assert.equal(response.status, 403);
+  }
+  assert.equal(calls.length, before);
+});
+
+test('browser landing refreshes the session with a CSP-authorized script', async () => {
+  const response = await fetch(`${origin}/pay/lanjing/epay/submit.php`, { method: 'POST', body: new URLSearchParams(epayOrder()) });
+  const html = await response.text();
+  const nonce = html.match(/nonce="([^"]+)"/)[1];
+  assert.ok(response.headers.get('content-security-policy').includes(`'nonce-${nonce}'`));
+  assert.match(html, /\/api\/user\/auth\/refresh/);
+  assert.equal(calls.length, 0);
+});
+
+test('authorization endpoint rejects requests without an access token', async () => {
+  const response = await fetch(`${origin}/pay/lanjing/epay/authorize`, { method: 'POST', body: new URLSearchParams(epayOrder()) });
+  assert.equal(response.status, 403);
+  assert.equal(calls.length, 0);
+});
+
+test('signed user mismatch is rejected', async () => {
+  const response = await fetch(`${origin}/pay/lanjing/epay/authorize`, { method: 'POST', headers: { authorization: 'Bearer test' }, body: new URLSearchParams(epayOrder({ out_trade_no: 'USR99NOABC123' })) });
+  assert.equal(response.status, 403);
+});
+
+test('signed provider cent adjustment credits original order amount', async () => {
+  const response = await fetch(`${origin}/pay/lanjing/notify?${new URLSearchParams(providerCallback({}, { reallyPrice: '10.01' }))}`);
+  assert.equal(await response.text(), 'success');
+  assert.equal(calls[0].options.body.get('money'), '10.00');
+});
+
+test('duplicate callback forwards same order and mail idempotency key', async () => {
+  const url = `${origin}/pay/lanjing/notify?${new URLSearchParams(providerCallback())}`;
+  for (let i=0;i<2;i++) assert.equal(await (await fetch(url)).text(), 'success');
+  assert.equal(calls[0].options.body.get('out_trade_no'), calls[2].options.body.get('out_trade_no'));
+  assert.equal(calls[1].options.headers['idempotency-key'], calls[3].options.headers['idempotency-key']);
+});
+
+test('invalid Epay signature is rejected before authentication', async () => {
+  const order = epayOrder();
+  order.sign = 'bad';
+  const response = await fetch(`${origin}/pay/lanjing/epay/submit.php`, { method: 'POST', body: new URLSearchParams(order) });
+  assert.equal(response.status, 403);
+  assert.equal(await response.text(), 'fail');
+  assert.equal(calls.length, 0);
+});
+
+test('valid callback credits New API and sends an idempotent email', async () => {
+  const fields = providerCallback();
+  const response = await fetch(`${origin}/pay/lanjing/notify?${new URLSearchParams(fields)}`);
+  assert.equal(await response.text(), 'success');
+  assert.equal(calls[0].url, 'http://new-api:3000/api/user/epay/notify');
+  const forwarded = Object.fromEntries(calls[0].options.body);
+  assert.equal(forwarded.trade_status, 'TRADE_SUCCESS');
+  assert.equal(forwarded.money, '10.00');
+  assert.equal(forwarded.sign, epaySign(forwarded, config.epayKey));
+  assert.equal(calls[1].options.headers['idempotency-key'], 'pikno-topup-USR12NOABC123');
+});
+
+test('invalid callback signature and amount mismatch never credit New API', async () => {
+  const invalid = providerCallback({}, { sign: 'bad' });
+  invalid.sign = 'bad';
+  let response = await fetch(`${origin}/pay/lanjing/notify?${new URLSearchParams(invalid)}`);
+  assert.equal(response.status, 403);
+  assert.equal(calls.length, 0);
+
+  const mismatch = providerCallback({}, { price: '11.00', reallyPrice: '11.00' });
+  response = await fetch(`${origin}/pay/lanjing/notify?${new URLSearchParams(mismatch)}`);
+  assert.equal(response.status, 403);
+  assert.equal(calls.length, 0);
+});
+
+test('return validates provider data and redirects only to the encrypted same-origin URL', async () => {
+  const fields = providerCallback();
+  const response = await fetch(`${origin}/pay/lanjing/return?${new URLSearchParams(fields)}`, { redirect: 'manual' });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), 'https://www.piknoai.com/console/topup');
+  assert.equal(calls.length, 0);
+});

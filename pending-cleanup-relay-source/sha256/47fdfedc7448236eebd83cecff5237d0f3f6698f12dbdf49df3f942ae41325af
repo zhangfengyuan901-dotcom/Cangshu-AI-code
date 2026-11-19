@@ -1,0 +1,88 @@
+async (page) => {
+  const base = 'http://127.0.0.1:48276';
+  const shots = 'D:/PIKNO/output/playwright/relay-artwork-current/';
+  const passed = [], seen = new Set();
+  let pageErrors = 0;
+  page.on('pageerror', () => pageErrors++);
+  const check = (value, label) => { if (!value) throw new Error('Artwork QA failed: '+label); passed.push(label); };
+  const ready = async () => { await page.locator('.portal-header').waitFor(); };
+  const loadArtwork = async () => {
+    const images = page.locator('img.portal-artwork');
+    for (let i=0;i<await images.count();i++) {
+      const item=images.nth(i);
+      await item.scrollIntoViewIfNeeded();
+      const data=await item.evaluate(async image=> {
+        await image.decode();
+        return {src:new URL(image.currentSrc).pathname,width:image.naturalWidth,height:image.naturalHeight,alt:image.alt,hidden:image.getAttribute('aria-hidden')};
+      });
+      check(data.width===1672 && data.height===941,'decoded_'+data.src.split('/').pop());
+      check(data.alt==='','decorative_accessibility_'+data.src.split('/').pop());
+      seen.add(data.src);
+    }
+  };
+  const noOverflow = async label => check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label);
+  await page.request.put(base+'/__qa/catalog',{data:{reset:true}});
+  await page.setViewportSize({width:1440,height:1000});
+  await page.goto(base+'/');await ready();
+  const hero=page.locator('.portal-hero-art');
+  check(await hero.getAttribute('loading')==='eager' && await hero.getAttribute('fetchpriority')==='high','hero_priority');
+  await loadArtwork();
+  check(await page.locator('.portal-feature-art img').count()===3,'three_themed_feature_cards');
+  const featureBounds=await page.locator('.portal-feature-art').evaluateAll(nodes=>nodes.map(node=>{
+    const image=node.querySelector('img');
+    return {name:image.dataset.artwork,width:Math.abs(image.offsetWidth-node.clientWidth),height:Math.abs(image.offsetHeight-node.clientHeight)};
+  }));
+  for (const bounds of featureBounds) check(bounds.width<=1 && bounds.height<=1,'feature_image_fits_'+bounds.name);
+  await noOverflow('desktop_home_no_overflow');
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'art-home-desktop.png',fullPage:true});
+  await page.locator('.portal-feature-grid').screenshot({path:shots+'art-feature-cards.png'});
+  await page.goto(base+'/hub/models');await ready();
+  await page.locator('.portal-model-card').first().waitFor();
+  await loadArtwork();
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'art-models-desktop.png',fullPage:true});
+  await page.locator('.portal-category-list').getByRole('button',{name:/创意工具|Creative tools/}).click();
+  await page.locator('.portal-model-card').first().waitFor();
+  check(await page.locator('.portal-model-card').count()===2,'tool_filter_preserved');
+  await loadArtwork();
+  check(await page.locator('.portal-model-card img[data-artwork=digital]').count()===1,'digital_theme_mapping');
+  check(await page.locator('.portal-model-card img[data-artwork=depth]').count()===1,'depth_theme_mapping');
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'art-tools-desktop.png',fullPage:true});
+  await page.goto(base+'/hub/pricing');await ready();
+  await loadArtwork();
+  check(await page.locator('.portal-hub-art img').getAttribute('data-artwork')==='api','pricing_api_theme');
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'art-pricing-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.goto(base+'/');await ready();
+  await loadArtwork();
+  const placement=await page.evaluate(()=>({
+    art:document.querySelector('.portal-hero-art').getBoundingClientRect().top,
+    note:document.querySelector('.portal-hero-note').getBoundingClientRect().bottom,
+  }));
+  check(placement.art>=placement.note-1,'mobile_hero_art_separate_from_text');
+  await noOverflow('mobile_home_no_overflow');
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'art-home-mobile.png',fullPage:true});
+  await page.goto(base+'/hub/models');await ready();
+  await page.locator('.portal-category-list').getByRole('button',{name:/创意工具|Creative tools/}).click();
+  await page.locator('.portal-model-card').first().waitFor();
+  await loadArtwork();
+  await noOverflow('mobile_tools_no_overflow');
+  await page.evaluate(()=>scrollTo(0,0));
+  await page.screenshot({path:shots+'art-tools-mobile.png',fullPage:true});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.goto(base+'/');await ready();
+  await page.locator('.portal-feature-card').first().hover();
+  check(await page.locator('.portal-feature-art img').first().evaluate(image=>getComputedStyle(image).transform)==='none','reduced_motion_no_image_zoom');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  check(seen.size===7,'all_seven_artworks_rendered');
+  check(pageErrors===0,'no_browser_page_errors');
+  const state=await (await page.request.get(base+'/__qa/state')).json();
+  check(state.generationCalls===0,'no_real_generation_or_payment');
+  await page.setViewportSize({width:1440,height:1000});
+  await page.goto(base+'/');await ready();await loadArtwork();await page.evaluate(()=>scrollTo(0,0));
+  return {ok:true,synthetic:true,checks:passed.length,passed,artworks:[...seen].sort(),pageErrors,real_relay_generation_calls:0,real_payment_calls:0};
+}

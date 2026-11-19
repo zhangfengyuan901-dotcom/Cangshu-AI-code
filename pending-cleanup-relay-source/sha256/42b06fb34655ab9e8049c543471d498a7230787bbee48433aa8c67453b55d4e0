@@ -1,0 +1,7 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO')
+spec=importlib.util.spec_from_file_location('stage_progress_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+value=transport.remote("import json,pathlib\np=pathlib.Path('/opt/piknoai-relay/portal67-20261111')\nprint(json.dumps({'payload_bytes':(p/'backend67-new-api.gz').stat().st_size if (p/'backend67-new-api.gz').exists() else 0,'binary_ready':(p/'backend67-new-api').exists(),'candidate_stage_ready':(p/'private/stage.json').exists()}))",timeout=20)
+print(json.dumps(value))

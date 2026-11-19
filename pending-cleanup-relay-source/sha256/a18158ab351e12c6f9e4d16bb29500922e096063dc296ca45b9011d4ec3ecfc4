@@ -1,0 +1,65 @@
+import http from 'node:http';
+import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+
+const root = path.resolve('build/hamster-trim44-web/dist');
+const origin = 'http://127.0.0.1:18172';
+const state = { mode: 'new', signedIn: false, approved: false, register: 0, inspect: 0, approve: 0, payment: 0 };
+const ok = (res, data) => json(res, { success: true, data });
+function json(res, value, status = 200) {
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(value));
+}
+const user = () => ({ id: 42, role: 1, username: state.mode === 'new' ? 'onboarding-fixture' : 'existing-fixture', email: 'fixture@example.test', quota: 0, used_quota: 0, request_count: 0 });
+const bundle = () => ({ access_token: 'synthetic-access', token_type: 'Bearer', access_expires_at: Math.floor(Date.now() / 1000) + 3600, session: { sid: 'fixture-session', current: true }, user: user() });
+const server = http.createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, origin);
+    if (url.pathname === '/fixture/reset') {
+      const mode = url.searchParams.get('mode');
+      if (!['new','old','wrong','expired'].includes(mode)) return json(res, {}, 400);
+      Object.assign(state, { mode, signedIn: mode !== 'new', approved: false, register: 0, inspect: 0, approve: 0, payment: 0 });
+      return ok(res, {});
+    }
+    if (url.pathname === '/fixture/result') return ok(res, state);
+    if (url.pathname === '/api/status') return ok(res, { password_login_enabled: true, password_register_enabled: true, register_enabled: true, email_verification: false, turnstile_check: false, password_login_encryption_enabled: false, quota_per_unit: 1000000, usd_exchange_rate: 1 });
+    if (url.pathname === '/api/user/auth/refresh') return state.signedIn ? ok(res, bundle()) : json(res, { success: false }, 401);
+    if (url.pathname === '/api/user/register') {
+      let input = ''; for await (const chunk of req) input += chunk;
+      const body = JSON.parse(input);
+      if (state.mode !== 'new' || req.headers['x-hamster-desktop-flow'] !== 'A'.repeat(43) || !body.username || !body.password) return json(res, { success: false }, 403);
+      state.signedIn = true; state.register++;
+      return ok(res, bundle());
+    }
+    if (url.pathname.startsWith('/api/user/desktop/')) {
+      if (!state.signedIn) return json(res, { success: false }, 401);
+      let input = ''; for await (const chunk of req) input += chunk;
+      const body = JSON.parse(input);
+      state.inspect++;
+      if (state.mode === 'wrong') return json(res, { success: false, code: 'DESKTOP_ACCOUNT_MISMATCH' }, 403);
+      if (state.mode === 'expired') return json(res, { success: false, code: 'DESKTOP_FLOW_INVALID' }, 403);
+      if (url.pathname.endsWith('/approve')) {
+        if (body.confirmed !== true || state.mode !== 'new') return json(res, { success: false }, 400);
+        state.approved = true; state.approve++;
+      }
+      const expected = (state.mode === 'new' ? 'A' : 'B').repeat(43);
+      if (body.flow_id !== expected) return json(res, { success: false, code: 'DESKTOP_FLOW_INVALID' }, 403);
+      return ok(res, { flow_id: expected, status: state.mode === 'old' ? 'ready' : state.approved ? 'approved' : 'pending', purpose: state.mode === 'old' ? 'recharge' : 'connect', account_matched: true, requires_approval: state.mode === 'new' && !state.approved, expires_at: Math.floor(Date.now() / 1000) + 900 });
+    }
+    if (url.pathname === '/api/user/self') return ok(res, user());
+    if (url.pathname === '/api/user/topup/info') return ok(res, { fixed_cny_topup: true, enable_online_topup: true, payment_compliance_confirmed: true, payment_cancel_supported: true, amount_options: [50,100,200], pay_methods: [{ type: 'alipay' },{ type: 'wxpay' }] });
+    if (url.pathname === '/api/user/amount') { let input = ''; for await (const chunk of req) input += chunk; return ok(res, JSON.parse(input).amount); }
+    if (url.pathname === '/api/user/pay') { state.payment++; return json(res, { success: false }, 403); }
+    if (url.pathname === '/api/user/groups') return ok(res, {});
+    if (url.pathname === '/api/token/' || url.pathname === '/api/user/topup/self') return ok(res, { items: [], total: 0 });
+    if (url.pathname.startsWith('/api/')) return ok(res, {});
+    let resource = path.join(root, url.pathname === '/' || url.pathname.startsWith('/hub/') ? 'index.html' : url.pathname.slice(1));
+    if (!resource.startsWith(root + path.sep)) return json(res, {}, 403);
+    const ext = path.extname(resource);
+    const mime = { '.html':'text/html', '.css':'text/css', '.js':'text/javascript', '.mjs':'text/javascript', '.png':'image/png', '.svg':'image/svg+xml', '.webp':'image/webp', '.woff2':'font/woff2', '.mp4':'video/mp4' };
+    const data = await readFile(resource);
+    res.writeHead(200, { 'content-type': (mime[ext] || 'application/octet-stream') + (['.html','.js','.mjs','.css'].includes(ext) ? '; charset=utf-8' : ''), 'cache-control': 'no-store' });
+    res.end(data);
+  } catch { res.writeHead(404); res.end(); }
+});
+server.listen(18172, '127.0.0.1', () => console.log('fixture ready'));

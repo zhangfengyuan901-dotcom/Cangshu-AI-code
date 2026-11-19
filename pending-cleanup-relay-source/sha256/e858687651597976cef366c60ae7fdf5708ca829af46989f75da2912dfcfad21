@@ -1,0 +1,141 @@
+"""Delete only the previously recorded, task-owned synthetic database resources."""
+import argparse
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+TASK = 'relay-portal-current'
+NETWORK = 'relay-portal-test'
+CACHES = ('relay-portal-gomod', 'relay-portal-gobuild')
+PLAN = HERE / 'synthetic-validation-cleanup-plan.json'
+RESULT = HERE / 'synthetic-validation-cleanup-result.json'
+EXPECTED_DATA = {'relay-portal-mysql': '/var/lib/mysql', 'relay-portal-postgres': '/var/lib/postgresql/data'}
+
+
+def require(value, code):
+    if not value:
+        raise RuntimeError(code)
+
+
+def run(args, check=True):
+    result = subprocess.run(args, capture_output=True, timeout=90)
+    if check:
+        require(result.returncode == 0, 'SYNTHETIC_CLEANUP_COMMAND_FAILED')
+    return result
+
+
+def inspect(kind, identity):
+    return json.loads(run(['docker', kind, 'inspect', identity]).stdout)[0]
+
+
+def fingerprint(args, excluded=()):
+    rows = sorted(set(run(args).stdout.decode().splitlines()) - set(excluded))
+    return {'count': len(rows), 'sha256': hashlib.sha256('\n'.join(rows).encode()).hexdigest()}
+
+
+def cache_inventory():
+    values = []
+    for name in CACHES:
+        volume = inspect('volume', name)
+        require(volume['Name'] == name and volume.get('Labels', {}).get('codex.task') == TASK, 'CACHE_OWNERSHIP_DRIFT')
+        values.append({'name': name, 'driver': volume['Driver'], 'labels': {'codex.task': TASK}})
+    return values
+
+
+def container_inventory(name, expected_id):
+    value = inspect('container', name)
+    require(value['Id'] == expected_id and value['Name'] == '/' + name, 'SYNTHETIC_CONTAINER_IDENTITY_DRIFT')
+    labels = value['Config'].get('Labels', {})
+    require(labels.get('codex.task') == TASK, 'SYNTHETIC_CONTAINER_LABEL_DRIFT')
+    require(not value['HostConfig'].get('PortBindings') and not value['HostConfig'].get('PublishAllPorts'), 'SYNTHETIC_CONTAINER_HAS_HOST_PORTS')
+    require(all(not binding for binding in value['NetworkSettings'].get('Ports', {}).values()), 'SYNTHETIC_CONTAINER_HAS_PUBLISHED_PORT')
+    require(set(value['NetworkSettings']['Networks']) == {NETWORK}, 'SYNTHETIC_CONTAINER_NETWORK_DRIFT')
+    tmpfs = value['HostConfig'].get('Tmpfs', {})
+    require(EXPECTED_DATA[name] in tmpfs, 'SYNTHETIC_DATA_NOT_TMPFS')
+    require(all(mount['Type'] == 'tmpfs' for mount in value['Mounts']), 'SYNTHETIC_CONTAINER_HAS_PERSISTENT_MOUNT')
+    return {'name': name, 'container_id': value['Id'], 'image_id': value['Image'],
+            'labels': {'codex.task': TASK}, 'running': value['State']['Running'],
+            'tmpfs': {key: tmpfs[key] for key in sorted(tmpfs)}, 'host_ports': {},
+            'persistent_mounts': [], 'networks': [{'name': NETWORK, 'network_id': value['NetworkSettings']['Networks'][NETWORK]['NetworkID']}]}
+
+
+def make_plan():
+    require(not PLAN.exists(), 'CLEANUP_PLAN_ALREADY_EXISTS_REVIEW_REQUIRED')
+    baseline = json.loads((HERE / 'validation-environment.json').read_text())
+    expected = {value['name']: value['container_id'] for value in baseline['databases']}
+    require(set(expected) == set(EXPECTED_DATA), 'SYNTHETIC_BASELINE_SCOPE_INVALID')
+    containers = [container_inventory(name, expected[name]) for name in sorted(expected)]
+    network = inspect('network', NETWORK)
+    require(network['Name'] == NETWORK and network['Internal'] is True and network.get('Labels', {}).get('codex.task') == TASK,
+            'SYNTHETIC_NETWORK_IDENTITY_DRIFT')
+    require(all(value['networks'][0]['network_id'] == network['Id'] for value in containers), 'SYNTHETIC_NETWORK_ID_DRIFT')
+    require(set(network.get('Containers', {})) == set(expected.values()), 'OTHER_NETWORK_ENDPOINT_REQUIRES_REVIEW')
+    value = {'format': 1, 'planned_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'task': TASK,
+             'docker_context': run(['docker', 'context', 'show']).stdout.decode().strip(),
+             'containers': containers,
+             'network': {'name': NETWORK, 'network_id': network['Id'], 'internal': True, 'labels': {'codex.task': TASK},
+                         'endpoint_container_ids': sorted(network.get('Containers', {}))},
+             'preserved_caches': cache_inventory(),
+             'all_volumes_before': fingerprint(['docker', 'volume', 'ls', '-q']),
+             'other_containers_before': fingerprint(['docker', 'ps', '-aq', '--no-trunc'], expected.values()),
+             'delete_volumes': False, 'production_resources_targeted': [], 'production_mutations': 0}
+    PLAN.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'planned': True, 'container_count': len(containers), 'network_count': 1, 'delete_volumes': False, 'production_mutations': 0}))
+
+
+def apply_plan():
+    require(PLAN.is_file() and not RESULT.exists(), 'CLEANUP_PLAN_OR_RESULT_INVALID')
+    value = json.loads(PLAN.read_text())
+    require(value['task'] == TASK and value['docker_context'] == run(['docker', 'context', 'show']).stdout.decode().strip(), 'CLEANUP_CONTEXT_DRIFT')
+    require(cache_inventory() == value['preserved_caches'], 'CACHE_DRIFT_BEFORE_CLEANUP')
+    # Revalidate every identity and boundary before the first deletion.
+    for item in value['containers']:
+        require(container_inventory(item['name'], item['container_id']) == item, 'SYNTHETIC_PLAN_DRIFT')
+    network = inspect('network', value['network']['network_id'])
+    require(network['Name'] == NETWORK and network['Internal'] and network.get('Labels', {}).get('codex.task') == TASK,
+            'SYNTHETIC_NETWORK_DRIFT_BEFORE_CLEANUP')
+    require(sorted(network.get('Containers', {})) == value['network']['endpoint_container_ids'], 'NETWORK_ENDPOINT_DRIFT_BEFORE_CLEANUP')
+    result = {'format': 1, 'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'task': TASK,
+              'plan_sha256': hashlib.sha256(PLAN.read_bytes()).hexdigest(), 'removed_container_ids': [],
+              'removed_network_id': None, 'volume_deletions': 0, 'production_mutations': 0}
+    RESULT.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    for item in value['containers']:
+        # Use the verified immutable ID; do not delete by a replaceable name.
+        container_inventory(item['name'], item['container_id'])
+        run(['docker', 'container', 'rm', '-f', item['container_id']])
+        require(run(['docker', 'container', 'inspect', item['container_id']], check=False).returncode != 0, 'SYNTHETIC_CONTAINER_REMAINS')
+        result['removed_container_ids'].append(item['container_id'])
+        RESULT.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    network = inspect('network', value['network']['network_id'])
+    require(network['Name'] == NETWORK and network['Internal'] and network.get('Labels', {}).get('codex.task') == TASK,
+            'SYNTHETIC_NETWORK_DRIFT_AFTER_CONTAINER_REMOVAL')
+    require(not network.get('Containers'), 'NETWORK_STILL_HAS_ENDPOINTS_NOT_REMOVED')
+    run(['docker', 'network', 'rm', network['Id']])
+    require(run(['docker', 'network', 'inspect', network['Id']], check=False).returncode != 0, 'SYNTHETIC_NETWORK_REMAINS')
+    result['removed_network_id'] = network['Id']
+    result['preserved_caches'] = cache_inventory()
+    result['all_volumes_after'] = fingerprint(['docker', 'volume', 'ls', '-q'])
+    result['other_containers_after'] = fingerprint(['docker', 'ps', '-aq', '--no-trunc'], [item['container_id'] for item in value['containers']])
+    result['all_volumes_preserved'] = result['all_volumes_after'] == value['all_volumes_before']
+    result['other_containers_preserved'] = result['other_containers_after'] == value['other_containers_before']
+    result['passed'] = result['all_volumes_preserved'] and result['other_containers_preserved'] and result['preserved_caches'] == value['preserved_caches']
+    result['completed_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    RESULT.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    require(result['passed'], 'UNRELATED_RESOURCE_SET_CHANGED_REVIEW_REQUIRED')
+    print(json.dumps({'passed': True, 'removed_containers': len(result['removed_container_ids']), 'removed_networks': 1,
+                      'all_volumes_preserved': True, 'go_caches_preserved': True, 'other_containers_preserved': True,
+                      'production_mutations': 0}))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['plan', 'apply'])
+    options = parser.parse_args()
+    try:
+        {'plan': make_plan, 'apply': apply_plan}[options.action]()
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, RuntimeError) else 'SYNTHETIC_CLEANUP_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

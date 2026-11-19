@@ -1,0 +1,52 @@
+$ErrorActionPreference = 'Stop'
+$artifact = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot ('artifacts/' + (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'package-verification.json') -Raw | ConvertFrom-Json).portable))
+$metadata = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'package-verification.json') -Raw | ConvertFrom-Json
+$profileSuffix = 'hamster-ai-internal/' + $metadata.version
+$actualAppData = [Environment]::GetFolderPath('ApplicationData')
+if (Test-Path -LiteralPath (Join-Path $actualAppData $profileSuffix)) { throw '检测到已有候选配置，停止启动测试' }
+
+$smoke = Join-Path $PSScriptRoot ('startup-fixture-' + [Guid]::NewGuid().ToString('N'))
+$fixtureAppData = Join-Path $smoke 'appdata'
+$fixtureLocalData = Join-Path $smoke 'local-appdata'
+$fixtureTemp = Join-Path $smoke 'temp'
+New-Item -ItemType Directory -Path $fixtureAppData,$fixtureLocalData,$fixtureTemp | Out-Null
+$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+$listener.Start()
+$debugPort = $listener.LocalEndpoint.Port
+$listener.Stop()
+
+$flags = @(
+  '--disable-background-networking', '--disable-component-update', '--proxy-server=http://127.0.0.1:9',
+  '--remote-debugging-address=127.0.0.1', "--remote-debugging-port=$debugPort"
+)
+$environment = @{
+  APPDATA = $fixtureAppData; LOCALAPPDATA = $fixtureLocalData; TEMP = $fixtureTemp; TMP = $fixtureTemp;
+  HAMSTER_PIKNO_MODE = '1'; NODE_OPTIONS = $null; ELECTRON_RUN_AS_NODE = $null
+}
+$launcher = Start-Process -FilePath $artifact.Path -WorkingDirectory $smoke -ArgumentList $flags -Environment $environment -PassThru -WindowStyle Hidden
+try {
+  $fixtureResult = & node (Join-Path $PSScriptRoot 'portable-startup-fixture.cjs') $debugPort
+  if ($LASTEXITCODE -ne 0) { throw '便携程序界面启动验证失败' }
+  $evidence = $fixtureResult | ConvertFrom-Json
+  $logs = @($fixtureAppData, $actualAppData) | ForEach-Object { Join-Path (Join-Path $_ $profileSuffix) 'diagnostics/startup.log' }
+  $foundReady = $false
+  foreach ($log in $logs) {
+    if ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -SimpleMatch '[desktop-ready]' -Quiet)) { $foundReady = $true }
+  }
+  if (!$foundReady) { throw '候选隔离配置缺少启动证据' }
+  if (!$launcher.WaitForExit(7000)) { throw '便携程序未正常退出' }
+  if ($launcher.ExitCode -ne 0) { throw '便携程序退出码异常' }
+  $evidence | Add-Member -NotePropertyMembers @{ startupLogVerified = $true; exitedCleanly = $true; candidateVersion = $metadata.version }
+  $evidence | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'portable-startup-verification.json') -Encoding UTF8
+  $evidence | ConvertTo-Json -Compress
+} finally {
+  if (!$launcher.HasExited) {
+    $processes = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($launcher.Id)")
+    foreach ($process in $processes) {
+      if ($process.ExecutablePath -and $process.ExecutablePath.StartsWith($fixtureTemp + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) {
+        Stop-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
+      }
+    }
+    if (!$launcher.WaitForExit(3000) -and $launcher.Path -eq $artifact.Path) { Stop-Process -Id $launcher.Id -ErrorAction SilentlyContinue }
+  }
+}

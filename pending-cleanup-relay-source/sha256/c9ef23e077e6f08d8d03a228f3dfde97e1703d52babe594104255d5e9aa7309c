@@ -1,0 +1,128 @@
+from pathlib import Path
+
+target=Path('D:/PIKNO/deploy/new-api/backend/model/pikno_line_sync_test.go')
+source=target.read_text(encoding='utf-8')
+start=source.index('func testPiknoSyncProviderLockIsolation(')
+source=source[:start]+r'''func testPiknoSyncProviderLockIsolation(t *testing.T, canseeChannel int, now int64) {
+	t.Helper()
+	_, err := applySyncTest(t, canseeChannel, now, syncModelBody("keep", "retire"), false)
+	require.NoError(t, err)
+	retired := PiknoSyncProvider{Provider: "sanbao", State: "ready", LeaseOwner: "retired-worker", LeaseEpoch: 9, LeaseUntil: now + 900}
+	require.NoError(t, DB.Create(&retired).Error)
+	line := PiknoLine{PublicModel: "pikno-video-sb-retired-lock", Version: 7, DraftConfig: `{"provider":"sanbao","upstream_model":"sanbao/retired-lock"}`, UpdatedAt: now}
+	require.NoError(t, DB.Create(&line).Error)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	oldDB := DB
+	DB = DB.WithContext(ctx)
+	defer func() { DB = oldDB }()
+	locked, release := make(chan struct{}), make(chan struct{})
+	results := make(chan error, 1)
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	go func() {
+		results <- DB.Transaction(func(tx *gorm.DB) error {
+			var p PiknoSyncProvider
+			if err := lockForUpdate(tx).First(&p, "provider = ?", "sanbao").Error; err != nil {
+				return err
+			}
+			var row PiknoLine
+			if err := lockForUpdate(tx).First(&row, "public_model = ?", line.PublicModel).Error; err != nil {
+				return err
+			}
+			close(locked)
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+	select {
+	case <-locked:
+	case err := <-results:
+		require.NoError(t, err)
+		t.Fatal("retired provider lock was not acquired")
+	case <-ctx.Done():
+		t.Fatal("retired provider lock timed out")
+	}
+	_, _, err = AcquirePiknoSyncLease("sanbao", "new-worker", now+60)
+	require.ErrorIs(t, err, ErrPiknoSyncProviderRetired)
+	_, err = applySyncTest(t, canseeChannel, now+60, syncModelBody("keep"), false)
+	require.NoError(t, err, "active supplier refresh must not wait on a retired supplier's rows")
+	close(release)
+	released = true
+	select {
+	case err := <-results:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("retired provider transaction did not finish")
+	}
+	_, err = GetPiknoLineAdmin("pikno-video-cs-retire", 0)
+	assert.ErrorIs(t, err, ErrPiknoLineNotFound)
+	_, err = GetPiknoLineAdmin("pikno-video-cs-keep", 0)
+	require.NoError(t, err)
+	var after PiknoLine
+	require.NoError(t, DB.First(&after, "public_model = ?", line.PublicModel).Error)
+	assert.Equal(t, line, after, "unrelated retired rows remain outside the active supplier transaction")
+}
+
+func TestPiknoSyncRetiredProviderCannotRecreateConfiguration(t *testing.T) {
+	t.Setenv("PIKNO_LINE_SYNC_ENABLED", "true")
+	openPiknoLineTestDB(t)
+	require.NoError(t, DB.AutoMigrate(&TaskPlugin{}))
+	now := time.Now().Unix()
+	line := PiknoLine{PublicModel: "pikno-video-sb-retired-write", Version: 7, DraftConfig: `{"provider":"sanbao","upstream_model":"sanbao/retired-write"}`, UpdatedAt: now}
+	require.NoError(t, DB.Create(&line).Error)
+	for range 2 {
+		require.NoError(t, MigratePiknoLineSync(DB))
+	}
+	var retiredCount int64
+	require.NoError(t, DB.Model(&PiknoSyncProvider{}).Where("provider = ?", "sanbao").Count(&retiredCount).Error)
+	assert.Zero(t, retiredCount, "fresh and repeated startup must not recreate the retired provider")
+	require.NoError(t, DB.Model(&PiknoLineSyncState{}).Where("provider = ?", "sanbao").Count(&retiredCount).Error)
+	assert.Zero(t, retiredCount, "startup must not bind an old retired draft to a new sync state")
+	status := PiknoSyncAdminStatus()
+	require.Len(t, status.Providers, 1)
+	assert.Equal(t, "canseedream", status.Providers[0].Provider)
+	retired := PiknoSyncProvider{Provider: "sanbao", State: "ready", StartedAt: now, LeaseOwner: "old-worker", LeaseEpoch: 3, LeaseUntil: now + 90}
+	require.NoError(t, DB.Create(&retired).Error)
+	lease := PiknoSyncLease{Provider: "sanbao", Owner: retired.LeaseOwner, Epoch: retired.LeaseEpoch}
+	beforeCounts := make(map[string]int64)
+	for _, table := range []string{"pikno_lines", "pikno_line_sync_states", "pikno_sync_snapshots", "task_plugins"} {
+		var count int64
+		require.NoError(t, DB.Table(table).Count(&count).Error)
+		beforeCounts[table] = count
+	}
+	_, _, err := AcquirePiknoSyncLease("sanbao", "new-worker", now)
+	require.ErrorIs(t, err, ErrPiknoSyncProviderRetired)
+	require.ErrorIs(t, RecordPiknoSyncFailure(lease, "catalog_unverified", now), ErrPiknoSyncProviderRetired)
+	snapshot := &piknocatalog.ProviderSnapshot{Provider: "sanbao"}
+	for _, fresh := range []bool{false, true} {
+		require.ErrorIs(t, ApplyPiknoSyncSnapshot(lease, snapshot, nil, "", "", "", nil, fresh, now), ErrPiknoSyncProviderRetired)
+	}
+	for _, ids := range [][]string{nil, {"sanbao/retired-write"}} {
+		changed, err := ApplyPiknoSyncClosures(lease, &piknocatalog.AvailabilityClosures{Provider: "sanbao", ClosedIDs: ids}, now)
+		require.ErrorIs(t, err, ErrPiknoSyncProviderRetired)
+		assert.Zero(t, changed)
+	}
+	var afterProvider PiknoSyncProvider
+	require.NoError(t, DB.First(&afterProvider, "provider = ?", "sanbao").Error)
+	assert.Equal(t, retired, afterProvider, "a persisted old lease must not authorize any retired-provider write")
+	var afterLine PiknoLine
+	require.NoError(t, DB.First(&afterLine, "public_model = ?", line.PublicModel).Error)
+	assert.Equal(t, line, afterLine)
+	for table, before := range beforeCounts {
+		var count int64
+		require.NoError(t, DB.Table(table).Count(&count).Error)
+		assert.Equal(t, before, count, table)
+	}
+}
+'''
+target.write_text(source,encoding='utf-8',newline='\n')
+print('{"sync_test_cases_updated":true}')

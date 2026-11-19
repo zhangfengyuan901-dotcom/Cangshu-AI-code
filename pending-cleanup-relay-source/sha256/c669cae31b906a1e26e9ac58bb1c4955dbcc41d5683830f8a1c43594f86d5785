@@ -1,0 +1,49 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('sanbao_log_links_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import json,subprocess,re,hashlib
+def sql(query):
+ r=subprocess.run(['docker','exec','-i','piknoai-relay-postgres-1','psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c',"BEGIN READ ONLY; SET LOCAL statement_timeout='15s'; "+query+'; ROLLBACK'],capture_output=True,timeout=35)
+ if r.returncode:raise RuntimeError('READONLY_LOG_LINK_SQL_FAILED')
+ rows=[x for x in r.stdout.decode().splitlines() if x.startswith(('{','['))]
+ if len(rows)!=1:raise RuntimeError('READONLY_LOG_LINK_SHAPE')
+ return json.loads(rows[0])
+data=sql("""WITH h AS (SELECT * FROM pikno_settlements WHERE line_provider='sanbao' OR model LIKE 'sanbao/%'),
+ models AS (SELECT public_model name FROM pikno_line_sync_states WHERE provider='sanbao' UNION SELECT model FROM h),
+ t AS (SELECT * FROM tasks t WHERE t.platform IN ('plugin:pikno-sanbao','plugin/pikno-sanbao','pikno-sanbao') OR EXISTS(SELECT 1 FROM h WHERE h.upstream_task_id<>'' AND h.upstream_task_id=t.task_id AND h.user_id=t.user_id AND h.channel_id=t.channel_id))
+ SELECT json_build_object('models',(SELECT coalesce(json_agg(name),'[]'::json) FROM models),
+ 'tasks',(SELECT coalesce(json_agg(json_build_object('task_id',task_id,'user_id',user_id,'request_id',coalesce(nullif(private_data::text,''),'{}')::jsonb->'execution'->>'request_id')),'[]'::json) FROM t),
+ 'logs',(SELECT coalesce(json_agg(json_build_object('id',id,'user_id',user_id,'model_name',model_name,'request_id',request_id,'other',other)),'[]'::json) FROM logs l WHERE model_name LIKE 'sanbao/%' OR model_name IN (SELECT name FROM models) OR coalesce(other,'') LIKE '%pikno-sanbao%' OR EXISTS(SELECT 1 FROM t WHERE t.user_id=l.user_id AND ((t.task_id<>'' AND position(t.task_id in coalesce(l.other,''))>0) OR l.request_id=coalesce(nullif(t.private_data::text,''),'{}')::jsonb->'execution'->>'request_id'))))
+ """)
+models=set(data['models']);tasks={(t['user_id'],t['task_id']) for t in data['tasks']};requests={t['request_id'] for t in data['tasks'] if t.get('request_id')}
+matched=[]
+for row in data['logs']:
+ other=row.get('other') or {}
+ if isinstance(other,str):
+  try:other=json.loads(other)
+  except Exception:other={}
+ if not isinstance(other,dict):other={}
+ plugin=any(isinstance(other.get(key),dict) and isinstance(other[key].get('task_plugin'),dict) and other[key]['task_plugin'].get('key')=='pikno-sanbao' for key in ('admin_info','root_info'))
+ by_model=str(row.get('model_name','')).startswith('sanbao/') or row.get('model_name') in models
+ by_task=(row['user_id'],str(other.get('task_id',''))) in tasks
+ by_request=row.get('request_id') and row['request_id'] in requests
+ if plugin or by_model or by_task or by_request:
+  matched.append(row['id'])
+  if row.get('request_id'):requests.add(row['request_id'])
+literal=[]
+for value in sorted(requests):
+ if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}',value):raise RuntimeError('REQUEST_ID_SHAPE_REQUIRES_REVIEW')
+ literal.append("'"+value+"'")
+condition='request_id IN ('+','.join(literal)+')' if literal else 'false'
+audit=sql("SELECT json_build_object('related_audit_rows',count(*)) FROM audit_logs WHERE "+condition+" OR route LIKE '/pikno-sanbao/%'")
+print(json.dumps({'read_only':True,'usage_log_rows':len(set(matched)),'related_audit_rows':audit['related_audit_rows'],
+ 'usage_log_primary_key_set_sha256':hashlib.sha256(json.dumps(sorted(set(matched))).encode()).hexdigest(),
+ 'matched_request_count':len(requests),'customer_rows_exported':0,'mutations':0}))
+'''
+try:value=transport.remote(code,timeout=80)
+except Exception:print('{"passed":false,"code":"READONLY_HISTORY_LOG_LINKS_FAILED_DETAILS_WITHHELD"}');raise SystemExit(1)
+(HERE/'history-deletion-log-links.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps(value))

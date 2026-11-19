@@ -1,0 +1,52 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('retirement_counts_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import json,subprocess
+def sql(query):
+ r=subprocess.run(['docker','exec','-i','piknoai-relay-postgres-1','psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c',"BEGIN READ ONLY; SET LOCAL statement_timeout='15s'; "+query+'; ROLLBACK'],capture_output=True,timeout=40)
+ if r.returncode:raise RuntimeError('READONLY_COUNTS_SQL_FAILED')
+ rows=[x for x in r.stdout.decode().splitlines() if x.startswith(('{','['))]
+ if len(rows)!=1:raise RuntimeError('READONLY_COUNTS_SHAPE')
+ return json.loads(rows[0])
+value=sql("""WITH history AS (
+ SELECT * FROM pikno_settlements WHERE line_provider='sanbao' OR model LIKE 'sanbao/%'
+), bound_channels AS (
+ SELECT c.* FROM channels c WHERE coalesce(c.setting,'') LIKE '%pikno-sanbao%' OR
+ EXISTS(SELECT 1 FROM history s WHERE s.channel_id=c.id)
+), relevant_tasks AS (
+ SELECT t.* FROM tasks t WHERE t.platform IN ('plugin:pikno-sanbao','plugin/pikno-sanbao','pikno-sanbao') OR
+ EXISTS(SELECT 1 FROM history s WHERE s.upstream_task_id<>'' AND s.upstream_task_id=t.task_id AND s.user_id=t.user_id AND s.channel_id=t.channel_id)
+)
+SELECT json_build_object(
+ 'sanbao_lines_current',(SELECT count(*) FROM pikno_lines WHERE
+ coalesce(nullif(draft_config,''),'{}')::jsonb->>'provider'='sanbao' OR coalesce(nullif(published_config,''),'{}')::jsonb->>'provider'='sanbao'),
+ 'sanbao_lines_previous_config',(SELECT count(*) FROM pikno_lines WHERE coalesce(nullif(previous_config,''),'{}')::jsonb->>'provider'='sanbao'),
+ 'sanbao_current_plugin_bound_channels',(SELECT count(*) FROM channels WHERE coalesce(setting,'') LIKE '%pikno-sanbao%'),
+ 'sanbao_bound_or_historical_channels',(SELECT count(*) FROM bound_channels),
+ 'sanbao_bound_or_historical_channel_abilities',(SELECT count(*) FROM abilities a JOIN bound_channels c ON a.channel_id=c.id),
+ 'sanbao_history_count',(SELECT count(*) FROM history),
+ 'sanbao_history_unknown_generation',(SELECT count(*) FROM history WHERE generation_state='unknown'),
+ 'sanbao_history_unsettled',(SELECT count(*) FROM history WHERE coalesce(settled_outcome,'')=''),
+ 'sanbao_history_reserved_nonzero',(SELECT count(*) FROM history WHERE reserved_quota<>0),
+ 'sanbao_history_net_nonzero',(SELECT count(*) FROM history WHERE net_quota<>0),
+ 'sanbao_history_channel_present',(SELECT count(*) FROM history s JOIN channels c ON s.channel_id=c.id),
+ 'sanbao_tasks',(SELECT count(*) FROM relevant_tasks),
+ 'sanbao_tasks_unknown',(SELECT count(*) FROM relevant_tasks WHERE status='UNKNOWN'),
+ 'sanbao_tasks_active',(SELECT count(*) FROM relevant_tasks WHERE status NOT IN ('SUCCESS','FAILURE','UNKNOWN')),
+ 'sanbao_tasks_terminal',(SELECT count(*) FROM relevant_tasks WHERE status IN ('SUCCESS','FAILURE')),
+ 'sanbao_tasks_success',(SELECT count(*) FROM relevant_tasks WHERE status='SUCCESS'),
+ 'sanbao_tasks_failure',(SELECT count(*) FROM relevant_tasks WHERE status='FAILURE'),
+ 'sanbao_tasks_with_existing_channel',(SELECT count(*) FROM relevant_tasks t JOIN channels c ON c.id=t.channel_id),
+ 'sanbao_legacy_quota_rows',(SELECT count(*) FROM quota_data WHERE model_name LIKE 'sanbao/%'),
+ 'sanbao_legacy_logs',(SELECT count(*) FROM logs WHERE model_name LIKE 'sanbao/%'),
+ 'legacy_quota_rows_total',(SELECT count(*) FROM quota_data),
+ 'legacy_ungrouped_quota_rows',(SELECT count(*) FROM quota_data WHERE coalesce(use_group,'')=''))""")
+print(json.dumps({'read_only':True,'counts':value,'customer_rows_exported':0,'mutations':0}))
+'''
+try:value=transport.remote(code,timeout=80)
+except Exception:print('{"passed":false,"code":"READONLY_COUNTS_FAILED_DETAILS_WITHHELD"}');raise SystemExit(1)
+(HERE/'retirement-readonly-counts.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps(value))

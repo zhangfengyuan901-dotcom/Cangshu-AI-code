@@ -1,0 +1,256 @@
+"""Synthetic mocks only. No production commands, network or customer identity."""
+import contextlib
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('release68_guards_target',HERE/'release68-candidate.py')
+D=importlib.util.module_from_spec(spec)
+with mock.patch.dict(sys.modules,{'fcntl':mock.Mock()}):
+    spec.loader.exec_module(D)
+
+
+class Release68Guards(unittest.TestCase):
+    @contextlib.contextmanager
+    def fixture(self):
+        with tempfile.TemporaryDirectory(prefix='release68-synthetic-') as folder:
+            stage=Path(folder).resolve()/'stage';private=stage/'private';private.mkdir(parents=True)
+            staged={'old_runtime':'same-runtime','tool_runtime':'same-runtime','files':{'compose.yaml':'old-compose','fixture.env':'same-env'},
+                    'old_image_reference':'fixture-old-image:local','candidate_image_id':'fixture-image-id',
+                    'manifest_sha256':'fixture-manifest-hash','new_compose_sha256':'new-compose','schema':{'fixture':'schema'}}
+            (private/'stage.json').write_text(json.dumps(staged),encoding='utf-8')
+            catalog=stage/'catalog.json';catalog.write_text('{"draft":{"models":[{"provider":"canseedream"}]},"published":null,"previous":null}',encoding='utf-8')
+            plan={'plan_sha256':'fixture-plan-hash','tables':{table:{'preserved':{'count':1,'digest':'fixture-hash'}} for table in D.STRICT_TABLES}}
+            events=[];runtime={'stopped':False,'image':'fixture-old-image:local','fail_fence':False}
+            app={'Image':'fixture-old-image-id','Config':{'Image':'fixture-old-image:local'}}
+            tool={}
+            engine=mock.Mock()
+            engine.preflight_inventory.side_effect=lambda *_:(events.append('plan') or plan)
+            engine.summary.return_value={'delete_counts':{'tasks':3},'update_counts':{},'opening_balance_snapshot_saved':False,'source_rows_backed_up':False}
+            engine.stage_catalog.side_effect=lambda *_a,**_k:(events.append('catalog-stage') or {'stage_path':'fixture-sanitized-temp','removed':{'draft':2}})
+            engine.apply.side_effect=lambda *_a,**_k:(events.append('cleanup') or {'applied':True,'opening_balance_snapshot_saved':False,'source_rows_backed_up':False})
+            engine.commit_catalog.side_effect=lambda *_a,**_k:(events.append('catalog-commit') or {'catalog_replaced':True,'removed':{'draft':2}})
+
+            def run(args,**_):
+                if args[:3]==['docker','image','inspect']:
+                    return b'[{"Id":"fixture-image-id"}]'
+                if 'stop' in args:
+                    events.append('stop')
+                    if runtime['fail_fence'] and events.count('stop')>1:
+                        raise RuntimeError('FIXTURE_FENCE_FAILURE')
+                    runtime['stopped']=True
+                    return b''
+                if 'up' in args:
+                    events.append('up:'+runtime['image']);runtime['stopped']=False
+                    return b''
+                if 'restart' in args:
+                    events.append('restart:'+runtime['image']);runtime['stopped']=False
+                    return b''
+                raise AssertionError('UNEXPECTED_COMMAND_IN_SYNTHETIC_TEST')
+
+            def replace(old,new):
+                self.assertEqual(runtime['image'],old)
+                runtime['image']=new;events.append('image:'+new)
+
+            def verified():
+                events.append('verify')
+                return {'verified':True,'financial_restore':False}
+
+            with contextlib.ExitStack() as stack:
+                patches={
+                  'STAGE':stage,'PRIVATE':private,
+                  'current':mock.Mock(return_value=(app,tool)),
+                  'runtime':mock.Mock(return_value='same-runtime'),
+                  'files_fingerprint':mock.Mock(return_value=staged['files']),
+                  'digest':mock.Mock(return_value='fixture-manifest-hash'),
+                  'manifest':mock.Mock(return_value={'validation':{'passed':True}}),
+                  'assert_quiet':mock.Mock(side_effect=lambda:(events.append('quiet') or {})),
+                  'inspect':mock.Mock(side_effect=lambda _:{'State':{'Running':not runtime['stopped']}}),
+                  'cleanup_engine':mock.Mock(return_value=engine),
+                  'catalog_file':mock.Mock(return_value=catalog),
+                  'run':mock.Mock(side_effect=run),
+                  'replace_compose_image':mock.Mock(side_effect=replace),
+                  'wait_new':mock.Mock(), 'verify':mock.Mock(side_effect=verified),
+                  'sql':mock.Mock(side_effect=AssertionError('NO_DIRECT_SQL_EXPECTED')),
+                  'run_cleanup_sql':mock.Mock(side_effect=AssertionError('MOCK_ENGINE_MUST_NOT_RUN_SQL')),
+                }
+                for key,value in patches.items():stack.enter_context(mock.patch.object(D,key,value))
+                yield {'stage':stage,'private':private,'plan':plan,'staged':staged,'engine':engine,'events':events,'runtime':runtime,'patches':patches,'catalog':catalog}
+
+    def test_initial_busy_never_stops_or_calls_cleanup(self):
+        with self.fixture() as f:
+            D.assert_quiet.side_effect=RuntimeError('RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')
+            with self.assertRaisesRegex(RuntimeError,'RECENT_OR_ACTIVE_WORK'):
+                D.apply()
+            self.assertNotIn('stop',f['events']);f['engine'].apply.assert_not_called()
+            D.cleanup_engine.assert_not_called();D.replace_compose_image.assert_not_called()
+
+    def test_busy_after_stop_recovers_only_old_before_deletion(self):
+        with self.fixture() as f:
+            D.assert_quiet.side_effect=[{},RuntimeError('RECENT_OR_ACTIVE_WORK_DEFER_RELEASE')]
+            with self.assertRaisesRegex(RuntimeError,'APPLY_DEFERRED_BEFORE_DELETION'):
+                D.apply()
+            self.assertEqual(f['events'],['stop','up:fixture-old-image:local'])
+            D.cleanup_engine.assert_not_called();D.replace_compose_image.assert_not_called()
+            D.sql.assert_not_called();D.run_cleanup_sql.assert_not_called()
+
+    def test_plan_failure_before_deletion_recovers_old_without_erasure(self):
+        with self.fixture() as f:
+            f['engine'].preflight_inventory.side_effect=RuntimeError('CLEANUP_UNRESOLVED_OR_SHARED_RECORDS_REQUIRE_REVIEW')
+            with self.assertRaisesRegex(RuntimeError,'APPLY_DEFERRED_BEFORE_DELETION'):
+                D.apply()
+            self.assertIn('up:fixture-old-image:local',f['events'])
+            f['engine'].apply.assert_not_called();D.replace_compose_image.assert_not_called()
+
+    def test_cleanup_exception_fences_without_old_restart_or_restore(self):
+        with self.fixture() as f:
+            f['engine'].apply.side_effect=RuntimeError('private fixture details must remain hidden')
+            with self.assertRaisesRegex(RuntimeError,'APP_STOPPED_PRIVATE_FAILURE_DETAILS_WITHHELD') as error:
+                D.apply()
+            self.assertNotIn('private fixture details',str(error.exception))
+            self.assertEqual(f['events'].count('stop'),2)
+            self.assertFalse(any(x.startswith('up:') for x in f['events']))
+            self.assertTrue(f['runtime']['stopped'])
+            D.replace_compose_image.assert_not_called();D.sql.assert_not_called();D.run_cleanup_sql.assert_not_called()
+
+    def test_catalog_commit_failure_after_cleanup_does_not_start_any_image(self):
+        with self.fixture() as f:
+            f['engine'].commit_catalog.side_effect=RuntimeError('CATALOG_COMMIT_HASH_DRIFT')
+            with self.assertRaisesRegex(RuntimeError,'APP_STOPPED_CATALOG_COMMIT_HASH_DRIFT'):
+                D.apply()
+            f['engine'].apply.assert_called_once()
+            self.assertFalse(any(x.startswith('up:') for x in f['events']))
+            D.replace_compose_image.assert_not_called();D.sql.assert_not_called()
+
+    def test_first_verify_failure_stops_candidate_without_old_restart(self):
+        with self.fixture() as f:
+            D.verify.side_effect=RuntimeError('PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED_REVIEW_REQUIRED')
+            with self.assertRaisesRegex(RuntimeError,'APP_STOPPED_PROTECTED_HISTORY'):
+                D.apply()
+            self.assertEqual([x for x in f['events'] if x.startswith('up:')],['up:'+D.NEW_IMAGE])
+            self.assertEqual(f['events'].count('stop'),2)
+            self.assertTrue(f['runtime']['stopped'])
+            self.assertEqual(D.replace_compose_image.call_args_list,[mock.call('fixture-old-image:local',D.NEW_IMAGE)])
+            D.sql.assert_not_called();D.run_cleanup_sql.assert_not_called()
+            failure=json.loads(next(f['private'].glob('apply-failure-*.json')).read_text())
+            self.assertEqual(set(failure),{'cleanup_attempted','app_stopped','code','financial_restore'})
+            self.assertTrue(failure['app_stopped']);self.assertFalse(failure['financial_restore'])
+
+    def test_second_verify_failure_also_fences_new_image(self):
+        with self.fixture() as f:
+            D.verify.side_effect=[{'verified':True},RuntimeError('SANBAO_DATA_REPOPULATED')]
+            with self.assertRaisesRegex(RuntimeError,'APP_STOPPED_SANBAO_DATA_REPOPULATED'):
+                D.apply()
+            self.assertIn('restart:'+D.NEW_IMAGE,f['events'])
+            self.assertEqual(f['events'].count('stop'),2)
+            self.assertNotIn('up:fixture-old-image:local',f['events'])
+            self.assertTrue(f['runtime']['stopped']);f['engine'].apply.assert_called_once()
+
+    def test_fence_stop_failure_is_explicit_and_never_recovers_old(self):
+        with self.fixture() as f:
+            f['runtime']['fail_fence']=True
+            D.verify.side_effect=RuntimeError('SANBAO_DATA_REPOPULATED')
+            with self.assertRaisesRegex(RuntimeError,'FENCE_STOP_FAILED_SANBAO_DATA_REPOPULATED'):
+                D.apply()
+            self.assertNotIn('up:fixture-old-image:local',f['events'])
+            self.assertEqual(f['runtime']['image'],D.NEW_IMAGE)
+
+    def test_happy_path_orders_atomic_cleanup_before_image_and_checks_two_starts(self):
+        with self.fixture() as f:
+            result=D.apply()
+            self.assertEqual(result['verified_startups'],2)
+            self.assertEqual(f['events'],['quiet','stop','quiet','plan','catalog-stage','cleanup','catalog-commit','image:'+D.NEW_IMAGE,'up:'+D.NEW_IMAGE,'verify','restart:'+D.NEW_IMAGE,'verify'])
+            args,kwargs=f['engine'].apply.call_args
+            self.assertIs(args[0],D.run_cleanup_sql)
+            self.assertEqual(kwargs,{'approved_plan_sha256':'fixture-plan-hash','services_stopped':True})
+            self.assertFalse(result['cleanup']['opening_balance_snapshot_saved'])
+            self.assertFalse(result['cleanup']['source_rows_backed_up'])
+            self.assertEqual(D.verify.call_count,2)
+            self.assertFalse(any('backup' in p.name or 'opening' in p.name for p in f['private'].iterdir()))
+
+    def test_stage_requires_passing_validation_before_payload_or_cleanup(self):
+        with self.fixture():
+            D.manifest.return_value={'validation':{'passed':False}}
+            with self.assertRaisesRegex(RuntimeError,'CANDIDATE_VALIDATION_REQUIRED'):
+                D.stage()
+            D.cleanup_engine.assert_not_called();D.run.assert_not_called()
+
+    def test_stage_requires_exact_cleanup_engine_hash(self):
+        with self.fixture():
+            D.manifest.return_value={'validation':{'passed':True},'cleanup_sha256':'expected'}
+            with self.assertRaisesRegex(RuntimeError,'CLEANUP_ENGINE_HASH_DRIFT'):
+                D.stage()
+            D.cleanup_engine.assert_not_called();D.run.assert_not_called()
+
+    def test_failure_codes_mask_untrusted_details(self):
+        self.assertEqual(D.safe_failure_code(RuntimeError('CLEANUP_INVENTORY_DRIFT')),'CLEANUP_INVENTORY_DRIFT')
+        for error in (RuntimeError('private fixture text / credential'),ValueError('CLEANUP_INVENTORY_DRIFT'),RuntimeError('SQL '+ 'x'*200)):
+            self.assertEqual(D.safe_failure_code(error),'PRIVATE_FAILURE_DETAILS_WITHHELD')
+
+    def test_cleanup_sql_uses_one_connection_stdin_and_stop_on_error(self):
+        with mock.patch.object(D,'run',return_value=b'BEGIN\n{"committed":true}\nCOMMIT\n') as run:
+            self.assertTrue(D.run_cleanup_sql('BEGIN; SELECT 1; COMMIT;')['committed'])
+            args=run.call_args.args[0]
+            self.assertIn('ON_ERROR_STOP=1',args);self.assertEqual(args[-2:],['-f','-'])
+            self.assertEqual(run.call_args.kwargs['data'],b'BEGIN; SELECT 1; COMMIT;')
+            self.assertEqual(run.call_count,1)
+
+    def test_schema_guard_requires_complete_equality(self):
+        expected={'columns':[],'constraints':[],'indexes':[]}
+        D.schema_allowed(expected,dict(expected))
+        for key in expected:
+            with self.assertRaisesRegex(RuntimeError,'RETIREMENT_RELEASE_SCHEMA_CHANGED'):
+                D.schema_allowed(expected,{**expected,key:[{'fixture':'drift'}]})
+
+    def test_every_strict_table_must_match_remaining_fingerprint(self):
+        fingerprint={'count':1,'digest':'fixture-hash'}
+        plan={'tables':{t:{'preserved':fingerprint} for t in D.STRICT_TABLES}}
+        with mock.patch.object(D,'sql',return_value=fingerprint):D.assert_strict_fingerprints(plan)
+        with mock.patch.object(D,'sql',return_value={'count':2,'digest':'changed'}):
+            with self.assertRaisesRegex(RuntimeError,'PROTECTED_HISTORY_OR_FINANCIAL_STATE_CHANGED'):
+                D.assert_strict_fingerprints(plan)
+        plan['tables'].pop('users')
+        with mock.patch.object(D,'sql',return_value=fingerprint):
+            with self.assertRaisesRegex(RuntimeError,'PROTECTED_TABLE_MISSING'):
+                D.assert_strict_fingerprints(plan)
+
+    def verify_fixture(self,f,counts):
+        (f['private']/'cleanup-plan.json').write_text(json.dumps(f['plan']))
+        D.files_fingerprint.return_value={'compose.yaml':'new-compose','fixture.env':'same-env'}
+        f['engine'].summary.return_value=counts
+        f['engine'].preflight_inventory.return_value=f['plan'];f['engine'].preflight_inventory.side_effect=None
+
+    def test_verify_blocks_repopulated_rows_or_snapshot_updates(self):
+        real_verify=D.verify
+        for counts in ({'delete_counts':{'tasks':1},'update_counts':{}},{'delete_counts':{'tasks':0},'update_counts':{'pikno_lines':1}}):
+            with self.fixture() as f:
+                self.verify_fixture(f,counts)
+                with mock.patch.object(D,'assert_strict_fingerprints'),mock.patch.object(D,'schema',return_value=f['staged']['schema']):
+                    with self.assertRaisesRegex(RuntimeError,'SANBAO_DATA_REPOPULATED'):
+                        real_verify()
+
+    def test_verify_blocks_legacy_catalog_repopulation(self):
+        real_verify=D.verify
+        with self.fixture() as f:
+            self.verify_fixture(f,{'delete_counts':{'tasks':0},'update_counts':{}})
+            f['catalog'].write_text('{"published":{"models":[{"provider":"sanbao"}]}}')
+            with mock.patch.object(D,'assert_strict_fingerprints'),mock.patch.object(D,'schema',return_value=f['staged']['schema']):
+                with self.assertRaisesRegex(RuntimeError,'SANBAO_LEGACY_CATALOG_REPOPULATED'):
+                    real_verify()
+
+
+if __name__=='__main__':
+    suite=unittest.defaultTestLoader.loadTestsFromTestCase(Release68Guards)
+    with (HERE/'release68-guards-tests.log').open('w',encoding='utf-8') as log:
+        result=unittest.TextTestRunner(stream=log,verbosity=2).run(suite)
+    value={'passed':result.wasSuccessful(),'tests':result.testsRun,'errors':len(result.errors),'failures':len(result.failures),
+           'scope':'synthetic mocked release sequencing and safety boundaries only','production_mutations':0,
+           'candidate_script_sha256':hashlib.sha256((HERE/'release68-candidate.py').read_bytes()).hexdigest()}
+    (HERE/'release68-guard-tests.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps(value));raise SystemExit(0 if result.wasSuccessful() else 1)

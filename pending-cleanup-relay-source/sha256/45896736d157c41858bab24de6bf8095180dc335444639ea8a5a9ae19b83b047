@@ -1,0 +1,37 @@
+const account = '/account-lite/index.html'
+const modes: Record<string, string> = {
+  '/sign-in': 'login', '/login': 'login',
+  '/sign-up': 'register', '/register': 'register',
+  '/forgot-password': 'forgot', '/reset': 'reset', '/user/reset': 'reset',
+}
+
+export function liteEntryDestination(href: string): string | undefined {
+  const current = new URL(href)
+  const pathname = current.pathname.replace(/\/+$/, '') || '/'
+  if (pathname === '/') return account
+  const aliases: Record<string, string> = {
+    '/wallet': '#recharge', '/keys': '#keys', '/settlements': '#consumption',
+    '/pricing': '', '/rankings': '', '/subscriptions': '', '/redemption-codes': '',
+    '/playground': '', '/chat2link': '', '/models': '',
+  }
+  if (Object.hasOwn(aliases, pathname)) return account + aliases[pathname]
+  if (['/chat', '/playground', '/chat2link', '/models', '/pricing', '/rankings', '/subscriptions', '/redemption-codes'].some(prefix => pathname === prefix || pathname.startsWith(prefix + '/'))) return account
+  const oldAccount: Record<string, string> = { '/console/topup': '#recharge', '/console/token': '#keys', '/console/subscription': '', '/console/redemption': '', '/console/playground': '' }
+  if (Object.hasOwn(oldAccount, pathname)) return account + oldAccount[pathname]
+  const mode = modes[pathname]
+  if (!mode || current.searchParams.get('compat') === '1') return
+  const query = new URLSearchParams({ mode })
+  const redirect = current.searchParams.get('redirect')
+  if (redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !/[\\\r\n]/.test(redirect)) {
+    const destination = new URL(redirect, current.origin)
+    const allowed = [account, '/dashboard', '/channels', '/users', '/line-management', '/catalog-admin', '/settlement-admin', '/system-settings', '/usage-logs', '/security', '/profile', '/task-plugins', '/system-info', '/developer']
+    if (destination.origin === current.origin && !destination.search && !destination.hash && allowed.some(path => destination.pathname === path || path !== account && destination.pathname.startsWith(path + '/'))) query.set('redirect', destination.pathname)
+  }
+  if (mode === 'reset') {
+    for (const field of ['email', 'token']) {
+      const value = current.searchParams.get(field)
+      if (value && value.length <= 2048) query.set(field, value)
+    }
+  }
+  return '/auth-lite/index.html?' + query.toString()
+}

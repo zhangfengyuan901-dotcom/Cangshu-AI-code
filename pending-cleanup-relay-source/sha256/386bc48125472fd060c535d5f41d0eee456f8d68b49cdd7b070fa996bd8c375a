@@ -1,0 +1,58 @@
+async (page) => {
+  const origin = 'http://127.0.0.1:18172';
+  const folder = 'D:/PIKNO/output/playwright/relay-account-browser-current';
+  await page.context().route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort());
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const check = (value, label) => { if (!value) throw Error(label); };
+  const reset = async mode => {
+    await page.goto(origin + '/fixture/reset?mode=' + mode);
+    await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+  };
+  const result = async () => page.evaluate(async () => (await (await fetch('/fixture/result')).json()).data);
+  const frame = () => page.frameLocator('.portal-account-frame');
+  const records = {};
+
+  await reset('new');
+  await page.goto(origin + '/hub/billing#desktop=' + 'A'.repeat(43));
+  await frame().getByRole('link', { name: '注册账户', exact: true }).click();
+  await page.waitForURL('**/auth-lite/index.html?mode=register**');
+  await page.locator('#username').fill('onboarding-fixture');
+  await page.locator('#password').fill('isolated-fixture-password');
+  await page.locator('#confirm').fill('isolated-fixture-password');
+  await page.locator('#submit:enabled').click();
+  await page.waitForURL('**/hub/billing**');
+  await frame().getByRole('button', { name: '连接仓鼠 AI 并继续充值', exact: true }).waitFor();
+  check(await frame().locator('#pay').isDisabled(), 'registration must wait for desktop approval');
+  check((await frame().locator('#desktop-code').textContent()).includes('AAAA-AAAA'), 'connection code missing');
+  await page.screenshot({ path: folder + '/new-user-connect.png', fullPage: false });
+  await frame().getByRole('button', { name: '连接仓鼠 AI 并继续充值', exact: true }).click();
+  await frame().locator('#pay:enabled').waitFor();
+  const created = await result();
+  check(created.register === 1 && created.approve === 1 && created.payment === 0, 'new account mutation counts wrong');
+  records.newUser = { registeredOnce: true, autoLoggedIn: true, exactBillingReturn: true, explicitConnectionApprovedOnce: true, rechargeReady: true, paymentsCreated: 0 };
+  await page.screenshot({ path: folder + '/new-user-ready.png', fullPage: false });
+
+  await reset('old');
+  await page.goto(origin + '/hub/billing#desktop=' + 'B'.repeat(43));
+  await frame().locator('#pay:enabled').waitFor();
+  check(await frame().locator('#desktop-connect').isHidden(), 'old user was asked to reconnect');
+  const old = await result();
+  check(old.approve === 0 && old.register === 0 && old.payment === 0, 'old user should only inspect');
+  records.oldUser = { matchedAccountDirectReady: true, approvalPrompts: 0, paymentsCreated: 0 };
+
+  await reset('wrong');
+  await page.goto(origin + '/hub/billing#desktop=' + 'C'.repeat(43));
+  await frame().getByText('网页账号与仓鼠 AI 账号不一致，请切换网页账号后继续充值。', { exact: true }).waitFor();
+  check(await frame().locator('#pay').isDisabled(), 'wrong account could recharge');
+  check((await result()).payment === 0, 'mismatch created payment');
+  records.wrongAccount = { rechargeBlocked: true, paymentsCreated: 0 };
+  await page.screenshot({ path: folder + '/wrong-account-blocked.png', fullPage: false });
+
+  await reset('expired');
+  await page.goto(origin + '/hub/billing#desktop=' + 'D'.repeat(43));
+  await frame().getByText('连接已失效，请回到仓鼠 AI 重新打开充值。', { exact: true }).waitFor();
+  check(await frame().locator('#pay').isDisabled(), 'expired flow could recharge');
+  check((await result()).payment === 0, 'expired flow created payment');
+  records.expired = { rechargeBlocked: true, paymentsCreated: 0 };
+  return { passed: true, builtPortalAndIframe: true, cases: records, realLoginCalls: 0, realPaymentCalls: 0, realEmails: 0 };
+}

@@ -1,0 +1,91 @@
+import importlib.util,json
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent
+spec=importlib.util.spec_from_file_location('sanbao_history_scope_transport',ROOT/'output/direct-media-production-current/transport.py')
+transport=importlib.util.module_from_spec(spec);spec.loader.exec_module(transport)
+code=r'''
+import json,subprocess,urllib.parse
+def run(args,check=True):
+ r=subprocess.run(args,capture_output=True,timeout=40)
+ if check and r.returncode:raise RuntimeError('READONLY_SCOPE_COMMAND_FAILED')
+ return r
+def sql(query):
+ r=run(['docker','exec','-i','piknoai-relay-postgres-1','psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c',"BEGIN READ ONLY; SET LOCAL statement_timeout='15s'; "+query+'; ROLLBACK'])
+ rows=[x for x in r.stdout.decode().splitlines() if x.startswith(('{','['))]
+ if len(rows)!=1:raise RuntimeError('READONLY_SCOPE_SQL_SHAPE')
+ return json.loads(rows[0])
+app=json.loads(run(['docker','inspect','piknoai-relay-new-api-1']).stdout)[0]
+if app['Image']!='sha256:8be2256d39ac20393e8c64b26f397763de19d70d730331d2a724bdd42788b51d':raise RuntimeError('LIVE_VERSION_DRIFT')
+env=dict(item.split('=',1) for item in app['Config'].get('Env',[]) if '=' in item)
+tables=sql("SELECT coalesce(json_agg(table_name),'[]'::json) FROM information_schema.tables WHERE table_schema='public'")
+related_names=sorted(name for name in tables if any(w in name for w in ('quote','ingress','media','artifact','settlement')))
+schema=sql("SELECT coalesce(json_object_agg(table_name,cols),'{}'::json) FROM (SELECT table_name,json_agg(column_name ORDER BY ordinal_position) cols FROM information_schema.columns WHERE table_schema='public' AND table_name IN ("+','.join(repr(n) for n in related_names)+") GROUP BY table_name) s")
+query="""WITH h AS (
+ SELECT * FROM pikno_settlements WHERE line_provider='sanbao' OR model LIKE 'sanbao/%'
+), models AS (
+ SELECT public_model AS name FROM pikno_line_sync_states WHERE provider='sanbao'
+ UNION SELECT public_model FROM pikno_lines WHERE coalesce(nullif(draft_config,''),'{}')::jsonb->>'provider'='sanbao' OR coalesce(nullif(published_config,''),'{}')::jsonb->>'provider'='sanbao'
+ UNION SELECT model FROM h
+), t AS (
+ SELECT * FROM tasks t WHERE t.platform IN ('plugin:pikno-sanbao','plugin/pikno-sanbao','pikno-sanbao') OR
+ EXISTS(SELECT 1 FROM h WHERE h.upstream_task_id<>'' AND h.upstream_task_id=t.task_id AND h.user_id=t.user_id AND h.channel_id=t.channel_id)
+), l AS (SELECT * FROM logs WHERE model_name LIKE 'sanbao/%' OR model_name IN (SELECT name FROM models)),
+ q AS (SELECT * FROM quota_data WHERE model_name LIKE 'sanbao/%' OR model_name IN (SELECT name FROM models))
+SELECT json_build_object(
+ 'settlement_events',(SELECT count(*) FROM pikno_settlement_events e JOIN h ON e.order_id=h.id),
+ 'settlement_outboxes',(SELECT count(*) FROM pikno_settlement_outboxes o JOIN pikno_settlement_events e ON o.event_id=e.id JOIN h ON e.order_id=h.id),
+ 'quote_slots',(SELECT count(*) FROM pikno_price_quote_slots s JOIN h ON s.order_id=h.id),
+ 'legacy_logs_by_verified_models',(SELECT count(*) FROM l),
+ 'quota_data_by_verified_models',(SELECT count(*) FROM q),
+ 'ability_rows_by_verified_models',(SELECT count(*) FROM abilities WHERE model IN (SELECT name FROM models)),
+ 'affected_user_count',(SELECT count(*) FROM (SELECT user_id FROM h UNION SELECT user_id FROM t UNION SELECT user_id FROM l UNION SELECT user_id FROM q) users),
+ 'settlements_nonzero_net',(SELECT count(*) FROM h WHERE net_quota<>0),
+ 'unsettled_or_reserved_orders',(SELECT count(*) FROM h WHERE reserved_quota<>0 OR coalesce(settled_outcome,'')=''),
+ 'task_success',(SELECT count(*) FROM t WHERE status='SUCCESS'),
+ 'task_failure',(SELECT count(*) FROM t WHERE status='FAILURE'),
+ 'task_active_or_unknown',(SELECT count(*) FROM t WHERE status NOT IN ('SUCCESS','FAILURE')))
+"""
+counts=sql(query)
+data=sql("""WITH h AS (SELECT * FROM pikno_settlements WHERE line_provider='sanbao' OR model LIKE 'sanbao/%') SELECT coalesce(json_agg(json_build_object('private_data',private_data,'data',data,'status',status,'fail_reason',fail_reason)),'[]'::json) FROM tasks t WHERE t.platform IN ('plugin:pikno-sanbao','plugin/pikno-sanbao','pikno-sanbao') OR EXISTS(SELECT 1 FROM h WHERE h.upstream_task_id<>'' AND h.upstream_task_id=t.task_id AND h.user_id=t.user_id AND h.channel_id=t.channel_id)""")
+links=[];inline_tasks=0;success_with_links=0;result_urls=[]
+def urls(value):
+ if isinstance(value,dict):return [u for x in value.values() for u in urls(x)]
+ if isinstance(value,list):return [u for x in value for u in urls(x)]
+ if isinstance(value,str):
+  if value.startswith(('https://','http://')):return [value]
+  if value.lstrip().startswith(('{','[')):
+   try:return urls(json.loads(value))
+   except Exception:pass
+ return []
+for row in data:
+ found=set(urls(row));links.extend(found)
+ if row['status']=='SUCCESS' and found:success_with_links+=1
+ serialized=json.dumps(row)
+ if 'data:video/' in serialized or 'data:image/' in serialized or 'b64_json' in serialized:inline_tasks+=1
+ private=row.get('private_data') or {}
+ if isinstance(private,str):
+  try:private=json.loads(private)
+  except Exception:private={}
+ result=private.get('result_url','') if isinstance(private,dict) else ''
+ if row['status']=='SUCCESS' and not result and str(row.get('fail_reason','')).startswith(('https://','http://')):result=row['fail_reason']
+ if result:result_urls.append(result)
+counts.update({'task_records_with_inline_media_marker':inline_tasks,'success_task_records_with_url_references':success_with_links,
+ 'distinct_stored_url_references':len(set(links)),
+ 'stored_url_references_on_known_portal_domains':sum((urllib.parse.urlsplit(u).hostname or '').endswith(('.piknoai.com','.hamsterai.cc')) or (urllib.parse.urlsplit(u).hostname or '') in ('piknoai.com','hamsterai.cc') for u in set(links)),
+ 'success_tasks_with_result_url':len(result_urls),'distinct_result_url_references':len(set(result_urls)),
+ 'result_url_references_using_api_paths':sum(urllib.parse.urlsplit(u).path.startswith(('/api/','/v1/')) for u in set(result_urls)),
+ 'result_url_references_on_known_portal_domains':sum((urllib.parse.urlsplit(u).hostname or '').endswith(('.piknoai.com','.hamsterai.cc')) or (urllib.parse.urlsplit(u).hostname or '') in ('piknoai.com','hamsterai.cc') for u in set(result_urls))})
+catalog_path=env.get('PIKNO_CATALOG_PATH') or '/data/pikno/catalog.json'
+raw=run(['docker','exec','piknoai-relay-new-api-1','cat',catalog_path],check=False)
+catalog={'exists':raw.returncode==0,'sanbao_entries':{}}
+if raw.returncode==0:
+ state=json.loads(raw.stdout)
+ catalog['sanbao_entries']={name:sum(item.get('provider')=='sanbao' for item in (state.get(name) or {}).get('models',[])) for name in ('draft','published','previous')}
+print(json.dumps({'read_only':True,'counts':counts,'related_schema':schema,'catalog':catalog,
+ 'sanbao_specific_environment_variable_names':[k for k in sorted(env) if 'SANBAO' in k.upper()],
+ 'customer_rows_exported':0,'material_urls_exported':0,'mutations':0}))
+'''
+try:value=transport.remote(code,timeout=100)
+except Exception:print('{"passed":false,"code":"READONLY_HISTORY_SCOPE_FAILED_DETAILS_WITHHELD"}');raise SystemExit(1)
+(HERE/'history-deletion-readonly-scope.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({k:v for k,v in value.items() if k!='related_schema'}))

@@ -1,0 +1,32 @@
+import hashlib,json,shutil
+from pathlib import Path
+from datetime import datetime,timezone
+ROOT=Path('D:/PIKNO');HERE=Path(__file__).resolve().parent;SOURCE=ROOT/'deploy/new-api/backend'
+old=json.loads((ROOT/'output/relay-admin-theme-current/build67.json').read_text(encoding='utf-8'))
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+baseline=HERE/'baseline67-source'
+if not baseline.exists():
+    shutil.copytree(SOURCE,baseline,ignore=shutil.ignore_patterns('.git','node_modules'))
+    for item in old['production_source_files']:
+        target=baseline/item['file'];backup=HERE/'before/backend'/item['file']
+        if sha(target)!=item['sha256']:
+            assert backup.is_file() and sha(backup)==item['sha256'],'ORIGINAL_SOURCE_NOT_AVAILABLE'
+            shutil.copy2(backup,target)
+    assert all(sha(baseline/item['file'])==item['sha256'] for item in old['production_source_files'])
+    shutil.copy2(ROOT/'deploy/new-api/Dockerfile',HERE/'before/Dockerfile')
+embedded=SOURCE/'web/dist'
+value={'version':old['version'],'production_binary_sha256':old['binary_sha256'],
+    'runtime_source_files':old['production_source_files'],'embedded_resources':[{'path':p.relative_to(embedded).as_posix(),'sha256':sha(p),'bytes':p.stat().st_size} for p in sorted(embedded.rglob('*')) if p.is_file()],
+    'frontend_manifest':old['frontend_resources'],'frontend_entry_script':old['frontend_entry_script'],'public_paths':old['public_paths']}
+(HERE/'baseline67.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+path=ROOT/'.agents/project-state.json';state=json.loads(path.read_text(encoding='utf-8'))
+state['relay']['sanbao_retirement_assessment'].update({'status':'authorized_implementation_in_progress_not_deleted',
+    'execution_authorized':True,'history_deletion_authorized':True,'opening_balance_snapshot_choice':'explicitly_do_not_preserve',
+    'online_storage_boundary_choice':'approved_online_proposal','pending_user_decision':None,
+    'implementation_workspace':'output/relay-sanbao-retirement-current/',
+    'history_result_compatibility_required':False,'deleted_rows':0})
+state['relay']['admin_operations_assessment'].update({'history_policy_impact':'no_opening_balance_snapshot; show_historical_data_incomplete_and_reconciliation_start_point',
+    'opening_balance_snapshot':'explicitly_declined','execution_scope_approved':False})
+if 'output/relay-sanbao-retirement-current/' not in state['protected_paths']:state['protected_paths'].append('output/relay-sanbao-retirement-current/')
+state['updated_at']=datetime.now(timezone.utc).isoformat();path.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'baseline67_sources_saved':True,'go_sources':len(old['production_source_files']),'embedded_resources':len(value['embedded_resources']),'user_authorized_history_delete_without_opening_snapshot':True}))

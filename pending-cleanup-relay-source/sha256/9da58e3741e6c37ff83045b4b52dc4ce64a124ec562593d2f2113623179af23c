@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>仓鼠AI · 安全登录</title>
+  <link rel="icon" href="/studio-favicon.png"><link rel="stylesheet" href="./auth.css">
+</head>
+<body>
+<main class="auth-shell">
+  <a class="brand" href="/account-lite/index.html"><img src="/hamster-mark.png" width="50" height="50" alt="仓鼠AI"><span>仓鼠AI<small>安心连接每一份灵感</small></span></a>
+  <section class="auth-card" aria-labelledby="heading">
+    <p class="eyebrow">让灵感，轻盈开始</p><h1 id="heading">登录账户</h1><p id="description">登录后管理余额、充值与 API Key。</p>
+    <p id="boot-status" class="notice" role="status">页面正在加载；若未能继续，请刷新页面或使用更新的浏览器。</p>
+    <p id="notice" class="notice" role="status" aria-live="polite">正在确认账户服务…</p>
+    <form id="auth-form" hidden>
+      <label id="username-field">用户名或邮箱<input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label id="email-field" hidden>邮箱<input id="email" name="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false"></label>
+      <label id="password-field">密码<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+      <label id="confirm-field" hidden>再次输入密码<input id="confirm" name="confirm" type="password" autocomplete="new-password"></label>
+      <div id="verification-field" hidden><label>邮箱验证码<div class="code-row"><input id="email-code" name="email-code" autocomplete="one-time-code" inputmode="numeric"><button type="button" id="send-code" class="secondary">发送验证码</button></div></label></div>
+      <label id="otp-field" hidden>动态验证码或备用码<input id="otp" name="otp" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="6 位动态码或 XXXX-XXXX 备用码" maxlength="9"></label>
+      <div id="legal" class="legal" hidden><input id="consent" type="checkbox"><label for="consent">我已阅读并同意 <a id="agreement-link" href="/user-agreement" target="_blank" rel="noopener noreferrer">用户协议</a><span id="legal-and">和</span> <a id="privacy-link" href="/privacy-policy" target="_blank" rel="noopener noreferrer">隐私政策</a></label></div>
+      <div id="turnstile" aria-label="安全验证" hidden></div>
+      <button type="submit" id="submit" class="primary">登录</button>
+    </form>
+    <div id="reset-panel" hidden><label>重置账户邮箱<input id="reset-email" type="email" readonly></label><p class="fine">确认后，原密码将被替换。请妥善保存本页返回的新密码。</p><button id="confirm-reset" class="primary">确认重置密码</button></div>
+    <div id="reset-result" hidden><label>新的账户密码<input id="new-password" type="password" readonly autocomplete="off"></label><div class="result-actions"><button id="show-password" class="secondary">显示密码</button><button id="copy-password" class="secondary">复制密码</button></div><p class="fine">密码仅保留在当前页面内，离开页面前请保存。</p></div>
+    <div id="unknown-actions" class="recover" hidden><button id="check-session" class="secondary">核对登录状态</button><button id="restart" class="text-button" hidden>已核对，重新开始登录</button><a id="unknown-login" href="?mode=login" hidden>前往登录核对账户</a></div>
+    <div id="challenge-actions" hidden><button id="cancel-challenge" class="text-button">取消验证，重新登录</button></div>
+    <nav class="auth-links" aria-label="账户入口"><a id="login-link" href="?mode=login" hidden>返回登录</a><a id="register-link" href="?mode=register">注册账户</a><a id="forgot-link" href="?mode=forgot">忘记密码</a></nav>
+    <div id="advanced" class="advanced" hidden><p>需要通行密钥、第三方或其他验证方式？</p><a id="advanced-link" href="/sign-in?compat=1">使用其他安全登录方式</a></div>
+    <button id="reload-status" class="text-button" hidden>重新读取服务状态</button>
+  </section>
+  <footer>仓鼠AI · 让每一份灵感，安心生长</footer>
+</main>
+<noscript>请启用 JavaScript，以完成安全登录。</noscript>
+<script defer src="/account-lite/boot.js" data-entry="auth"></script>
+</body></html>

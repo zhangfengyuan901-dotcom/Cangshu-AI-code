@@ -1,0 +1,71 @@
+"""Record verified release metadata, without inferring a successful deployment."""
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+here = Path(__file__).resolve().parent
+root = here.parents[1]
+apply_file = Path(sys.argv[1]).resolve()
+assert apply_file.parent == here and apply_file.name.startswith('release71-apply-')
+applied = json.loads(apply_file.read_text(encoding='utf-8'))
+assert applied.get('ok') is True and applied['result'].get('applied') is True
+result = applied['result']
+public = json.loads((here / 'release71-public-verification.json').read_text(encoding='utf-8'))
+build = json.loads((here / 'candidate-build.json').read_text(encoding='utf-8'))
+assert public['passed'] is True and public['version'] == result['version'] == build['version']
+assert all(check['passed'] for check in public['checks'])
+assert result['financial_restore'] is False and result['wallet_or_reservation_adjustments'] is False
+assert all(result[key] is True for key in (
+    'runtime_bindings_preserved', 'auth_billing_options_preserved',
+    'retained_unknown_state_preserved', 'retained_reverse_state_preserved', 'additive_schema_only'))
+with (here / 'backend71-new-api').open('rb') as stream:
+    assert hashlib.file_digest(stream, 'sha256').hexdigest() == build['binary_sha256']
+
+def relative(file):
+    return file.relative_to(root).as_posix()
+
+file = root / '.agents/project-state.json'
+state = json.loads(file.read_text(encoding='utf-8'))
+relay = state['relay']
+relay.update({
+    'version': result['version'], 'image': 'hamster-account71-release:local',
+    'production_image_id': result['app_image_id'], 'binary_sha256': build['binary_sha256'],
+    'verification': relative(apply_file), 'build': relative(here / 'candidate-build.json'),
+    'deployment': relative(here / 'release71-apply.py'),
+    'deployment_runner': relative(here / 'apply71-run.py'),
+    'postdeploy_verifier': relative(here / 'release71-public-verification.json'),
+    'backup_path': '/opt/piknoai-relay/account71-20261112/private',
+    'build_scope': 'Browser account authorization and web-only recharge, paired payment bridge, and account portal assets. Stable generation sources unchanged.',
+    'deployment_action': 'Reviewed image-only pair replacement with durable task and reservation snapshots preserved.',
+    'financial_restore': False, 'customer_acceptance': False,
+})
+relay['browser_account'].update({
+    'status': 'deployed_verified', 'active_version': result['version'],
+    'production_apply': relative(apply_file),
+    'public_verification': relative(here / 'release71-public-verification.json'),
+    'guard_verification': relative(here / 'release71-guard-verification.json'),
+    'retained_unknown_state_preserved': True, 'retained_reverse_state_preserved': True,
+    'release_guard_issue': 'Resolved. HostConfig.Mounts is compared by unique Target; all descriptor contents remain exact. Other runtime fields retain strict comparison.',
+    'real_payments': 0, 'customer_acceptance': False,
+})
+relay['lanjing_payment'].update({
+    'status': 'deployed_verified_no_real_payment_acceptance',
+    'active_version': result['version'], 'bridge_image': 'hamster-lanjing71-release:local',
+    'bridge_image_id': result['bridge_image_id'],
+    'production_apply': relative(apply_file),
+    'production_public_routes': relative(here / 'release71-public-verification.json'),
+    'one_click_checkout': 'The desktop opens fixed browser billing. The web recharge action opens the selected amount checkout; bound-order authorization and authoritative completion checks run in the background.',
+    'remaining': 'Formal desktop release is tracked in client state. Legacy orders without a durable provider binding require provider reconciliation. Real payment acceptance has not been performed.',
+    'real_payments': 0,
+})
+relay['lanjing_payment'].pop('production_mutations', None)
+relay['recharge_button_style'].update({
+    'status': 'deployed_verified', 'active_version': result['version'],
+    'public_verification': relative(here / 'release71-public-verification.json'),
+})
+relay['recharge_button_style'].pop('production_mutations', None)
+state['updated_at'] = datetime.now(timezone.utc).isoformat()
+file.write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+print(json.dumps({'recorded': True, 'production_version': relay['version'], 'customer_acceptance': False}))

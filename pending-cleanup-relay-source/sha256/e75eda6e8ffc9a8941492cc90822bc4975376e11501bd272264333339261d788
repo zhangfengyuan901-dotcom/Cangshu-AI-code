@@ -1,0 +1,13 @@
+async (page) => {
+  page.setDefaultTimeout(60000);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('[data-admin-theme="pikno"]').waitFor();
+  await page.screenshot({path:'D:/PIKNO/output/playwright/relay-admin-theme-current/channels-cards.png',fullPage:true});
+  return await page.evaluate(() => ({
+    theme:document.documentElement.dataset.adminTheme,
+    bodyBackground:getComputedStyle(document.body).backgroundColor,
+    viewport:{width:innerWidth,scrollWidth:document.documentElement.scrollWidth},
+    buttons:[...document.querySelectorAll('button')].map(e=>({text:e.textContent.trim(),label:e.getAttribute('aria-label')})).filter(e=>e.label||e.text).slice(0,60),
+    active:[...document.querySelectorAll('[data-sidebar="menu-button"]')].map(e=>({text:e.textContent.trim(),active:e.getAttribute('data-active'),bg:getComputedStyle(e).backgroundColor}))
+  }));
+}

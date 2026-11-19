@@ -1,0 +1,3 @@
+package main
+import("fmt";"github.com/glebarez/sqlite";"gorm.io/gorm")
+func main(){d,e:=gorm.Open(sqlite.Open(":memory:"),&gorm.Config{});if e!=nil{panic("open")};var v string;if d.Raw("SELECT sqlite_version()").Scan(&v).Error!=nil{panic("query")};fmt.Print(v)}

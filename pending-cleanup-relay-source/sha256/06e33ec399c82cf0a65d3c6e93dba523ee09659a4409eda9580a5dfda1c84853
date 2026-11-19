@@ -1,0 +1,40 @@
+from pathlib import Path
+import json
+import subprocess
+import uuid
+
+here = Path(__file__).resolve().parent
+task = 'codex.task=relay-account-browser-current'
+network = 'pikno-enrollment-' + uuid.uuid4().hex[:8]
+go = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+node = 'node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402'
+def docker(*args, check=True, timeout=100):
+    return subprocess.run(['docker', *args], capture_output=True, check=check, timeout=timeout)
+def bind(file, target):
+    return ['--mount','type=bind,source='+str(file)+',target='+target+',readonly']
+
+def main():
+    backend = None
+    docker('network','create','--internal','--label',task,network)
+    try:
+        backend = docker('run','-d','--network',network,'--network-alias','backend','--label',task,'--read-only',
+                         '--tmpfs','/data:rw,nosuid,size=128m','--tmpfs','/tmp:rw,nosuid,size=128m',
+                         *bind(here/'backend71-new-api','/new-api'),'-w','/data',
+                         '-e','SQLITE_PATH=/data/synthetic.db','-e','SESSION_SECRET=synthetic-local-enrollment-secret',
+                         '-e','PIKNO_LINE_SYNC_ENABLED=false','-e','PIKNO_REVERSE_ENABLED=false',
+                         '-e','PIKNO_MEDIA_ENABLED=false','-e','PIKNO_TOOLS_ENABLED=false',
+                         '--entrypoint','/new-api',go,'--port','3000','--log-dir','/tmp/logs').stdout.decode().strip()
+        result = docker('run','--rm','--network',network,'--label',task,'--read-only',
+                        *bind(here/'onboarding-http-fixture.mjs','/app/fixture.mjs'),
+                        node,'node','/app/fixture.mjs',check=False,timeout=160)
+        evidence = json.loads(result.stdout if result.returncode == 0 else result.stderr)
+        (here/'http-integration-verification.json').write_text(json.dumps(evidence,indent=2)+'\n',encoding='utf-8')
+        print(json.dumps(evidence))
+        if result.returncode:
+            raise SystemExit(result.returncode)
+    finally:
+        if backend:
+            docker('rm','-f',backend)
+        docker('network','rm',network)
+if __name__ == '__main__':
+    main()

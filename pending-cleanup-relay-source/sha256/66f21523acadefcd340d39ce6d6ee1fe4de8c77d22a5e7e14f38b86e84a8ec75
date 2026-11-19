@@ -1,0 +1,25 @@
+import ast,re
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=ROOT/'output/relay-sanbao-retirement-current'
+text=(ROOT/'output/relay-admin-theme-current/release67-candidate.py').read_text(encoding='utf-8')
+tree=ast.parse(text)
+keep={'require','run','hashed','digest','inspect','runtime','sql','activity','assert_quiet','files_fingerprint','save_private','manifest','current','preflight','compose_with_image','replace_compose_image','verify_frontend','wait_new','safe_failure_code'}
+parts=[text[:text.index('def require(')]]
+parts.extend(ast.get_source_segment(text,node) for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in keep)
+base='\n\n'.join(parts)+'\n\n'
+for token in ('portal67','backend67','build67','release67'):
+    base=base.replace(token,token.replace('67','68'))
+base=base.replace('20261111','20261112')
+assign={'OLD_IMAGE':"'sha256:8be2256d39ac20393e8c64b26f397763de19d70d730331d2a724bdd42788b51d'",'OLD_BINARY':"'a2fb567fe2683ecea4345488e7cad61d39712f0d2c00b717b3ea32a6297e7254'",'OLD_VERSION':"'v1.0.0-rc.41-hamster.67'",'VERSION':"'v1.0.0-rc.41-hamster.68'"}
+for key,value in assign.items():base=re.sub('^'+key+r'\s*=.*$',key+' = '+value,base,flags=re.M)
+base+='\n'+(HERE/'release68-operations.py').read_text(encoding='utf-8')
+(HERE/'release68-candidate.py').write_text(base,encoding='utf-8')
+runner=(ROOT/'output/relay-admin-theme-current/release67-run.py').read_text(encoding='utf-8')
+for token in ('portal67','backend67','build67','release67'):
+    runner=runner.replace(token,token.replace('67','68'))
+runner=runner.replace('20261111','20261112').replace("'v1.0.0-rc.41-hamster.67'","'v1.0.0-rc.41-hamster.68'")
+runner=runner.replace("'frontend_resources', 'public_paths')","'frontend_resources', 'public_paths', 'cleanup_sha256', 'validation')")
+runner=runner.replace("(gzip_file, 'backend68-new-api.gz')]","(gzip_file, 'backend68-new-api.gz'), (HERE / 'cleanup68.py', 'cleanup68.py')]")
+runner=runner.replace("value = module.remote(code, timeout=1500 if options.action == 'apply' else 360)","value = module.remote(code, timeout=2400 if options.action == 'apply' else 480)")
+(HERE/'release68-run.py').write_text(runner,encoding='utf-8')
+print('{"release_tools_prepared":true}')

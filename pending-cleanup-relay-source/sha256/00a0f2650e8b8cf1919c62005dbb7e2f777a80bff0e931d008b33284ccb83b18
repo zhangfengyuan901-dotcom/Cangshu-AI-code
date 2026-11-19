@@ -1,0 +1,1201 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  ArrowRight,
+  BookOpen,
+  Box,
+  Check,
+  ChevronRight,
+  Code2,
+  CreditCard,
+  ExternalLink,
+  Film,
+  Image,
+  KeyRound,
+  Layers3,
+  LayoutDashboard,
+  Menu,
+  Search,
+  Sparkles,
+  Wallet,
+  X,
+} from "lucide-react";
+import { CopyButton } from "@/components/copy-button";
+import { Dialog } from "@/components/dialog";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { startCatalogRefresh } from "@/features/catalog/refresh";
+import { toIntlLocale } from "@/i18n/languages";
+import { formatLocalCurrencyAmount } from "@/lib/currency";
+import { formatNumber } from "@/lib/format";
+import { accountPanel, portalPage } from "./route";
+import {
+  filterPublishedModels,
+  modelCodeExample,
+  readPublishedCatalog,
+  type PublishedCatalog,
+  type PublishedModel,
+} from "./catalog";
+
+const links = [
+  { href: "/hub/models", label: "Model library" },
+  { href: "/hub/pricing", label: "Pricing" },
+  { href: "/hub/docs", label: "Documentation" },
+];
+const categories = [
+  { value: "all", label: "All models", icon: Layers3 },
+  { value: "image", label: "Image models", icon: Image },
+  { value: "video", label: "Video models", icon: Film },
+  { value: "tool", label: "Creative tools", icon: Box },
+];
+
+const portalArtwork = {
+  library: "/portal-artwork/library-v1.webp",
+  api: "/portal-artwork/api-v1.webp",
+  control: "/portal-artwork/control-v1.webp",
+  image: "/portal-artwork/image-v1.webp",
+  video: "/portal-artwork/video-v1.webp",
+  digital: "/portal-artwork/digital-v1.webp",
+  depth: "/portal-artwork/depth-v1.webp",
+} as const;
+
+function PortalArtwork({
+  name,
+  eager = false,
+  className = "",
+}: {
+  name: keyof typeof portalArtwork;
+  eager?: boolean;
+  className?: string;
+}) {
+  return (
+    <img
+      className={`portal-artwork ${className}`}
+      src={portalArtwork[name]}
+      alt=""
+      width={1672}
+      height={941}
+      loading={eager ? "eager" : "lazy"}
+      fetchPriority={eager ? "high" : undefined}
+      decoding="async"
+      data-artwork={name}
+    />
+  );
+}
+
+function usePublishedModels(enabled: boolean) {
+  const [catalog, setCatalog] = useState<PublishedCatalog | null>(null);
+  const [loading, setLoading] = useState(enabled);
+  const [unverified, setUnverified] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const coordinator = useRef<ReturnType<typeof startCatalogRefresh> | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let disposed = false;
+    const controller = new AbortController();
+    const observed = {
+      isFetching: false,
+      lastSuccessAt: 0,
+      lastErrorAt: 0,
+      error: null as unknown,
+    };
+    const read = async () => {
+      observed.isFetching = true;
+      if (!disposed) setLoading(true);
+      try {
+        const next = await readPublishedCatalog(controller.signal);
+        if (disposed) return;
+        observed.lastSuccessAt = Date.now();
+        observed.error = null;
+        setCatalog(next);
+        setFailed(false);
+        setUnverified(false);
+      } catch {
+        observed.lastErrorAt = Date.now();
+        observed.error = new Error("catalog_unavailable");
+        if (!disposed) {
+          setFailed(true);
+          setUnverified(true);
+        }
+        throw observed.error;
+      } finally {
+        observed.isFetching = false;
+        if (!disposed) setLoading(false);
+      }
+    };
+    coordinator.current = startCatalogRefresh({
+      read,
+      state: () => observed,
+      onUnverified: () => setUnverified(true),
+      onVerified: () => setUnverified(false),
+    });
+    void read().catch(() => {});
+    return () => {
+      disposed = true;
+      controller.abort();
+      coordinator.current?.dispose();
+      coordinator.current = null;
+    };
+  }, [enabled]);
+  return { catalog, loading, unverified, failed, refresh: () => coordinator.current?.refresh() };
+}
+
+function Brand() {
+  return (
+    <a className="portal-brand" href="/" aria-label="PIKNO">
+      <span className="portal-brand-symbol" aria-hidden="true">
+        <Sparkles />
+      </span>
+      <span>
+        PIKNO<span className="portal-brand-dot">.</span>
+      </span>
+    </a>
+  );
+}
+
+function PortalHeader({ path }: { path: string }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <header className="portal-header">
+      <div className="portal-header-inner">
+        <Brand />
+        <nav
+          className={expanded ? "portal-main-nav expanded" : "portal-main-nav"}
+          aria-label={t("Main navigation")}
+        >
+          {links.map((link) => (
+            <a
+              href={link.href}
+              key={link.href}
+              aria-current={path === link.href ? "page" : undefined}
+            >
+              {t(link.label)}
+            </a>
+          ))}
+          <a href="https://hamsterai.cc/" target="_blank" rel="noopener noreferrer">
+            {t("Desktop app")}
+            <ExternalLink aria-hidden="true" />
+          </a>
+        </nav>
+        <div className="portal-header-actions">
+          <Button
+            variant="ghost"
+            role="link"
+            render={<a href="/hub/dashboard" />}
+            nativeButton={false}
+          >
+            {t("Console")}
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+          <Button
+            className="portal-dark-button"
+            role="link"
+            render={<a href="/auth-lite/index.html?mode=register" />}
+            nativeButton={false}
+          >
+            {t("Get started")}
+          </Button>
+          <Button
+            className="portal-mobile-menu"
+            variant="ghost"
+            aria-label={t(expanded ? "Close navigation" : "Open navigation")}
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? <X /> : <Menu />}
+          </Button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function PortalFooter() {
+  const { t } = useTranslation();
+  return (
+    <footer className="portal-footer">
+      <div>
+        <Brand />
+        <p>{t("One connection. More possibilities.")}</p>
+      </div>
+      <nav aria-label={t("Footer navigation")}>
+        <div>
+          <strong>{t("EXPLORE")}</strong>
+          <a href="/hub/models">{t("Model library")}</a>
+          <a href="/hub/pricing">{t("Pricing")}</a>
+          <a href="https://hamsterai.cc/">{t("Desktop app")}</a>
+        </div>
+        <div>
+          <strong>{t("DEVELOPERS")}</strong>
+          <a href="/hub/docs">{t("Documentation")}</a>
+          <a href="/hub/keys">{t("API keys")}</a>
+          <a href="/hub/usage">{t("Usage & spending")}</a>
+        </div>
+        <div>
+          <strong>{t("ACCOUNT")}</strong>
+          <a href="/hub/dashboard">{t("Console")}</a>
+          <a href="/hub/billing">{t("Balance & recharge")}</a>
+          <a href="/account-lite/index.html">{t("Account management")}</a>
+        </div>
+        <div>
+          <strong>{t("LEGAL")}</strong>
+          <a href="/privacy-policy">{t("Privacy policy")}</a>
+          <a href="/user-agreement">{t("User agreement")}</a>
+          <a href="/open-source/NOTICE.txt">{t("Open source notices")}</a>
+        </div>
+      </nav>
+      <p className="portal-legal">PIKNO · {t("Powered by new-api")} · QuantumNous · AGPL-3.0</p>
+    </footer>
+  );
+}
+
+function HomePage({ models, unverified }: { models: PublishedModel[]; unverified: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <section className="portal-hero">
+        <div className="portal-hero-glow" aria-hidden="true" />
+        <PortalArtwork name="library" eager className="portal-hero-art" />
+        <a className="portal-announcement" href="/hub/models">
+          <span>{t("Explore PIKNO")}</span>
+          {t("Discover your next AI capability")}
+          <ArrowRight aria-hidden="true" />
+        </a>
+        <h1>
+          {t("Every idea deserves")}
+          <br />
+          <span>{t("a way to become real.")}</span>
+        </h1>
+        <p className="portal-hero-description">
+          {t(
+            "Connect image, video and creative tools through one AI platform. Build with the API, create with the desktop app.",
+          )}
+        </p>
+        <div className="portal-hero-actions">
+          <Button
+            className="portal-dark-button"
+            size="lg"
+            role="link"
+            render={<a href="/hub/models" />}
+            nativeButton={false}
+          >
+            {t("Explore models")}
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            role="link"
+            render={<a href="/hub/docs" />}
+            nativeButton={false}
+          >
+            <Code2 data-icon="inline-start" />
+            {t("Start building")}
+          </Button>
+        </div>
+        <p className="portal-hero-note">
+          <Check aria-hidden="true" />
+          {t("Published capabilities. Clear pricing. One account.")}
+        </p>
+      </section>
+      <div className="portal-capability-ribbon">
+        <span>IMAGE</span>
+        <span>VIDEO</span>
+        <strong>{t("One API. More possibilities.")}</strong>
+        <span>TOOLS</span>
+        <span>API</span>
+      </div>
+      <section className="portal-home-section">
+        <div className="portal-section-heading">
+          <div>
+            <span className="portal-eyebrow">{t("BUILT FOR YOUR WORKFLOW")}</span>
+            <h2>{t("From inspiration to integration.")}</h2>
+          </div>
+          <a href="/hub/models">
+            {t("View all models")}
+            <ArrowRight aria-hidden="true" />
+          </a>
+        </div>
+        <div className="portal-feature-grid">
+          {[
+            {
+              artwork: "library" as const,
+              title: "One model library",
+              text: "Search published models and compare supported formats, reference limits and prices.",
+            },
+            {
+              artwork: "api" as const,
+              title: "A familiar API",
+              text: "Use one API base and your purpose-specific key to connect supported capabilities.",
+            },
+            {
+              artwork: "control" as const,
+              title: "You stay in control",
+              text: "Manage balance, usage and API keys in your account. Create in the desktop app.",
+            },
+          ].map(({ artwork, title, text }) => (
+            <Card className="portal-feature-card" key={title}>
+              <CardHeader>
+                <div className="portal-feature-art">
+                  <PortalArtwork name={artwork} />
+                </div>
+                <CardTitle>{t(title)}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p>{t(text)}</p>
+              </CardContent>
+              <CardFooter>
+                <Button
+                  variant="outline"
+                  role="link"
+                  render={<a href="/hub/models" />}
+                  nativeButton={false}
+                >
+                  {t("Explore models")}
+                  <ArrowRight data-icon="inline-end" />
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      </section>
+      <section className="portal-developer-section">
+        <div className="portal-section-heading">
+          <div>
+            <span className="portal-eyebrow">PIKNO FOR DEVELOPERS</span>
+            <h2>{t("AI infrastructure, made for builders.")}</h2>
+            <p>
+              {t(
+                "A familiar interface. Published model capabilities. Your next integration starts here.",
+              )}
+            </p>
+          </div>
+          <a href="/hub/docs">
+            {t("Read the docs")}
+            <ArrowRight aria-hidden="true" />
+          </a>
+        </div>
+        <div className="portal-hero-preview">
+          <div className="portal-preview-top">
+            <span className="portal-window-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span>PIKNO / {t("Model library")}</span>
+            <span className="portal-preview-status">
+              <span />
+              {t("Ready to connect")}
+            </span>
+          </div>
+          <div className="portal-preview-body">
+            <div className="portal-preview-side">
+              <PortalArtwork name="video" className="portal-preview-art" />
+              <span className="portal-micro-label">{t("YOUR NEXT IDEA")}</span>
+              <h2>
+                {t("More than a model.")}
+                <br />
+                <span>{t("A new possibility.")}</span>
+              </h2>
+              <p>
+                {t(
+                  "Find the capability that fits your work, with published specifications and API access in one place.",
+                )}
+              </p>
+              <a href="/hub/models">
+                {t("Find your model")}
+                <ArrowRight aria-hidden="true" />
+              </a>
+            </div>
+            <CodeExample />
+          </div>
+        </div>
+      </section>
+      <section className="portal-desktop-section">
+        <div>
+          <span className="portal-eyebrow">{t("MADE FOR CREATORS")}</span>
+          <h2>{t("A dedicated space for your ideas.")}</h2>
+          <p>
+            {t(
+              "Bring image, video and creative tools into your desktop workflow. Your PIKNO account connects it all.",
+            )}
+          </p>
+          <Button
+            variant="outline"
+            role="link"
+            render={<a href="https://hamsterai.cc/" target="_blank" rel="noopener noreferrer" />}
+            nativeButton={false}
+          >
+            {t("Get the desktop app")}
+            <ExternalLink data-icon="inline-end" />
+          </Button>
+        </div>
+        <div className="portal-desktop-visual" aria-hidden="true">
+          <div className="portal-window-dots">
+            <i />
+            <i />
+            <i />
+          </div>
+          <div className="portal-desktop-grid">
+            <div className="portal-visual-tile image">
+              <PortalArtwork name="image" />
+              <span>IMAGE</span>
+            </div>
+            <div className="portal-visual-tile video">
+              <PortalArtwork name="video" />
+              <span>VIDEO</span>
+            </div>
+            <div className="portal-visual-tile tool">
+              <PortalArtwork name="digital" />
+              <span>TOOLS</span>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="portal-home-section portal-model-strip">
+        <div>
+          <span className="portal-eyebrow">{t("LIVE MODEL LIBRARY")}</span>
+          <h2>{t("The right model, for your next idea.")}</h2>
+          <p>
+            {t(
+              unverified
+                ? "The directory needs an update. Displayed information is for reference."
+                : "Only models from the published directory appear here.",
+            )}
+          </p>
+        </div>
+        <div className="portal-model-names">
+          {models.length ? (
+            models.slice(0, 6).map((model) => (
+              <a href={`/hub/models?model=${encodeURIComponent(model.id)}`} key={model.id}>
+                {model.name}
+                <ArrowRight aria-hidden="true" />
+              </a>
+            ))
+          ) : (
+            <a href="/hub/models">
+              {t("Browse the model library")}
+              <ArrowRight aria-hidden="true" />
+            </a>
+          )}
+        </div>
+      </section>
+      <section className="portal-bottom-cta">
+        <Sparkles aria-hidden="true" />
+        <h2>{t("Your next creation starts here.")}</h2>
+        <p>{t("Explore the models, read the docs, and build at your own pace.")}</p>
+        <Button
+          className="portal-dark-button"
+          role="link"
+          render={<a href="/hub/models" />}
+          nativeButton={false}
+        >
+          {t("Explore PIKNO")}
+          <ArrowRight data-icon="inline-end" />
+        </Button>
+      </section>
+    </>
+  );
+}
+
+function PriceList({ model, compact = false }: { model: PublishedModel; compact?: boolean }) {
+  const { t, i18n } = useTranslation();
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language);
+  return (
+    <>
+      {model.prices.length ? (
+        <dl className="portal-price-list">
+          {(compact ? model.prices.slice(0, 1) : model.prices).map((price) => (
+            <div key={`${price.resolution}-${price.unit}-${price.retail_cny}`}>
+              <dt>{price.resolution === "default" ? t("Standard") : price.resolution}</dt>
+              <dd>
+                ¥
+                {formatLocalCurrencyAmount(price.retail_cny, {
+                  locale,
+                  showSymbol: false,
+                  digitsLarge: 6,
+                  digitsSmall: 6,
+                })}
+                <small> / {t(price.unit)}</small>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="portal-muted">{t("Pricing is not published for this model.")}</p>
+      )}
+      {model.reference_surcharge_cny !== undefined && model.reference_surcharge_cny > 0 && (
+        <p className="portal-price-surcharge">
+          {t("Published reference surcharge")}: ¥
+          {formatLocalCurrencyAmount(model.reference_surcharge_cny, {
+            locale,
+            showSymbol: false,
+            digitsLarge: 6,
+            digitsSmall: 6,
+          })}
+          <small>{t("Applied according to the current quote.")}</small>
+        </p>
+      )}
+    </>
+  );
+}
+
+function CodeExample({ model }: { model?: PublishedModel }) {
+  const { t } = useTranslation();
+  const [language, setLanguage] = useState<"curl" | "node" | "python">("curl");
+  const code = modelCodeExample(model, language);
+  return (
+    <div className="portal-code">
+      <div className="portal-code-top">
+        <div role="group" aria-label={t("Example language")}>
+          {(["curl", "node", "python"] as const).map((value) => (
+            <Button
+              key={value}
+              variant="ghost"
+              aria-pressed={value === language}
+              onClick={() => setLanguage(value)}
+            >
+              {{ node: "Node.js", python: "Python", curl: "cURL" }[value]}
+            </Button>
+          ))}
+        </div>
+        <CopyButton value={code} tooltip={t("Copy example")} />
+      </div>
+      <pre>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function ModelDetails({
+  model,
+  onClose,
+  unverified,
+}: {
+  model: PublishedModel;
+  onClose: () => void;
+  unverified: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      title={model.name}
+      description={t("Published specifications and API access")}
+      contentClassName="portal-details-dialog sm:max-w-3xl"
+    >
+      <div className="portal-detail-id">
+        <code>{model.id}</code>
+        <CopyButton value={model.id} tooltip={t("Copy model name")} />
+      </div>
+      {unverified && (
+        <p role="status" className="portal-catalog-notice">
+          {t("The directory needs an update. Displayed information is for reference.")}
+        </p>
+      )}
+      <div className="portal-detail-specs">
+        {[
+          { label: "Resolutions", value: model.resolutions.join(" · ") },
+          { label: "Aspect ratios", value: model.ratios.join(" · ") },
+          { label: "Duration (seconds)", value: model.durations.join(" · ") },
+          {
+            label: "Reference limits: image / video / audio",
+            value: [model.max_images, model.max_videos, model.max_audio].join(" / "),
+          },
+          {
+            label: "Total reference limit",
+            value:
+              model.max_media_total === undefined
+                ? t("See current model requirements")
+                : String(model.max_media_total),
+          },
+        ].map((item) => (
+          <div key={item.label}>
+            <span>{t(item.label)}</span>
+            <strong>{item.value || "—"}</strong>
+          </div>
+        ))}
+      </div>
+      <h3 className="portal-detail-heading">{t("Published pricing")}</h3>
+      <PriceList model={model} />
+      <p className="portal-muted">
+        {t("Final availability and price are checked by the service for each request.")}
+      </p>
+      <h3 className="portal-detail-heading">{t("Connect with your API key")}</h3>
+      <CodeExample model={model} />
+      <p className="portal-muted">
+        {t("Examples are copy-only. Keep your API key on your own server.")}
+      </p>
+      <Button variant="outline" role="link" render={<a href="/hub/docs" />} nativeButton={false}>
+        <BookOpen data-icon="inline-start" />
+        {t("Read API documentation")}
+      </Button>
+    </Dialog>
+  );
+}
+
+function PortalModelCard({ model, onDetails }: { model: PublishedModel; onDetails: () => void }) {
+  const { t } = useTranslation();
+  const details = {
+    image: {
+      label: "Image",
+      description: "Image capabilities for your creative workflow.",
+    },
+    video: { label: "Video", description: "Video capabilities for your next story." },
+    tool: {
+      label: "Tool",
+      description: "Purpose-built tools for your creative workflow.",
+    },
+  }[model.category];
+  let artwork: keyof typeof portalArtwork = model.category === "image" ? "image" : "video";
+  if (model.category === "tool") {
+    artwork = model.id === "pikno-tool-depth" ? "depth" : "digital";
+  }
+  return (
+    <Card className={`portal-model-card ${model.category}`}>
+      <CardHeader>
+        <div className="portal-model-card-top">
+          <PortalArtwork name={artwork} />
+          <Badge variant="outline">{t(details.label)}</Badge>
+        </div>
+        <CardTitle>{model.name}</CardTitle>
+        <code className="portal-model-id">{model.id}</code>
+      </CardHeader>
+      <CardContent>
+        <p className="portal-model-description">{t(details.description)}</p>
+        <div className="portal-model-tags">
+          {model.resolutions.slice(0, 3).map((value) => (
+            <Badge variant="secondary" key={value}>
+              {value}
+            </Badge>
+          ))}
+          {model.durations.length > 0 && (
+            <Badge variant="secondary">{model.durations.join(" / ")}s</Badge>
+          )}
+        </div>
+        <div className="portal-card-price">
+          <PriceList model={model} compact />
+        </div>
+      </CardContent>
+      <CardFooter>
+        <Button variant="ghost" onClick={onDetails}>
+          {t("View model")}
+          <ArrowRight data-icon="inline-end" />
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
+function ModelLibrary({
+  data,
+  pricing = false,
+}: {
+  data: ReturnType<typeof usePublishedModels>;
+  pricing?: boolean;
+}) {
+  const { t, i18n } = useTranslation();
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [resolution, setResolution] = useState("all");
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("model"),
+  );
+  const [page, setPage] = useState(1);
+  const models = data.catalog?.models || [];
+  const selected = models.find((model) => model.id === selectedId);
+  const results = filterPublishedModels(models, search, category, resolution);
+  const pages = Math.max(1, Math.ceil(results.length / 12)),
+    current = Math.min(page, pages);
+  const resolutions = [...new Set(models.flatMap((model) => model.resolutions))];
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language);
+  useEffect(() => {
+    if (data.catalog && selectedId && !selected) setSelectedId(null);
+  }, [data.catalog, selected, selectedId]);
+  let catalogLabel = "Published directory";
+  if (data.unverified) catalogLabel = "Directory needs update";
+  if (data.loading) catalogLabel = "Updating directory";
+  let listing: ReactNode;
+  if (data.failed && !data.catalog) {
+    listing = (
+      <ErrorState
+        title={t("Unable to load model catalog")}
+        description={t("Please try again. No example models or prices are substituted.")}
+        onRetry={data.refresh}
+      />
+    );
+  } else if (data.loading && !data.catalog) {
+    listing = (
+      <div className="portal-model-grid">
+        {[0, 1, 2, 3, 4, 5].map((value) => (
+          <Skeleton className="h-64" key={value} />
+        ))}
+      </div>
+    );
+  } else if (!results.length) {
+    listing = (
+      <EmptyState
+        title={t("No matching models")}
+        description={t("Try another search or filter. Models appear after they are published.")}
+        action={
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSearch("");
+              setCategory("all");
+              setResolution("all");
+            }}
+          >
+            {t("Reset filters")}
+          </Button>
+        }
+      />
+    );
+  } else if (pricing) {
+    listing = (
+      <Table className="portal-pricing-table">
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t("Model")}</TableHead>
+            <TableHead>{t("Specifications")}</TableHead>
+            <TableHead>{t("Published pricing")}</TableHead>
+            <TableHead>{t("API access")}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {results.slice((current - 1) * 12, current * 12).map((model) => (
+            <TableRow key={model.id}>
+              <TableCell>
+                <strong>{model.name}</strong>
+                <code>{model.id}</code>
+              </TableCell>
+              <TableCell>
+                {model.resolutions.join(" / ") || t("Standard")}
+                <small>{model.ratios.join(" · ")}</small>
+              </TableCell>
+              <TableCell>
+                <PriceList model={model} />
+              </TableCell>
+              <TableCell>
+                <Button variant="ghost" onClick={() => setSelectedId(model.id)}>
+                  {t("View details")}
+                  <ArrowRight data-icon="inline-end" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  } else {
+    listing = (
+      <div className="portal-model-grid">
+        {results.slice((current - 1) * 12, current * 12).map((model) => (
+          <PortalModelCard key={model.id} model={model} onDetails={() => setSelectedId(model.id)} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <>
+      <section className={`portal-hub-hero ${pricing ? "pricing" : "models"}`}>
+        <div>
+          <span className="portal-eyebrow">
+            {t(pricing ? "SIMPLE, PUBLISHED PRICING" : "FIND YOUR NEXT POSSIBILITY")}
+          </span>
+          <h1>{t(pricing ? "Powerful models. Clear pricing." : "Explore the model library.")}</h1>
+          <p>
+            {t(
+              pricing
+                ? "Compare published prices and supported specifications in one place."
+                : "Find the right capability for your application and creative workflow.",
+            )}
+          </p>
+          <Button
+            className="portal-dark-button"
+            role="link"
+            render={<a href={pricing ? "/hub/billing" : "/hub/docs"} />}
+            nativeButton={false}
+          >
+            {t(pricing ? "Balance & recharge" : "Start building")}
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+        </div>
+        <div className="portal-hub-art" aria-hidden="true">
+          <PortalArtwork name={pricing ? "api" : "library"} />
+        </div>
+      </section>
+      <div className="portal-hub-layout">
+        <aside className="portal-library-sidebar">
+          <span className="portal-micro-label">{t("DISCOVER")}</span>
+          <h2>{t("Model library")}</h2>
+          <div className="portal-category-list" role="group" aria-label={t("Model category")}>
+            {categories.map(({ value, label, icon: Icon }) => (
+              <Button
+                key={value}
+                variant="ghost"
+                aria-pressed={value === category}
+                onClick={() => {
+                  setCategory(value);
+                  setPage(1);
+                }}
+              >
+                <Icon data-icon="inline-start" />
+                {t(label)}
+                <span>
+                  {formatNumber(
+                    value === "all"
+                      ? models.length
+                      : models.filter((model) => model.category === value).length,
+                    locale,
+                  )}
+                </span>
+              </Button>
+            ))}
+          </div>
+          <div className="portal-sidebar-note">
+            <Code2 />
+            <h3>{t("Build something great.")}</h3>
+            <p>{t("Everything you need to connect your first model.")}</p>
+            <a href="/hub/docs">
+              {t("Read the docs")}
+              <ArrowRight aria-hidden="true" />
+            </a>
+          </div>
+        </aside>
+        <main className="portal-library-main" id="portal-main">
+          <div className="portal-breadcrumb">
+            PIKNO <ChevronRight aria-hidden="true" />
+            {t(pricing ? "Pricing" : "Model library")}
+          </div>
+          <div className="portal-library-toolbar">
+            <label className="portal-search">
+              <Search aria-hidden="true" />
+              <Input
+                value={search}
+                aria-label={t("Search models")}
+                placeholder={t("Search models by name or ID")}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            <Select
+              items={[
+                { value: "all", label: t("All resolutions") },
+                ...resolutions.map((value) => ({ value, label: value })),
+              ]}
+              value={resolution}
+              onValueChange={(value) => {
+                setResolution(String(value || "all"));
+                setPage(1);
+              }}
+            >
+              <SelectTrigger aria-label={t("Resolution filter")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">{t("All resolutions")}</SelectItem>
+                  {resolutions.map((value) => (
+                    <SelectItem value={value} key={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" disabled={data.loading} onClick={data.refresh}>
+              {t("Refresh")}
+            </Button>
+          </div>
+          <div className="portal-result-summary">
+            <span>
+              {t("Models found")}: {formatNumber(results.length, locale)}
+            </span>
+            <span className={data.unverified ? "unverified" : ""}>
+              <span className="portal-status-dot" />
+              {t(catalogLabel)}
+            </span>
+          </div>
+          {listing}
+          {pages > 1 && (
+            <nav className="portal-pagination" aria-label={t("Model pages")}>
+              <Button
+                variant="outline"
+                disabled={current <= 1}
+                onClick={() => setPage(current - 1)}
+              >
+                {t("Previous page")}
+              </Button>
+              <span>
+                {current} / {pages}
+              </span>
+              <Button
+                variant="outline"
+                disabled={current >= pages}
+                onClick={() => setPage(current + 1)}
+              >
+                {t("Next page")}
+              </Button>
+            </nav>
+          )}
+          {data.unverified && data.catalog && (
+            <p role="status" className="portal-catalog-notice">
+              {t("The directory needs an update. Displayed information is for reference.")}
+            </p>
+          )}
+          {selected && (
+            <ModelDetails
+              model={selected}
+              unverified={data.unverified}
+              onClose={() => setSelectedId(null)}
+            />
+          )}
+        </main>
+      </div>
+    </>
+  );
+}
+
+function Documentation() {
+  const { t } = useTranslation();
+  return (
+    <main className="portal-docs" id="portal-main">
+      <div className="portal-page-heading">
+        <span className="portal-eyebrow">PIKNO FOR DEVELOPERS</span>
+        <h1>{t("A simple path to your first connection.")}</h1>
+        <p>
+          {t(
+            "Read the published model directory, create a purpose-specific API key, and connect from your server.",
+          )}
+        </p>
+      </div>
+      <div className="portal-docs-grid">
+        <article>
+          <h2>{t("Connect in three steps")}</h2>
+          <a
+            className="portal-complete-docs"
+            href="/api-guide.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t("Full API reference")}
+            <ExternalLink aria-hidden="true" />
+          </a>
+          <ol className="portal-doc-steps">
+            <li>
+              <span>01</span>
+              <div>
+                <h3>{t("Choose a model")}</h3>
+                <p>
+                  {t(
+                    "Find its published model ID, supported specifications and price in the model library.",
+                  )}
+                </p>
+                <a href="/hub/models">
+                  {t("Open model library")}
+                  <ArrowRight aria-hidden="true" />
+                </a>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <h3>{t("Create an API key")}</h3>
+                <p>
+                  {t(
+                    "Open your account and choose the matching purpose: images, videos, tools or AI chat.",
+                  )}
+                </p>
+                <a href="/hub/keys">
+                  {t("Manage API keys")}
+                  <ArrowRight aria-hidden="true" />
+                </a>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <h3>{t("Verify access from your server")}</h3>
+                <p>
+                  {t(
+                    "Read /v1/models to check the models currently available to your key. Keep credentials in server environment variables.",
+                  )}
+                </p>
+              </div>
+            </li>
+          </ol>
+        </article>
+        <aside>
+          <h2>{t("Check available models")}</h2>
+          <CodeExample />
+          <p className="portal-muted">
+            {t("Examples are copy-only. Keep your API key on your own server.")}
+          </p>
+          <div className="portal-doc-base">
+            <span>{t("API Base URL")}</span>
+            <code>https://www.piknoai.com/v1</code>
+            <CopyButton value="https://www.piknoai.com/v1" tooltip={t("Copy API Base URL")} />
+          </div>
+        </aside>
+      </div>
+      <section className="portal-doc-contract">
+        <h2>{t("Capabilities and account access")}</h2>
+        <p>
+          {t(
+            "A published model is not an account permission grant. Your key purpose, model permission and current service availability must all allow the request.",
+          )}
+        </p>
+        <div>
+          <Badge variant="outline">GET /api/pikno/catalog</Badge>
+          <span>{t("Published model capabilities and customer pricing")}</span>
+        </div>
+        <div>
+          <Badge variant="outline">GET /v1/models</Badge>
+          <span>{t("Models available to your API key")}</span>
+        </div>
+        <div>
+          <Badge variant="outline">GET /v1/client/context</Badge>
+          <span>{t("Read-only account and key-purpose verification")}</span>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function DeveloperConsole({ path }: { path: string }) {
+  const { t } = useTranslation();
+  const tab = accountPanel(path);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(800);
+  useEffect(() => {
+    const resize = (event: MessageEvent) => {
+      if (
+        event.origin !== location.origin ||
+        event.source !== frame.current?.contentWindow ||
+        !event.data ||
+        event.data.type !== "pikno-account-size"
+      ) {
+        return;
+      }
+      const value: unknown = event.data.height;
+      if (typeof value === "number" && Number.isFinite(value) && value >= 120 && value <= 20000) {
+        setHeight(Math.min(12000, Math.max(500, Math.ceil(value))));
+      }
+    };
+    window.addEventListener("message", resize);
+    return () => window.removeEventListener("message", resize);
+  }, []);
+  const items = [
+    { tab: "balance", href: "/hub/dashboard", label: "Account overview", icon: LayoutDashboard },
+    { tab: "keys", href: "/hub/keys", label: "API keys", icon: KeyRound },
+    { tab: "usage", href: "/hub/usage", label: "Usage & spending", icon: Wallet },
+    { tab: "topup", href: "/hub/billing", label: "Balance & recharge", icon: CreditCard },
+  ];
+  return (
+    <div className="portal-console-layout">
+      <main className="portal-console-main" id="portal-main">
+        <div className="portal-breadcrumb">
+          PIKNO
+          <ChevronRight aria-hidden="true" />
+          {t("Console")}
+        </div>
+        <div className="portal-page-heading">
+          <span className="portal-eyebrow">{t("WORKSPACE")}</span>
+          <h1>{t(items.find((item) => item.tab === tab)?.label || "Account overview")}</h1>
+          <p>{t("Manage your account and API access in one place.")}</p>
+        </div>
+        <nav className="portal-console-tabs" aria-label={t("Console navigation")}>
+          {items.map(({ href, label, icon: Icon, tab: itemTab }) => (
+            <a href={href} aria-current={tab === itemTab ? "page" : undefined} key={href}>
+              <Icon aria-hidden="true" />
+              {t(label)}
+            </a>
+          ))}
+        </nav>
+        {/* oxlint-disable-next-line react/iframe-missing-sandbox -- This fixed, trusted same-origin account application owns its existing session, native bridge and payment flows. A scripts+same-origin sandbox adds no isolation; preserve those flows and validate size messages separately. */}
+        <iframe
+          key={tab}
+          ref={frame}
+          style={{ height }}
+          className="portal-account-frame"
+          src={`/account-lite/index.html?tab=${tab}&embed=1`}
+          title={t("PIKNO account management")}
+        />
+        <a className="portal-frame-fallback" href={`/account-lite/index.html?tab=${tab}`}>
+          {t("Open account management in a full page")}
+          <ExternalLink aria-hidden="true" />
+        </a>
+      </main>
+    </div>
+  );
+}
+
+export function PortalApp({ path = window.location.pathname }: { path?: string }) {
+  const { t } = useTranslation();
+  const page = portalPage(path) || "home";
+  const data = usePublishedModels(page === "home" || page === "models" || page === "pricing");
+  const titles = {
+    home: "AI for every possibility",
+    models: "Model library",
+    pricing: "Pricing",
+    docs: "Documentation",
+    dashboard: "Developer console",
+  };
+  const title = titles[page];
+  useEffect(() => {
+    document.title = `${t(title)} · PIKNO`;
+  }, [title, t]);
+  let content: ReactNode;
+  if (page === "home") {
+    content = (
+      <main id="portal-main">
+        <HomePage models={data.catalog?.models || []} unverified={data.unverified} />
+      </main>
+    );
+  } else if (page === "models" || page === "pricing") {
+    content = <ModelLibrary data={data} pricing={page === "pricing"} />;
+  } else if (page === "docs") {
+    content = <Documentation />;
+  } else {
+    content = <DeveloperConsole path={path} />;
+  }
+  return (
+    <div className="pikno-portal">
+      <a className="portal-skip-link" href="#portal-main">
+        {t("Skip to content")}
+      </a>
+      <PortalHeader path={path} />
+      {content}
+      <PortalFooter />
+    </div>
+  );
+}

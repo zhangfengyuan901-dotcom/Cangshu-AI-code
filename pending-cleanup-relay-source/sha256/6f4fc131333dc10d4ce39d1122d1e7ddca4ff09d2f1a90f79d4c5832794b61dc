@@ -1,0 +1,44 @@
+"""Check every merged new frontend file against the exact released binary bytes."""
+import datetime
+import hashlib
+import json
+import mmap
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+
+
+def main():
+    build = json.loads((HERE / 'build64.json').read_text())
+    merge = json.loads((HERE / 'web-merge-manifest.json').read_text())
+    binary = HERE / 'backend64-new-api'
+    with binary.open('rb') as source:
+        assert hashlib.file_digest(source, 'sha256').hexdigest() == build['binary_sha256'], 'BINARY_HASH_DRIFT'
+    rows = []
+    with binary.open('rb') as source, mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ) as compiled:
+        for item in merge['new_files']:
+            relative = item['path']
+            assert not Path(relative).is_absolute() and '..' not in Path(relative).parts, 'EMBED_PATH_INVALID'
+            frontend = (ROOT / 'build/hamster-trim44-web/dist' / relative).read_bytes()
+            embedded = (ROOT / 'deploy/new-api/backend/web/dist' / relative).read_bytes()
+            digest = hashlib.sha256(frontend).hexdigest()
+            matches = digest == item['sha256'] == hashlib.sha256(embedded).hexdigest()
+            present = compiled.find(frontend) >= 0
+            rows.append({'path': '/' + relative, 'bytes': len(frontend), 'sha256': digest,
+                         'dist_and_merge_hash_match': matches, 'exact_bytes_in_binary': present, 'passed': matches and present})
+    value = {'format': 1, 'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+             'passed': all(row['passed'] for row in rows), 'checked_new_resource_count': len(rows),
+             'binary_sha256': build['binary_sha256'], 'resources': rows, 'production_mutations': 0,
+             'scope': 'all new merged asset bytes in released-hash binary; HTTP public verification separate'}
+    (HERE / 'all-new-assets-embedded-verification.json').write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'passed': value['passed'], 'new_assets_checked': len(rows), 'passed_checks': sum(row['passed'] for row in rows), 'production_mutations': 0}))
+    return 0 if value['passed'] else 1
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except Exception:
+        print(json.dumps({'passed': False, 'code': 'ALL_EMBEDDED_ASSET_CHECK_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

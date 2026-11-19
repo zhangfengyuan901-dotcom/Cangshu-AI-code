@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#f5f3ee" />
+  <meta name="description" content="仓鼠AI正式版 1.7.75 使用教程：在本地账户主页登录、充值，按需开通并启用功能，后台核算生成费用并管理本地结果。" />
+  <link rel="canonical" href="https://hamsterai.cc/tutorials/" />
+  <link rel="icon" href="/assets/favicon.png" />
+  <title>账户与创作教程｜仓鼠AI正式版 1.7.75</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/quickstart.css" />
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="/" aria-label="仓鼠AI首页"><span class="brand-logo"><img src="/assets/hamster-logo.png" alt="" /></span><span>仓鼠AI</span></a>
+  <nav aria-label="主导航"><a href="/#cases">案例</a><a href="/#download">下载</a><a href="/tutorials/" aria-current="page">教程</a></nav>
+  <a class="nav-download" href="/#download">下载便携版 <span aria-hidden="true">↗</span></a>
+</header>
+<main class="tutorials-page section tutorial-current">
+  <aside class="tutorial-sidebar" aria-label="教程目录">
+    <p class="tutorial-sidebar-title">教程目录</p>
+    <nav aria-label="教程目录导航">
+      <div class="tutorial-sidebar-group"><span>开始使用</span><a href="#quickstart">五步动态教程</a><a href="#account">登录与启用功能</a><a href="#quote">选择线路与生成</a></div>
+      <div class="tutorial-sidebar-group"><span>执行与结果</span><a href="#batch">停止剩余与查询历史</a><a href="#canvas">画布与对话</a><a href="#reverse">视频反推</a></div>
+      <div class="tutorial-sidebar-group"><span>版本与案例</span><a href="/tutorials/1.7.46/">1.7.46 归档教程</a><a href="/#cases">查看创作案例 ↗</a></div>
+    </nav>
+  </aside>
+  <div class="tutorial-content">
+  <div class="tutorial-intro reveal"><p class="eyebrow">HAMSTER AI / V1.7.75 GUIDE</p><h1>启用所需功能，<br /><em>开始你的创作。</em></h1>
+    <p>适用于仓鼠AI正式版 1.7.75：从本地账户主页登录、手动充值，按用途开通并启用 Key。启用一种即可使用对应功能，无需一次开通四类。媒体生成先看本地预估。点击生成后，后台核算费用并检查本次余额。余额足够时直接提交，余额不足时显示充值入口。旧版操作见 <a href="/tutorials/1.7.54/">1.7.54 归档教程</a>、<a href="/tutorials/1.7.53/">1.7.53 归档教程</a>、<a href="/tutorials/1.7.52/">1.7.52 归档教程</a>、<a href="/tutorials/1.7.49/">1.7.49 归档教程</a>与 <a href="/tutorials/1.7.46/">1.7.46 归档教程</a>。</p>
+    <p class="tutorial-disclosure">本页画布截图为 1.7.49 历史演示，来自离线模拟，不代表实时价格或实际扣费。当前预估位于生成按钮下；账户操作以本页新版流程为准。</p></div>
+  <div class="quickstart-section" id="quickstart">
+    <div class="quickstart-heading"><div><p class="eyebrow">QUICK START / 5 STEPS</p><h2>先看一遍，再动手。</h2></div><p>下载 → 打开 → 注册 → 充值 → 开始使用</p></div>
+    <div class="quickstart-guide" data-quickstart>
+      <ol class="quickstart-fallback"><li>下载仓鼠AI</li><li>双击打开仓鼠AI程序</li><li>注册并登录账户</li><li>按需手动充值</li><li>开通并启用所需功能，检测通过后开始使用</li></ol>
+      <a href="/#download">前往下载 →</a>
+    </div>
+  </div>
+  <section class="tutorial-chapter reveal" id="account"><div class="tutorial-chapter-head"><h2>1. 登录并启用所需功能</h2></div>
+    <ol class="tutorial-steps"><li><b>从本地账户主页注册或登录</b><p>新客户打开应用后进入「账户」，点击「注册账户」或「登录」，直接在应用内填写信息并完成安全验证。登录后，账户主页核验当前账号身份并显示对应余额，沿用已有账号、余额与订单。老客户再次打开时恢复上次使用的页面；首次或配置失效时进入账户。</p></li>
+      <li><b>按需手动充值</b><p>点击「充值」，先核对当前充值账号，再选择金额与支付方式。确认创建订单后，点击「继续支付」进入独立安全收银台。付款后刷新余额与订单核对到账；打开或关闭收银台不代表充值成功。付款结果未确认时只核对原订单，不要重复创建或付款。当前登录账号与本机 Key 归属不一致时，充值和功能启用会被阻止，原配置与数据保留。</p></li>
+      <li><b>开通并启用一种功能</b><p>选择图片、视频、工具或对话，点击「开通并启用」，确认有效期与额度上限。应用会创建该用途 Key、通过系统保护保存，并免费检测连接。已有 Key 可点击「使用已有 Key」或「更换 Key」，明确选择后启用。检测不创建生成任务，不扣费；通过后即可使用对应功能。</p></li>
+      <li><b>按需要继续开通</b><p>图片 Key 用于图片生成；视频 Key 用于视频生成；工具 Key 供数字人和黑白深度共用；对话 Key 单独用于对话，其他三项不会自动获得对话权限。图片 Key、视频 Key、工具 Key、对话 Key 必须来自同一账户，共用账户余额。无需一次开通四类，其他功能可稍后启用。</p></li></ol>
+    <p>Key 不会回显到本地账户主页。开通结果未确认时点击「继续启用」，应用只查找原操作，不会重新创建 Key。已保存但检测未完成时点击「检测连接」，无需再次开通。手动填写、单项移除保留在折叠的「高级连接设置」；留空表示保留原 Key，失效项可单独移除，不删除账户余额、本地历史、聊天、素材或结果。</p>
+    <p>连接检测通过只表示认证及当前可用线路已确认，不代表真实生成效果已验证。右上角素材权限灯按当前图片、视频或工具功能分别检测，图片检查异常不会覆盖视频状态。绿色表示当前功能权限检查成功；黄色“待确认”表示限流、超时或暂时不可用；红色表示授权失败或账户不一致；灰色表示未配置或当前页面无需检测。同一功能下切换模型不新增权限检测请求，手动检测也需等待重试间隔。该灯不表示生成任务或服务整体状态。切换账户时，先移除旧账户的本机 Key，再启用新账户的 Key。</p></section>
+  <section class="tutorial-chapter reveal" id="quote"><div class="tutorial-chapter-head"><h2>2. 选择线路并生成</h2></div>
+    <ol class="tutorial-steps"><li><b>选择已开放的线路</b><p>生成页和画布显示已发布名称、客户单价与计费单位。打开的生成页和画布会接收线路变更通知，可见时每 60 秒刷新作为兜底。已下架线路从可选列表移除；原选择保留并提示不可用，禁止生成，不会静默切换线路。按线路提供的尺寸、画质、时长和比例选择。</p></li>
+      <li><b>检查参考素材上限</b><p>页面显示各类素材的有效限制和合计上限。图片生成支持最多 5 张参考图，并提供 4:3、3:4 比例。视频生成按当前线路分别限制图片、视频、音频数量及合计数量，以页面显示为准。超限请先减少素材，再上传或报价。视频和音频上传前会读取实际时长；无法读取的素材需重新选择。生成前会检查素材有效期，并在需要时重新上传仍可读取的本地素材；请等待上传完成。</p></li>
+      <li><b>查看预估并点击生成</b><p>切换线路或参数只更新本地预估。生成按钮下显示「预估￥？元」或预计金额。点击生成后，后台获取当前报价并核对本次总费用与余额。余额足够时直接提交，余额不足时显示「前往充值」，点击后进入账户中心。报价过期、参数或价格改变时，按提示重新点击生成。</p></li></ol>
+    <p>工作台和画布按目标功能处理素材。视频生成的参考素材上传到 R2。图片参考图随生成请求直传，数字人和黑白深度素材直接上传到对应工具服务。图片和工具结果从上游下载到本机，任务状态由后台保存。结果下载失败时恢复原任务的下载，勿为取回结果重复生成。</p>
+    </section>
+  <section class="tutorial-chapter reveal" id="batch"><div class="tutorial-chapter-head"><h2>3. 停止剩余份数与查询历史</h2></div>
+    <p>选择 2 份或 4 份后，每份单独提交。点击「停止剩余」只阻止尚未发送的份数；已发送任务继续按原记录查询，不表示任务取消或已退款。刷新和重启不会自动继续剩余份数。</p>
+    <p>出现「提交待确认」时，请在历史记录核对原任务，勿重复生成。清除已结束记录仍保留未知任务。没有任务编号时暂不保证自动找回；保存失败与生成失败分开，不能为下载结果重新生成。余额不足时可通过提示中的「前往充值」进入账户中心，按需选择充值金额。</p>
+    <p>同账户且有读取权限的有效 Key 可查询历史工具任务。历史线路名称和报价快照保留；报价是预计费用，实际扣费以账户记录为准。结果完成后保存本地，临时链接过期不保证可以恢复。</p></section>
+  <section class="tutorial-chapter reveal" id="canvas"><div class="tutorial-chapter-head"><h2>4. 画布与对话</h2></div>
+    <p>画布支持现有文本、素材、上传、图片、视频、数字人、深度和 Output 节点。连接输入，选择线路和参数后查看本地预估；点击执行后在后台核算当前节点费用，余额足够时直接提交；下游不会自动执行。旧节点、连线和已绑定结果保留。</p>
+    <p>对话需单独启用同账户的对话 Key。客户价为输入 9 元／百万 Token、输出 45 元／百万 Token，按实际用量计费，正常对话在后台静默结算，无需每次手动核对。停止回答不代表免费或退款；异常请求转后台待查后可继续发送新消息，原请求不会自动重发。点击左上角仓鼠标志单独检测对话连接；灰色表示尚未成功连接，彩色仅表示本次检测成功。提示「尚未开放」时等待服务开放，无需反复更换 Key。</p>
+    <p>换账户后会断开旧云端素材与回答链的关系，本地聊天、附件和历史文字保留。旧版改写工作台数据与导出结果保留；当前视频反推使用独立入口。</p><figure class="tutorial-media-card"><div class="tutorial-media-stage"><img src="/assets/tutorial-1749-canvas.png" alt="1.7.49 历史画布演示：选择线路、规格和当前节点" loading="lazy" decoding="async" /></div><figcaption><strong>画布历史界面演示</strong><span>离线模拟截图；示意线路和金额不代表实时售价，所有生成节点均需手动执行。</span></figcaption></figure></section>
+  <section class="tutorial-chapter reveal" id="reverse"><div class="tutorial-chapter-head"><h2>5. 视频反推</h2></div>
+    <p>先启用工具 Key，再进入「视频反推」。可上传本地视频，也可切换「粘贴链接」，粘贴抖音、小红书或哔哩哔哩的视频分享链接。分享文案中只能包含一个受支持的视频链接；其他网站或多个链接不会提交。</p>
+    <p>本地视频限 500 MiB、最长 600 秒。链接模式直接提交受支持的视频链接，无需先手动下载视频。</p>
+    <p>售价为 0.03 元／秒，每次提交前明确确认，先预占 18 元。成功后按实际计费秒数结算并释放差额；失败释放预占，结果未知时保留预占并只查原操作，不重复提交。实际费用以账户记录为准。</p>
+    <p>任务完成后可复制提示词；反推记录按当前账号保存。切换账号后，先核对身份再开始新的任务，旧任务和结果保留。</p></section>
+  <div class="tutorial-return"><div><p>准备好开始创作了吗？</p><span>启用所需功能，再选择线路与创作参数。</span></div><a class="button primary" href="/#download">下载仓鼠AI正式版</a></div>
+  </div>
+</main>
+<footer><a class="brand" href="/"><span class="brand-logo"><img src="/assets/hamster-logo.png" alt="" /></span><span>仓鼠AI</span></a><p>每一个好创意，都让人惊喜。</p><span>© 2026 Hamster AI</span></footer>
+<script src="/app.js" defer></script>
+<script src="/quickstart.js" type="module"></script>
+</body></html>

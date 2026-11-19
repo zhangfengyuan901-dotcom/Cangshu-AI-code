@@ -1,0 +1,83 @@
+import gzip
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SOURCE = ROOT / 'deploy/new-api/backend'
+FRONTEND = ROOT / 'build/hamster-trim44-web/dist'
+VERSION = 'v1.0.0-rc.41-hamster.64'
+BUILD_IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+FILES = ('model/pikno_line_sync.go', 'model/pikno_line_closures.go', 'controller/pikno_line_sync.go',
+         'controller/pikno_lines.go', 'pkg/piknocatalog/catalog.go', 'pkg/piknocatalog/availability.go', 'pkg/piknocatalog/sync_snapshot.go')
+
+
+def digest(path):
+    with path.open('rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def main():
+    baseline = json.loads((HERE / 'baseline63-exactflags-workspace-build.json').read_text(encoding='utf-8'))
+    assert baseline['byte_identical_to_production'], 'baseline_not_verified'
+    merge = json.loads((HERE / 'web-merge-manifest.json').read_text(encoding='utf-8'))
+    assert merge['deleted_files'] == 0 and merge['old_hashed_files_unchanged'], 'old_frontend_assets_not_preserved'
+    before = {file: digest(SOURCE / file) for file in FILES}
+    verified = json.loads((HERE / 'backend-retirement-verification.json').read_text(encoding='utf-8'))
+    frozen = {item['file']: item['sha256'] for item in verified['changed_files'] if item['role'] == 'runtime'}
+    assert before == frozen, 'backend_source_differs_from_verified_freeze'
+    index_hash = digest(FRONTEND / 'index.html')
+    assert digest(SOURCE / 'web/dist/index.html') == index_hash, 'frontend_index_not_merged'
+    binary = HERE / 'backend64-new-api'
+    args = ['docker', 'run', '--rm', '--network', 'none', '--label', 'codex.task=relay-portal-current',
+            '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+            '--mount', 'type=bind,source=' + str(HERE) + ',target=/out',
+            '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+            '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+            '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', BUILD_IMAGE,
+            'go', 'build', '-p', '2', '-ldflags', '-s -w -X github.com/QuantumNous/new-api/common.Version=' + VERSION,
+            '-o', '/out/backend64-new-api']
+    result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    (HERE / 'candidate64-build.log').write_text(result.stdout + result.stderr, encoding='utf-8')
+    assert result.returncode == 0, 'candidate_build_failed'
+    assert before == {file: digest(SOURCE / file) for file in FILES}, 'backend_changed_during_candidate_build'
+    assert digest(FRONTEND / 'index.html') == index_hash, 'frontend_changed_during_candidate_build'
+    check = subprocess.run([sys.executable, str(HERE / 'verify-web-embed.py'), '--binary', str(binary)], capture_output=True, text=True)
+    assert check.returncode == 0, 'candidate_embedded_frontend_verification_failed'
+    compressed = HERE / 'backend64-new-api.gz'
+    with binary.open('rb') as source, compressed.open('wb') as target:
+        with gzip.GzipFile(filename='', mode='wb', fileobj=target, mtime=0) as zipper:
+            while chunk := source.read(1024 * 1024):
+                zipper.write(chunk)
+    html = (FRONTEND / 'index.html').read_text(encoding='utf-8')
+    references = re.findall(r'(?:src|href)=["\']([^"\']+)["\']', html)
+    entry = next(path for path in references if re.fullmatch(r'/static/js/index\.[a-zA-Z0-9]+\.js', path))
+    resource_paths = {path for path in references if re.fullmatch(r'/[a-zA-Z0-9_./-]+\.(?:js|css|png|svg|ico)', path)}
+    resource_paths.update(['/account-lite/account.mjs', '/account-lite/account.css', '/auth-lite/auth.mjs', '/auth-lite/auth.css'])
+    resources = [{'path': path, 'sha256': digest(FRONTEND / path.lstrip('/'))} for path in sorted(resource_paths)]
+    public_paths = ['/', '/hub/models', '/hub/pricing', '/hub/docs', '/hub/dashboard']
+    manifest = {'format': 1, 'status': 'local_candidate_not_deployed', 'version': VERSION,
+                'binary_sha256': digest(binary), 'binary_bytes': binary.stat().st_size,
+                'gzip_file': compressed.name, 'gzip_sha256': digest(compressed), 'gzip_bytes': compressed.stat().st_size,
+                'frontend_entry_script': entry, 'frontend_resources': resources, 'public_paths': public_paths,
+                'production_source_files': [{'file': file, 'sha256': before[file]} for file in FILES],
+                'go_workdir': '/workspace', 'toolchain': 'go1.26.1 linux/amd64', 'build_image': BUILD_IMAGE, 'cgo_enabled': False, 'trimpath': False,
+                'baseline_production_verified': True, 'frontend_embed_verified': True, 'production_mutations': 0}
+    (HERE / 'build64.json').write_text(json.dumps(manifest, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    smoke = subprocess.run([sys.executable, str(HERE / 'smoke64-candidate.py')], capture_output=True, text=True)
+    (HERE / 'candidate64-smoke-command.log').write_text(smoke.stdout + smoke.stderr, encoding='utf-8')
+    assert smoke.returncode == 0, 'candidate_http_smoke_failed'
+    print(json.dumps({'built': True, 'version': VERSION, 'binary_sha256': manifest['binary_sha256'],
+                      'frontend_embed_verified': True, 'isolated_http_smoke_passed': True, 'production_mutations': 0}))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'built': False, 'code': str(error) if isinstance(error, AssertionError) else 'CANDIDATE_BUILD_FAILED_DETAILS_WITHHELD', 'production_mutations': 0}))
+        raise SystemExit(1)

@@ -1,0 +1,24 @@
+async (page) => {
+  const origin = 'http://127.0.0.1:18169';
+  await page.context().route('**/*', route => {
+    return route.request().url().startsWith(origin + '/') ? route.continue() : route.abort();
+  });
+  await page.goto(origin + '/account-lite/index.html?tab=topup');
+  await page.locator('#pay:enabled').click();
+  await page.locator('#confirm-ok').click();
+  const popupPromise = page.waitForEvent('popup');
+  await page.locator('#continue-payment:enabled').click();
+  const popup = await popupPromise;
+  await popup.getByText('模拟支付完成').click();
+  await popup.getByText('充值已入账。', { exact: true }).waitFor({ timeout: 10000 });
+  await popup.locator('#pay:enabled').click();
+  await popup.locator('#confirm-ok').click();
+  await popup.locator('#cancel-payment:enabled').click();
+  await popup.locator('#confirm-ok').click();
+  await popup.getByText('正在核对关单结果。', { exact: true }).waitFor();
+  await popup.getByText('充值订单已取消。', { exact: true }).waitFor({ timeout: 10000 });
+  await popup.locator('#pay:enabled').waitFor();
+  const outcome = await popup.evaluate(async () => (await (await fetch('/fixture-result')).json()).data);
+  if (outcome.created !== 2 || outcome.cancelled !== 1 || outcome.balance !== 50) throw new Error('fixture amounts or mutation counts incorrect');
+  return { result: 'passed', fixture: outcome, paymentReturned: true, cancellationConfirmed: true };
+}

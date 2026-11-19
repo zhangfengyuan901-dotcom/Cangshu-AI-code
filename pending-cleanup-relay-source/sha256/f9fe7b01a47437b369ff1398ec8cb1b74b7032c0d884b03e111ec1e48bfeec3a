@@ -1,0 +1,86 @@
+package model
+
+import (
+	"errors"
+	"time"
+
+	"github.com/QuantumNous/new-api/pkg/piknocatalog"
+	"gorm.io/gorm"
+)
+
+// ApplyPiknoSyncClosures commits only explicit shutdowns from the same leased
+// directory response. It does not complete that lease or validate a full catalog.
+func ApplyPiknoSyncClosures(lease PiknoSyncLease, closures *piknocatalog.AvailabilityClosures, now int64) (int, error) {
+	if !PiknoLineSyncEnabled() || !piknocatalog.ValidAvailabilityClosures(closures) || closures.Provider != lease.Provider {
+		return 0, errors.New("availability_contract")
+	}
+	if len(closures.ClosedIDs) == 0 {
+		return 0, nil
+	}
+	closed := map[string]bool{}
+	for _, id := range closures.ClosedIDs {
+		closed[id] = true
+	}
+	changed := 0
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if _, err := syncLeaseProvider(tx, lease, max(now, time.Now().Unix())); err != nil {
+			return err
+		}
+		var rows []PiknoLine
+		if err := lockForUpdate(tx).Order("public_model").Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			config, err := decodePiknoLineConfig(row.PublishedConfig)
+			if err != nil {
+				return err
+			}
+			if config == nil {
+				config, err = decodePiknoLineConfig(row.DraftConfig)
+				if err != nil {
+					return err
+				}
+			}
+			if config == nil || config.Provider != closures.Provider || !closed[config.UpstreamModel] {
+				continue
+			}
+			var state PiknoLineSyncState
+			lookup := tx.First(&state, "public_model = ?", row.PublicModel).Error
+			if lookup != nil && !errors.Is(lookup, gorm.ErrRecordNotFound) {
+				return lookup
+			}
+			if lookup == nil && state.Provider != closures.Provider {
+				return errors.New("availability_state_provider")
+			}
+			if lookup == nil && state.Paused && state.PauseReason == "disabled" {
+				continue
+			}
+			if errors.Is(lookup, gorm.ErrRecordNotFound) {
+				state = PiknoLineSyncState{PublicModel: row.PublicModel, Provider: closures.Provider, SnapshotHash: config.SyncHash}
+			}
+			state.Paused, state.PauseReason = true, "disabled"
+			if err := tx.Save(&state).Error; err != nil {
+				return err
+			}
+			changed++
+		}
+		// A close-only response may fail full validation. Its next request must
+		// fetch a complete 200 body: replaying an older, enabled snapshot after
+		// a 304 must never undo the independently verified shutdown. Clear even
+		// for repeated shutdowns and IDs that have no published line yet.
+		if err := tx.Model(&PiknoSyncProvider{}).Where("provider = ?", lease.Provider).Updates(map[string]any{"e_tag": "", "last_modified": ""}).Error; err != nil {
+			return err
+		}
+		// The provider row remains locked, and real time is checked again just
+		// before commit so an expired worker cannot publish a shutdown.
+		_, err := syncLeaseProvider(tx, lease, max(now, time.Now().Unix()))
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	if changed > 0 {
+		refreshPiknoRoutingCaches()
+	}
+	return changed, nil
+}

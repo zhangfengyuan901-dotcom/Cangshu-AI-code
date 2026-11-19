@@ -1,0 +1,47 @@
+import gzip,hashlib,json,mmap,subprocess,sys
+from pathlib import Path
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1];SOURCE=ROOT/'deploy/new-api/backend'
+VERSION='v1.0.0-rc.41-hamster.68'
+IMAGE='golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+ALLOWED={'controller/pikno_line_sync.go','controller/pikno_lines.go','model/pikno_line.go','model/pikno_line_closures.go','model/pikno_line_sync.go','pkg/piknocatalog/catalog.go','pkg/piknocatalog/store.go','pkg/piknocatalog/sync_snapshot.go'}
+def sha(p):
+ with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
+def main():
+ base=json.loads((HERE/'baseline67.json').read_text(encoding='utf-8'))
+ assert base['byte_identical_to_production67'],'BASELINE67_NOT_REPRODUCED'
+ current=[{'file':i['file'],'sha256':sha(SOURCE/i['file'])} for i in base['runtime_source_files']]
+ old={i['file']:i['sha256'] for i in base['runtime_source_files']}
+ changed=[i['file'] for i in current if i['sha256']!=old[i['file']]]
+ assert {f for f in changed if not f.endswith('_test.go')}==ALLOWED,'UNEXPECTED_BUSINESS_SOURCE_CHANGE'
+ assert all(sha(SOURCE/'web/dist'/i['path'])==i['sha256'] for i in base['embedded_resources']),'EMBEDDED_WEB_CHANGED'
+ binary=HERE/'backend68-new-api'
+ result=subprocess.run(['docker','run','--rm','--network','none','--label','codex.task=relay-sanbao-retirement-current',
+  '--mount','type=bind,source='+str(SOURCE)+',target=/workspace,readonly','--mount','type=bind,source='+str(HERE)+',target=/out',
+  '--mount','type=volume,source=relay-portal-gomod,target=/go/pkg/mod','--mount','type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+  '-w','/workspace','-e','CGO_ENABLED=0','-e','GOMAXPROCS=2',IMAGE,'go','build','-p','2','-ldflags',
+  '-s -w -X github.com/QuantumNous/new-api/common.Version='+VERSION,'-o','/out/backend68-new-api'],capture_output=True,timeout=300)
+ (HERE/'candidate68-build.log').write_bytes(result.stdout+result.stderr);assert result.returncode==0,'CANDIDATE68_BUILD_FAILED'
+ assert all(sha(SOURCE/i['file'])==i['sha256'] for i in current),'SOURCE_DRIFT_DURING_BUILD'
+ with binary.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as compiled:
+  for item in base['embedded_resources']:
+   assert compiled.find((SOURCE/'web/dist'/item['path']).read_bytes())>=0,'WEB_RESOURCE_NOT_EMBEDDED'
+ compressed=HERE/'backend68-new-api.gz'
+ with binary.open('rb') as source,compressed.open('wb') as target:
+  with gzip.GzipFile(filename='',mode='wb',fileobj=target,mtime=0) as zipper:
+   while chunk:=source.read(1024*1024):zipper.write(chunk)
+ value={'format':1,'status':'local_candidate_not_deployed','version':VERSION,'binary_sha256':sha(binary),'binary_bytes':binary.stat().st_size,
+  'gzip_file':compressed.name,'gzip_sha256':sha(compressed),'gzip_bytes':compressed.stat().st_size,
+  'frontend_entry_script':base['frontend_entry_script'],'frontend_resources':base['frontend_manifest'],'public_paths':base['public_paths'],
+  'embedded_resource_count':len(base['embedded_resources']),'web_resources_unchanged':True,'all_web_bytes_embedded':True,
+  'production_source_files':current,'changed_source_files':changed,'changed_runtime_sources':sorted(ALLOWED),
+  'stable_billing_generation_sources_unchanged':True,'baseline67_byte_identical':True,'toolchain_image':IMAGE,'cgo_enabled':False,
+  'production_mutations':0,'opening_balance_snapshot_saved':False}
+ (HERE/'build68.json').write_text(json.dumps(value,indent=2)+'\n',encoding='utf-8')
+ smoke=subprocess.run([sys.executable,str(HERE/'smoke68-candidate.py')],capture_output=True,timeout=200)
+ (HERE/'candidate68-smoke-command.log').write_bytes(smoke.stdout+smoke.stderr)
+ assert smoke.returncode==0,'CANDIDATE68_SMOKE_FAILED'
+ print(json.dumps({'built':True,'version':VERSION,'binary_sha256':value['binary_sha256'],'unchanged_web_resources':len(base['embedded_resources']),'isolated_http_smoke_passed':True}))
+if __name__=='__main__':
+ try:main()
+ except Exception as e:
+  print(json.dumps({'built':False,'code':str(e) if isinstance(e,AssertionError) else 'BUILD68_FAILED_DETAILS_WITHHELD'}));raise SystemExit(1)

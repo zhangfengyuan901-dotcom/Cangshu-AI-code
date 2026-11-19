@@ -1,0 +1,10 @@
+import hashlib,json,shutil
+from pathlib import Path
+ROOT=Path('D:/PIKNO');HERE=ROOT/'output/relay-admin-theme-current';FRONT=ROOT/'build/hamster-trim44-web'
+file='src/components/data-table/core/data-table-view.tsx'
+baseline=json.loads((HERE/'baseline.json').read_text(encoding='utf-8'))
+assert file not in [i['path'] for i in baseline['frontend_source_files']]
+target=HERE/'before/frontend'/file;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(FRONT/file,target)
+baseline['frontend_source_files'].append({'path':file,'sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
+(HERE/'baseline.json').write_text(json.dumps(baseline,indent=2)+'\n',encoding='utf-8')
+print('{"baseline_extended":true}')

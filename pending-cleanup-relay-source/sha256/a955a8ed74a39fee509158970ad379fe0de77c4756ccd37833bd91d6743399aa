@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "ok": true,
+  "version": "1.7.75",
+  "source": "official-workspace-source",
+  "sourceManifest": "release/source-manifest.json",
+  "sourceASARSHA256": "f1ea8e660413463d0ae922a347fd414d7cea42fe808cd580adbe2fa04b819b62",
+  "stage": "D:\\PIKNO\\output\\relay-payment-one-click-current\\desktop-package\\source",
+  "artifacts": "D:\\PIKNO\\output\\relay-payment-one-click-current\\desktop-package\\artifacts",
+  "applicationFiles": 3804,
+  "runtimeDependencyFiles": 3720,
+  "resources": 37,
+  "historicalReleaseDependencies": 0,
+  "developmentTreePackaged": false,
+  "copiedResourceInputs": "D:\\PIKNO\\output\\relay-payment-one-click-current\\desktop-package\\resource-inputs",
+  "copiedBuildInputs": "D:\\PIKNO\\output\\relay-payment-one-click-current\\desktop-package\\build-inputs",
+  "selfContainedApplicationInputs": true,
+  "explicitToolchain": {
+    "electronDist": "D:\\PIKNO\\仓鼠AI\\node_modules\\electron\\dist",
+    "electronVersion": "33.4.11"
+  },
+  "config": "D:\\PIKNO\\output\\relay-payment-one-click-current\\desktop-package\\builder.json"
+}

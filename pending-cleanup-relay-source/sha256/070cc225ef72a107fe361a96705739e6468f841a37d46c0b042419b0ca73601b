@@ -1,0 +1,35 @@
+async (page) => {
+  const context = page.context();
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin === 'http://127.0.0.1:18170' || url.origin === 'http://127.0.0.1:18171') return route.continue();
+    if (url.origin === 'https://1.pay.lanjingzf.com' && url.pathname === '/payPage/pay.html' && /^USR42NOfixture\d+$/.test(url.searchParams.get('orderId') || '')) {
+      const link = 'http://127.0.0.1:18170/pay/lanjing/return?order=' + url.searchParams.get('orderId');
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<a href="' + link + '">模拟支付完成</a>' });
+    }
+    return route.abort();
+  });
+  const verify = async (origin, direct) => {
+    await page.goto(origin + '/account-lite/index.html?tab=topup');
+    const pay = page.getByRole('button', { name: '充值 ¥50.00', exact: true });
+    await pay.waitFor();
+    const popupPromise = context.waitForEvent('page');
+    await pay.click();
+    const popup = await popupPromise;
+    await popup.getByText('模拟支付完成', { exact: true }).waitFor({ timeout: 10000 });
+    if (await popup.evaluate(() => window.opener !== null)) throw new Error('opener was retained');
+    if (await page.locator('#confirm-dialog').evaluate(node => node.open)) throw new Error('confirmation was opened');
+    if (await page.getByRole('button', { name: '继续支付', exact: true }).count()) throw new Error('second payment step is present');
+    const before = await page.evaluate(async () => (await (await fetch('/fixture-result')).json()).data);
+    if (before.created !== 1 || before.refreshes !== 1 || before.authorized !== (direct ? 1 : 0) || before.legacySubmissions !== (direct ? 0 : 1)) throw new Error('unexpected checkout network counts');
+    await popup.getByText('模拟支付完成', { exact: true }).click();
+    await popup.getByText('充值已入账。', { exact: true }).waitFor({ timeout: 10000 });
+    const after = await popup.evaluate(async () => (await (await fetch('/fixture-result')).json()).data);
+    if (after.created !== 1 || after.balance !== 50 || after.firstReturnStatusMs === null || after.firstReturnStatusMs >= 1500) throw new Error('return was not immediately confirmed');
+    await popup.close();
+    return { created: after.created, authorized: after.authorized, legacySubmissions: after.legacySubmissions,
+      preCheckoutSessionRefreshes: before.refreshes, firstReturnStatusMs: after.firstReturnStatusMs, verifiedBalance: after.balance };
+  };
+  return { passed: true, direct: await verify('http://127.0.0.1:18170', true),
+    legacy: await verify('http://127.0.0.1:18171', false), realPaymentCalls: 0 };
+}

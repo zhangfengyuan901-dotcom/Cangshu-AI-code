@@ -1,0 +1,42 @@
+import hashlib
+import json
+from pathlib import Path
+import shutil
+from datetime import datetime, timezone
+
+ROOT = Path('D:/PIKNO')
+HERE = ROOT / 'output/relay-admin-theme-current'
+SOURCE = ROOT / 'deploy/new-api/backend'
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+files = ['src/app.tsx', 'src/styles/theme.css', 'src/components/layout/components/authenticated-layout.tsx',
+         'src/components/layout/components/header.tsx', 'src/components/layout/components/system-brand.tsx',
+         'src/components/layout/components/section-page-layout.tsx']
+frontend = ROOT / 'build/hamster-trim44-web'
+assert not (HERE / 'baseline.json').exists(), 'BASELINE_ALREADY_EXISTS'
+for file in files:
+    target = HERE / 'before/frontend' / file
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(frontend / file, target)
+shutil.copy2(ROOT / 'deploy/new-api/Dockerfile', HERE / 'before/Dockerfile')
+dist = SOURCE / 'web/dist'
+records = [{'path': p.relative_to(dist).as_posix(), 'bytes': p.stat().st_size, 'sha256': sha(p)} for p in sorted(dist.rglob('*')) if p.is_file()]
+shutil.copytree(dist, HERE / 'before/backend-web-dist')
+runtime = [{'file': p.relative_to(SOURCE).as_posix(), 'sha256': sha(p)} for p in sorted(SOURCE.rglob('*.go')) if 'vendor' not in p.parts]
+runtime.extend({'file': name, 'sha256': sha(SOURCE / name)} for name in ('go.mod', 'go.sum'))
+(HERE / 'baseline.json').write_text(json.dumps({'version':'v1.0.0-rc.41-hamster.66',
+    'production_binary_sha256':'a5655de8e02fa7aabbaea84decf53282e09f38e273700a6b08c6f802238bcb6a',
+    'frontend_source_files': [{'path': file, 'sha256': sha(frontend / file)} for file in files],
+    'runtime_source_files':runtime, 'files':records}, indent=2)+'\n',encoding='utf-8')
+statefile = ROOT / '.agents/project-state.json'
+state = json.loads(statefile.read_text(encoding='utf-8'))
+state['relay']['admin_theme_refresh'] = {'status':'implementation_in_progress_not_deployed',
+    'baseline_version':'v1.0.0-rc.41-hamster.66', 'workspace':'output/relay-admin-theme-current',
+    'scope':['shared_admin_colors','navigation','tables','dialogs','mobile_drawers'],
+    'customer_acceptance':False, 'business_logic_changes':False}
+for item in ('output/relay-admin-theme-current/','output/playwright/relay-admin-theme-current/'):
+    if item not in state['protected_paths']: state['protected_paths'].append(item)
+state['updated_at'] = datetime.now(timezone.utc).isoformat()
+statefile.write_text(json.dumps(state,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'baseline_saved':True,'embedded_resources':len(records),'runtime_source_files':len(runtime)}))

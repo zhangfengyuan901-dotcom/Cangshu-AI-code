@@ -1,0 +1,64 @@
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+here = Path(__file__).resolve().parent
+root = here.parents[1]
+backend = root / 'deploy/new-api/backend'
+frontend = root / 'build/hamster-trim44-web'
+source = here / 'backend-candidate'
+embed = backend / 'web/dist'
+image = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+version = 'v1.0.0-rc.41-hamster.71'
+
+def sha(file):
+    with file.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+def index(folder):
+    return {path.relative_to(folder).as_posix(): sha(path) for path in folder.rglob('*') if path.is_file()}
+
+def run(args, log, cwd=None):
+    value = subprocess.run(args, cwd=cwd, capture_output=True, timeout=300)
+    (here / log).write_bytes(value.stdout + value.stderr)
+    if value.returncode:
+        raise RuntimeError(log + '_failed')
+
+def main():
+    baseline_file = here / 'embedded-before.json'
+    if not baseline_file.exists():
+        baseline_file.write_text(json.dumps(index(embed), indent=2) + '\n', encoding='utf-8')
+    baseline = json.loads(baseline_file.read_text(encoding='utf-8'))
+    run(['node', '--input-type=module', '-e',
+         'import {buildLite} from "./scripts/build-lite.mjs"; await buildLite(process.cwd(), process.argv[1]);',
+         str(frontend / 'dist')], 'lite-final-build.log', frontend)
+    dist = frontend / 'dist'
+    shutil.copytree(dist, embed, dirs_exist_ok=True)
+    current = index(embed)
+    assert baseline.keys() <= current.keys()
+    resources = {'changed': [name for name in baseline if baseline[name] != current[name]],
+                 'added': [name for name in current if name not in baseline],
+                 'retained': sum(current[name] == baseline[name] for name in baseline),
+                 'index_sha256': current['index.html']}
+    (here / 'embedded-resource-verification.json').write_text(json.dumps(resources, indent=2) + '\n', encoding='utf-8')
+    shutil.copytree(backend, source, ignore=shutil.ignore_patterns('.git', 'node_modules', '*.env', '.env.*'), dirs_exist_ok=True)
+    run(['docker','run','--rm','--network','none','--label','codex.task=relay-account-browser-current',
+         '--mount','type=bind,source='+str(source)+',target=/workspace,readonly',
+         '--mount','type=bind,source='+str(here)+',target=/out',
+         '-v','relay-portal-gomod:/go/pkg/mod','-v','relay-portal-gobuild:/root/.cache/go-build',
+         '-e','CGO_ENABLED=0','-e','GOMAXPROCS=2','-w','/workspace',image,
+         'go','build','-p','2','-ldflags','-s -w -X github.com/QuantumNous/new-api/common.Version='+version,
+         '-o','/out/backend71-new-api'], 'backend-build.log')
+    manifest = {'status':'candidate_not_deployed','version':version,
+                'binary_sha256':sha(here/'backend71-new-api'),
+                'built_at':datetime.now(timezone.utc).isoformat(), 'resources':resources,
+                'real_payments':0,'production_mutations':0}
+    (here/'candidate-build.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps({'version':version,'binary_sha256':manifest['binary_sha256'],
+                      'changed_resources':len(resources['changed']),'added_resources':len(resources['added'])}))
+
+if __name__ == '__main__':
+    main()

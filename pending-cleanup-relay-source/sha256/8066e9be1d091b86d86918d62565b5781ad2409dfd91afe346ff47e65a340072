@@ -1,0 +1,22 @@
+import json,re,subprocess
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+checks=[]
+def call(args,log):
+    result=subprocess.run(['cmd','/c','npx','--yes','--package','@playwright/cli','playwright-cli','-s=admin-theme67',*args],cwd=ROOT,capture_output=True,timeout=120)
+    output=result.stdout.decode('utf-8',errors='replace')+result.stderr.decode('utf-8',errors='replace')
+    (HERE/log).write_text(output,encoding='utf-8')
+    assert result.returncode==0 and '### Error' not in output,'BROWSER_STEP_FAILED_'+log
+    return output
+call(['goto','http://127.0.0.1:48276/channels'],'reload-ui.log')
+for name,log in [('check-desktop.js','desktop-ui.log'),('open-user-menu.js','open-user-menu.log'),
+    ('check-dialog-table.js','dialog-table-ui.log'),('check-highlight-boundary.js','highlight-ui.log'),('check-mobile-public.js','mobile-public-ui.log')]:
+    output=call(['run-code','--filename','output/relay-admin-theme-current/'+name],log)
+    result=json.loads(re.search(r'### Result\s*\n(.*?)\n###',output,re.S).group(1))
+    assert result.get('passed',result.get('opened',False)),'BROWSER_CHECK_FAILED_'+name
+    checks.extend(result.get('checks',[]))
+    (HERE/log.replace('.log','.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+value={'passed':True,'checks':checks,'check_count':len(checks),'synthetic_admin_only':True,'real_customer_login':False,'real_generation_calls':0,'real_payment_calls':0}
+(HERE/'local-ui-verification.json').write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+print(json.dumps({'passed':True,'ui_checks':len(checks),'synthetic':True}))

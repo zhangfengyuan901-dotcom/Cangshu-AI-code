@@ -1,0 +1,58 @@
+"""Network-only public read check against frozen parser; no database or secrets."""
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SOURCE = ROOT / 'deploy/new-api/backend'
+IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+FIELDS = {'provider', 'accepted', 'not_modified', 'items_count', 'closures_count', 'code'}
+CODES = {'ACCEPTED_COMPLETE_UNCONDITIONAL', 'CATALOG_VALIDATION_REJECTED', 'CATALOG_NETWORK_FAILED',
+         'CATALOG_SIZE_REJECTED', 'UNEXPECTED_NOT_MODIFIED', 'CATALOG_HTTP_REJECTED'}
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main():
+    frozen = json.loads((HERE / 'backend-retirement-verification.json').read_text())
+    expected = {item['file']: item['sha256'] for item in frozen['changed_files'] if item['role'] == 'runtime'}
+    assert all(digest(SOURCE / file) == value for file, value in expected.items()), 'FROZEN_SOURCE_HASH_DRIFT'
+    args = ['docker', 'run', '--rm', '--network', 'bridge', '--label', 'codex.task=relay-portal-current',
+            '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+            '--mount', 'type=bind,source=' + str(HERE / 'public-catalog-harness.go') + ',target=/harness/main.go,readonly',
+            '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+            '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+            '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', IMAGE, 'go', 'run', '-p', '2', '/harness/main.go']
+    completed = subprocess.run(args, capture_output=True, timeout=150)
+    assert all(digest(SOURCE / file) == value for file, value in expected.items()), 'FROZEN_SOURCE_CHANGED_DURING_CHECK'
+    # Never persist or print stderr, arbitrary process output, response data or errors.
+    decoded = json.loads(completed.stdout)
+    assert isinstance(decoded, list) and len(decoded) == 2, 'PUBLIC_CHECK_OUTPUT_SHAPE'
+    assert {row.get('provider') for row in decoded} == {'sanbao', 'canseedream'}, 'PUBLIC_CHECK_PROVIDER_SHAPE'
+    for row in decoded:
+        assert set(row) == FIELDS and row['code'] in CODES, 'PUBLIC_CHECK_FIELD_WHITELIST'
+        assert type(row['accepted']) is bool and type(row['not_modified']) is bool, 'PUBLIC_CHECK_FLAG_SHAPE'
+        assert type(row['items_count']) is int and 0 <= row['items_count'] <= 10000, 'PUBLIC_CHECK_COUNT_SHAPE'
+        assert type(row['closures_count']) is int and 0 <= row['closures_count'] <= 500, 'PUBLIC_CHECK_CLOSURES_SHAPE'
+    result = {'format': 1, 'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'passed': completed.returncode == 0 and all(row['accepted'] and not row['not_modified'] for row in decoded),
+              'providers': decoded, 'frozen_source_verified': True, 'unconditional_public_get_only': True,
+              'database_access': False, 'credentials_supplied': False, 'production_mutations': 0,
+              'generation_requests': 0, 'customer_acceptance': False}
+    (HERE / 'public-catalog-compatibility.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(result))
+    return 0 if result['passed'] else 1
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        print(json.dumps({'passed': False, 'code': str(error) if isinstance(error, AssertionError) else 'PUBLIC_CHECK_FAILED_DETAILS_WITHHELD',
+                          'production_mutations': 0, 'generation_requests': 0}))
+        raise SystemExit(1)

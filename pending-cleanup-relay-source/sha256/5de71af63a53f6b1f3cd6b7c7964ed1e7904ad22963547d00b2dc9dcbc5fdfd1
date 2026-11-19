@@ -1,0 +1,348 @@
+# Retired: installer distribution is restricted to the user-supplied netdisk.
+import json as _retired_json
+print(_retired_json.dumps({"ok":False,"code":"R2_INSTALLER_DISTRIBUTION_RETIRED","replacement":"仓鼠AI/scripts/publish-website.py"}, ensure_ascii=True))
+raise SystemExit(1)
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import urllib.request
+import uuid
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SITE = HERE / "website77-candidate/website"
+MANIFEST = HERE / "website77-candidate.json"
+PROFILE = "default"
+WORKER = "hamster-ai-official"
+BUCKET = "hamster-ai-downloads"
+OBJECT = "releases/1.7.77/HamsterAI-Portable-1.7.77.exe"
+URL = "https://hamsterai.cc/download/HamsterAI-Portable-1.7.77.exe"
+UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+PUBLIC_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/142.0.0.0 Safari/537.36"
+
+def sha(path):
+    with path.open("rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+def read(path):
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+def save(path, data):
+    path.write_text(json.dumps(data, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+def run(args, timeout=120, check=True, cwd=SITE):
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # The npx.cmd launcher can leave its Node upload holding our pipes open.
+        # This PID belongs to this Popen call; terminate its complete owned tree.
+        if os.name == "nt" and process.poll() is None:
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                           capture_output=True, timeout=30)
+        elif process.poll() is None:
+            process.kill()
+        try:
+            process.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        raise RuntimeError("CONTROLLED_COMMAND_TIMEOUT")
+    result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    if check and result.returncode:
+        raise RuntimeError("CONTROLLED_COMMAND_FAILED")
+    return result
+
+def wrangler(*args, timeout=120, check=True):
+    return run(["npx.cmd", "--yes", "wrangler@4.151.1", *args, "--profile", PROFILE], timeout, check)
+
+def files():
+    return {p.relative_to(SITE).as_posix(): sha(p) for p in SITE.rglob("*")
+            if p.is_file() and ".wrangler" not in p.parts and "node_modules" not in p.parts}
+
+def artifact():
+    data = read(MANIFEST)
+    assert data["status"] == "sealed_verified_artifact", "ARTIFACT_NOT_SEALED"
+    file = ROOT / data["artifact"]["path"]
+    assert file.is_file() and sha(file) == data["artifact"]["sha256"], "ARTIFACT_HASH_DRIFT"
+    assert file.stat().st_size == data["artifact"]["bytes"], "ARTIFACT_SIZE_DRIFT"
+    assert files() == data["source_hashes"], "CANDIDATE_SOURCE_DRIFT"
+    for name, expected in data["test_hashes"].items():
+        assert sha(SITE.parent / "tests" / name) == expected, "CANDIDATE_TEST_DRIFT"
+    return data, file
+
+def tests():
+    names = ["website-download.test.mjs", "website-quickstart.test.mjs", "website-video-cases.test.mjs"]
+    result = run(["node", "--test", *[str(SITE.parent / "tests" / name) for name in names]], cwd=ROOT, check=False)
+    (HERE / "website77-tests.log").write_bytes(result.stdout + result.stderr)
+    assert result.returncode == 0, "WEBSITE_TESTS_FAILED"
+
+def seal(args):
+    data = read(MANIFEST)
+    assert data["status"] == "prepared_waiting_for_verified_artifact", "CANDIDATE_ALREADY_SEALED"
+    file = args.artifact.resolve()
+    assert file.is_relative_to(ROOT / "output") and file.suffix.lower() == ".exe", "ARTIFACT_OUTSIDE_WORKSPACE"
+    assert "1.7.77" in file.name and re.fullmatch(r"[0-9a-f]{64}", args.expect_sha256), "INVALID_RELEASE_ARTIFACT"
+    assert sha(file) == args.expect_sha256, "ARTIFACT_HASH_MISMATCH"
+    size = file.stat().st_size
+    home = SITE / "public/index.html"
+    text = home.read_text(encoding="utf-8")
+    assert all(marker in text for marker in ["__RELEASE77_MIB__", "__RELEASE77_BYTES__", "__RELEASE77_SHA256__"])
+    text = text.replace("__RELEASE77_MIB__", str(round(size / (1024 * 1024))))
+    text = text.replace("__RELEASE77_BYTES__", f"{size:,}")
+    text = text.replace("__RELEASE77_SHA256__", args.expect_sha256.upper())
+    home.write_text(text, encoding="utf-8")
+    tests()
+    data["status"] = "sealed_verified_artifact"
+    data["artifact"] = {"path": file.relative_to(ROOT).as_posix(), "bytes": size, "sha256": args.expect_sha256}
+    data["source_hashes"] = files()
+    data["test_hashes"] = {name: sha(SITE.parent / "tests" / name) for name in data["baseline_test_hashes"]}
+    save(MANIFEST, data)
+    return {"sealed": True, "artifact_bytes": size, "artifact_sha256": args.expect_sha256}
+
+def production():
+    manifest = read(MANIFEST)
+    deployments = json.loads(wrangler("deployments", "list", "--name", WORKER, "--json").stdout)
+    assert isinstance(deployments, list) and deployments, "LIVE_DEPLOYMENTS_UNAVAILABLE"
+    latest = max(deployments, key=lambda item: item.get("created_on", ""))
+    versions = latest.get("versions", [])
+    assert len(versions) == 1 and versions[0]["percentage"] == 100, "LIVE_SPLIT_DEPLOYMENT"
+    version = versions[0]["version_id"]
+    assert re.fullmatch(UUID, version), "LIVE_VERSION_INVALID"
+    info = json.loads(wrangler("versions", "view", version, "--name", WORKER, "--json").stdout)
+    assert info["id"] == version, "LIVE_IDENTITY_MISMATCH"
+    binding = sorted(info["resources"]["bindings"], key=lambda value: value["name"])
+    assert binding == [{"name": "ASSETS", "type": "assets"}, {"bucket_name": BUCKET, "name": "DOWNLOADS", "type": "r2_bucket"}], "LIVE_BINDING_MISMATCH"
+    baseline = read(ROOT / "output/website-release75-current/preflight.json")
+    assert info["resources"]["script_runtime"] == baseline["runtime"], "LIVE_RUNTIME_MISMATCH"
+    return version
+
+def preflight():
+    manifest, _ = artifact()
+    tests()
+    version = production()
+    assert version == manifest["baseline_worker_version"], "PRODUCTION_CHANGED_SINCE_BASELINE"
+    original = manifest["baseline_hashes"]
+    actual = files()
+    assert actual.keys() == original.keys(), "UNEXPECTED_CANDIDATE_FILES"
+    changed = sorted(name for name in actual if actual[name] != original[name])
+    assert changed == manifest["changed_files"], "UNEXPECTED_SOURCE_CHANGE"
+    record = {"ready": True, "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "profile": PROFILE, "worker": WORKER, "current_version": version,
+              "profile_identity_verified_by_exact_worker_and_bindings": True,
+              "bucket": BUCKET, "runtime_and_bindings_match_published_metadata": True,
+              "candidate_source_hashes": actual, "artifact": manifest["artifact"], "production_mutations": 0}
+    save(HERE / "website77-preflight.json", record)
+    return record
+
+def checked_preflight():
+    data, file = artifact()
+    ready = read(HERE / "website77-preflight.json")
+    assert ready["ready"] and ready["candidate_source_hashes"] == data["source_hashes"], "PREFLIGHT_MISSING_OR_STALE"
+    assert production() == ready["current_version"], "PRODUCTION_CHANGED_AFTER_PREFLIGHT"
+    return data, file
+
+def remote_object(file):
+    result = wrangler("r2", "object", "get", BUCKET + "/" + OBJECT, "--file", str(file), "--remote", timeout=600, check=False)
+    if result.returncode == 0:
+        return True
+    error = (result.stdout + result.stderr).decode("utf-8", errors="replace")
+    assert re.search(r"specified key does not exist|NoSuchKey|object you are trying to access does not exist", error, re.IGNORECASE), "REMOTE_OBJECT_CHECK_UNCERTAIN"
+    return False
+
+def upload():
+    data, file = checked_preflight()
+    existing = HERE / ("website77-r2-before-" + uuid.uuid4().hex + ".exe")
+    present = remote_object(existing)
+    if present:
+        assert sha(existing) == data["artifact"]["sha256"], "IMMUTABLE_REMOTE_OBJECT_MISMATCH"
+    else:
+        wrangler("r2", "object", "put", BUCKET + "/" + OBJECT, "--file", str(file),
+                 "--content-type", "application/octet-stream", "--cache-control", "public,max-age=31536000,immutable",
+                 "--remote", timeout=1200)
+    downloaded = HERE / ("website77-r2-verified-" + uuid.uuid4().hex + ".exe")
+    assert remote_object(downloaded) and sha(downloaded) == data["artifact"]["sha256"], "REMOTE_ARTIFACT_VERIFICATION_FAILED"
+    record = {"uploaded": True, "profile": PROFILE, "existing_object_matched": present, "key": OBJECT,
+              **data["artifact"], "old_objects_deleted": 0}
+    save(HERE / "website77-upload.json", record)
+    return record
+
+def stage():
+    manifest, _ = checked_preflight()
+    uploaded = read(HERE / "website77-upload.json")
+    assert uploaded["sha256"] == manifest["artifact"]["sha256"] and uploaded["uploaded"], "VERIFIED_UPLOAD_REQUIRED"
+    result = wrangler("versions", "upload", "--name", WORKER, "--tag", "release-1.7.77",
+                      "--message", "Official 1.7.77 browser account onboarding and recharge", "--keep-vars", timeout=240)
+    output = result.stdout.decode("utf-8", errors="replace")
+    match = re.search(r"(?:Worker Version ID|Version ID):\s*(" + UUID + ")", output, re.IGNORECASE)
+    assert match, "STAGED_VERSION_ID_UNAVAILABLE"
+    version = match.group(1)
+    info = json.loads(wrangler("versions", "view", version, "--name", WORKER, "--json").stdout)
+    assert info["resources"]["script_runtime"] == read(ROOT / "output/website-release75-current/preflight.json")["runtime"], "STAGED_RUNTIME_DRIFT"
+    assert sorted(info["resources"]["bindings"], key=lambda value: value["name"]) == [
+        {"name": "ASSETS", "type": "assets"}, {"bucket_name": BUCKET, "name": "DOWNLOADS", "type": "r2_bucket"}], "STAGED_BINDING_DRIFT"
+    record = {"uploaded_version": version, "traffic_changed": False, "source_hashes": manifest["source_hashes"], "profile": PROFILE}
+    save(HERE / "website77-stage.json", record)
+    return record
+
+def deploy():
+    manifest, _ = checked_preflight()
+    staged = read(HERE / "website77-stage.json")
+    assert staged["source_hashes"] == manifest["source_hashes"], "STAGED_SOURCE_DRIFT"
+    version = staged["uploaded_version"]
+    assert re.fullmatch(UUID, version), "STAGED_VERSION_ID_INVALID"
+    wrangler("versions", "deploy", version + "@100%", "--name", WORKER, "--yes",
+             "--message", "Official 1.7.77 release", timeout=120)
+    assert production() == version, "DEPLOYMENT_NOT_OBSERVED"
+    record = {"deployed": True, "version": "1.7.77", "worker_version": version, "profile": PROFILE,
+              "previous_worker_version": manifest["baseline_worker_version"], "runtime_and_bindings_unchanged": True}
+    save(HERE / "website77-deployment.json", record)
+    return record
+
+def verify(proxy_url=None):
+    manifest, _ = artifact()
+    assert proxy_url in [None, "http://127.0.0.1:42877"], "PUBLIC_PROXY_NOT_APPROVED_LOOPBACK"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy_url} if proxy_url else {}))
+    def request(url, method="GET", headers=None):
+        return urllib.request.Request(url, method=method, headers={"User-Agent": PUBLIC_AGENT, **(headers or {})})
+    with opener.open(request(URL, method="HEAD"), timeout=25) as response:
+        assert response.status == 200 and int(response.headers["Content-Length"]) == manifest["artifact"]["bytes"], "PUBLIC_HEAD_MISMATCH"
+    with opener.open(request(URL, headers={"Range": "bytes=0-1023"}), timeout=25) as response:
+        assert response.status == 206 and len(response.read()) == 1024, "PUBLIC_RANGE_MISMATCH"
+    checksum = hashlib.sha256()
+    size = 0
+    with opener.open(request(URL), timeout=90) as response:
+        assert response.geturl() == URL and response.status == 200, "PUBLIC_DOWNLOAD_REDIRECT"
+        for chunk in iter(lambda: response.read(1024 * 1024), b""):
+            checksum.update(chunk)
+            size += len(chunk)
+    assert size == manifest["artifact"]["bytes"] and checksum.hexdigest() == manifest["artifact"]["sha256"], "PUBLIC_DOWNLOAD_HASH_MISMATCH"
+    with opener.open(request("https://hamsterai.cc/"), timeout=25) as response:
+        home = response.read().decode("utf-8")
+        assert "/download/HamsterAI-Portable-1.7.77.exe" in home and "V1.7.77" in home, "PUBLIC_HOME_NOT_UPDATED"
+        assert f'{manifest["artifact"]["bytes"]:,} 字节' in home, "PUBLIC_HOME_SIZE_MISMATCH"
+        assert manifest["artifact"]["sha256"].upper() in home, "PUBLIC_HOME_HASH_MISMATCH"
+    with opener.open(request("https://hamsterai.cc/tutorials/"), timeout=25) as response:
+        tutorial = response.read().decode("utf-8")
+        assert "仓鼠AI正式版 1.7.77" in tutorial, "PUBLIC_TUTORIAL_VERSION_MISMATCH"
+        for phrase in ["系统浏览器会打开中转站", "连接仓鼠 AI 并继续充值", "手动返回应用开始使用", "按收银台显示金额付款"]:
+            assert phrase in tutorial, "PUBLIC_TUTORIAL_FLOW_MISMATCH"
+        assert "直接在应用内填写信息" not in tutorial and "点击「继续支付」进入独立安全收银台" not in tutorial, "PUBLIC_TUTORIAL_OLD_ACCOUNT_FLOW"
+    with opener.open(request("https://hamsterai.cc/download/HamsterAI-Portable-1.7.75.exe", method="HEAD"), timeout=25) as response:
+        assert response.status == 200 and int(response.headers["Content-Length"]) == 166567203, "PREVIOUS_DOWNLOAD_CHANGED"
+    record = {"passed": True, "version": "1.7.77", "official_download": URL, "head_status": 200,
+              "range_status": 206, "full_download": {"bytes": size, "sha256": checksum.hexdigest()},
+              "homepage_version_size_hash_verified": True, "tutorial_browser_flow_verified": True,
+              "previous_75_download_preserved": True, "public_browser_user_agent": True,
+              "public_download_transport": "ecs_tls_tunnel" if proxy_url else "direct", "profile": PROFILE}
+    save(HERE / "website77-verification.json", record)
+    return record
+
+def promote():
+    manifest, _ = artifact()
+    tests()
+    website = ROOT / "仓鼠AI/website"
+    pairs = [(SITE / name, website / name, manifest["baseline_hashes"][name]) for name in manifest["changed_files"]]
+    pairs += [(SITE.parent / "tests" / name, ROOT / "仓鼠AI/tests" / name, expected)
+              for name, expected in manifest["baseline_test_hashes"].items()]
+    for source, target, expected in pairs:
+        assert target.is_relative_to(ROOT / "仓鼠AI") and not target.is_symlink(), "CANONICAL_PATH_INVALID"
+        expected_source = manifest["source_hashes"][source.relative_to(SITE).as_posix()] if source.is_relative_to(SITE) else manifest["test_hashes"][source.name]
+        assert sha(source) == expected_source, "CANDIDATE_SOURCE_DRIFT"
+        assert sha(target) == expected, "CANONICAL_SOURCE_DRIFT"
+    before = HERE / "website77-before-promotion"
+    hashes, written = {}, []
+    journal = {"scope": "four_website_runtime_sources_and_three_related_tests", "written": [], "restored": [], "concurrent_changes_preserved": []}
+    for source, target, expected in pairs:
+        backup = before / target.relative_to(ROOT / "仓鼠AI")
+        if not backup.exists():
+            assert sha(target) == expected, "PROMOTION_BACKUP_UNAVAILABLE"
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, backup)
+        assert sha(backup) == expected, "PROMOTION_BACKUP_DRIFT"
+    def atomic_write(path, data):
+        temporary = path.with_name(path.name + ".website77-" + uuid.uuid4().hex + ".tmp")
+        try:
+            with temporary.open("xb") as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    try:
+        for source, target, expected in pairs:
+            assert sha(target) == expected, "CONCURRENT_CANONICAL_SOURCE_CHANGE"
+            replacement = source.read_bytes()
+            replacement_hash = hashlib.sha256(replacement).hexdigest()
+            atomic_write(target, replacement)
+            written.append((target, expected, replacement_hash))
+            assert sha(target) == replacement_hash, "PROMOTION_CHECKSUM_MISMATCH"
+            relative = target.relative_to(ROOT).as_posix()
+            hashes[relative] = replacement_hash
+            journal["written"].append(relative)
+            save(HERE / "website77-promotion-journal.json", journal)
+        result = run(["node", "--test", *[str(ROOT / "仓鼠AI/tests" / name) for name in manifest["baseline_test_hashes"]]], cwd=ROOT, check=False)
+        (HERE / "website77-canonical-tests.log").write_bytes(result.stdout + result.stderr)
+        assert result.returncode == 0, "CANONICAL_WEBSITE_TESTS_FAILED"
+    except Exception:
+        for target, expected, replacement_hash in reversed(written):
+            relative = target.relative_to(ROOT).as_posix()
+            if sha(target) == replacement_hash:
+                backup = before / target.relative_to(ROOT / "仓鼠AI")
+                assert sha(backup) == expected, "PROMOTION_RECOVERY_BACKUP_DRIFT"
+                atomic_write(target, backup.read_bytes())
+                journal["restored"].append(relative)
+            else:
+                journal["concurrent_changes_preserved"].append(relative)
+        save(HERE / "website77-promotion-journal.json", journal)
+        raise
+    record = {"promoted": True, "version": "1.7.77", "runtime_files": 4, "test_files": 3,
+              "source_hashes": hashes, "canonical_website_tests_passed": True, "production_mutations": 0}
+    save(HERE / "website77-source-promotion.json", record)
+    return record
+
+def rollback():
+    manifest, _ = artifact()
+    staged = read(HERE / "website77-stage.json")
+    assert production() == staged["uploaded_version"], "ROLLBACK_SOURCE_VERSION_MISMATCH"
+    previous = manifest["baseline_worker_version"]
+    wrangler("versions", "deploy", previous + "@100%", "--name", WORKER, "--yes",
+             "--message", "Restore previous official website", timeout=120)
+    assert production() == previous, "ROLLBACK_NOT_OBSERVED"
+    record = {"rolled_back": True, "worker_version": previous, "profile": PROFILE, "financial_restore": False}
+    save(HERE / "website77-rollback.json", record)
+    return record
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["seal", "preflight", "upload", "stage", "deploy", "verify", "promote", "rollback"])
+    parser.add_argument("--artifact", type=Path)
+    parser.add_argument("--expect-sha256")
+    parser.add_argument("--public-proxy")
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args()
+    if args.action in ["upload", "stage", "deploy", "promote", "rollback"]:
+        assert args.apply, "REVIEWED_APPLY_ACTION_REQUIRED"
+    if args.action == "seal":
+        assert args.artifact and args.expect_sha256, "EXACT_ARTIFACT_ARGUMENTS_REQUIRED"
+        result = seal(args)
+    elif args.action == "verify":
+        result = verify(args.public_proxy)
+    else:
+        result = globals()[args.action]()
+    print(json.dumps({key: value for key, value in result.items() if key not in ["candidate_source_hashes", "source_hashes"]}))
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({"passed": False, "code": str(error) if isinstance(error, (AssertionError, RuntimeError)) else "CONTROLLED_OPERATION_FAILED_DETAILS_WITHHELD"}))
+        raise SystemExit(1)

@@ -1,0 +1,72 @@
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+BACKEND = ROOT / 'deploy/new-api/backend'
+FRONTEND = ROOT / 'build/hamster-trim44-web'
+SOURCE = HERE / 'backend-candidate'
+IMAGE = 'golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039'
+VERSION = 'v1.0.0-rc.41-hamster.69'
+BINARY = 'backend69-new-api'
+WEB_CHANGED = {'account-lite/index.html', 'account-lite/account.mjs'}
+WEB_BASELINE = HERE / 'before/embedded'
+
+
+def sha(path):
+    with path.open('rb') as file:
+        return hashlib.file_digest(file, 'sha256').hexdigest()
+
+
+def run(args, name, cwd=None, timeout=300):
+    result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout)
+    (HERE / name).write_bytes(result.stdout + result.stderr)
+    if result.returncode:
+        raise RuntimeError(name + ' failed')
+
+
+def main():
+    for name in WEB_CHANGED:
+        saved = WEB_BASELINE / name
+        if not saved.exists():
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(BACKEND / 'web/dist' / name, saved)
+    shutil.copytree(BACKEND, SOURCE, ignore=shutil.ignore_patterns('.git', 'node_modules', '*.env', '.env.*'), dirs_exist_ok=True)
+    embedded = SOURCE / 'web/dist'
+    temporary = HERE / 'web-candidate'
+    temporary.mkdir(exist_ok=True)
+    run(['node', '--input-type=module', '-e',
+         'import {buildLite} from "./scripts/build-lite.mjs"; await buildLite(process.cwd(), process.argv[1]);',
+         str(temporary)], 'web-build.log', cwd=FRONTEND)
+    shutil.copy2(FRONTEND / 'public/account-lite/index.html', temporary / 'account-lite/index.html')
+    for name in WEB_CHANGED:
+        shutil.copy2(temporary / name, embedded / name)
+    original = {p.relative_to(BACKEND / 'web/dist').as_posix(): sha(p) for p in (BACKEND / 'web/dist').rglob('*') if p.is_file()}
+    original.update({name: sha(WEB_BASELINE / name) for name in WEB_CHANGED})
+    candidate = {p.relative_to(embedded).as_posix(): sha(p) for p in embedded.rglob('*') if p.is_file()}
+    assert set(original) == set(candidate)
+    assert {name for name in original if original[name] != candidate[name]} == WEB_CHANGED
+    run(['docker', 'run', '--rm', '--network', 'none', '--label', 'codex.task=relay-payment-current',
+         '--mount', 'type=bind,source=' + str(SOURCE) + ',target=/workspace,readonly',
+         '--mount', 'type=bind,source=' + str(HERE) + ',target=/out',
+         '--mount', 'type=volume,source=relay-portal-gomod,target=/go/pkg/mod',
+         '--mount', 'type=volume,source=relay-portal-gobuild,target=/root/.cache/go-build',
+         '-w', '/workspace', '-e', 'CGO_ENABLED=0', '-e', 'GOMAXPROCS=2', IMAGE,
+         'go', 'build', '-p', '2', '-ldflags', '-s -w -X github.com/QuantumNous/new-api/common.Version=' + VERSION,
+         '-o', '/out/' + BINARY], 'backend-build.log')
+    binary = HERE / BINARY
+    manifest = {'version': VERSION, 'status': 'candidate_not_deployed',
+                'binary_sha256': sha(binary), 'binary_bytes': binary.stat().st_size,
+                'bridge_source_sha256': sha(ROOT / 'deploy/lanjing-bridge/server.mjs'),
+                'changed_web_resources': {name: candidate[name] for name in sorted(WEB_CHANGED)},
+                'retained_web_resource_count': len(candidate) - len(WEB_CHANGED),
+                'production_mutations': 0, 'real_payments': 0}
+    (HERE / 'candidate-build.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(manifest))
+
+
+if __name__ == '__main__':
+    main()

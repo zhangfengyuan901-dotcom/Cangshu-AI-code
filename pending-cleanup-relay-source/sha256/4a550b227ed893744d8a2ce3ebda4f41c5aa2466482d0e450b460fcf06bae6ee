@@ -1,0 +1,61 @@
+import importlib.util
+import json
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+REMOTE = r'''
+import datetime,json,subprocess
+query="""BEGIN READ ONLY;
+WITH clock AS (SELECT extract(epoch FROM now())::bigint AS ts),
+active_tasks AS (
+ SELECT CASE WHEN status IN ('NOT_START','SUBMITTED','QUEUED','IN_PROGRESS','SUCCESS','FAILURE','UNKNOWN') THEN status ELSE 'OTHER' END AS status,
+ CASE WHEN coalesce(nullif(submit_time,0),created_at,0)>=(SELECT ts-600 FROM clock) THEN 'under_10m'
+ WHEN coalesce(nullif(submit_time,0),created_at,0)>=(SELECT ts-3600 FROM clock) THEN '10m_to_1h'
+ WHEN coalesce(nullif(submit_time,0),created_at,0)>=(SELECT ts-86400 FROM clock) THEN '1h_to_1d'
+ ELSE 'over_1d' END AS age_bucket,
+ coalesce(updated_at,0)>=(SELECT ts-600 FROM clock) AS recently_updated
+ FROM tasks WHERE status NOT IN ('SUCCESS','FAILURE'))
+SELECT json_build_object(
+ 'active_task_status_age',(SELECT coalesce(json_agg(row),'[]'::json) FROM (SELECT status,age_bucket,recently_updated,count(*) AS count FROM active_tasks GROUP BY status,age_bucket,recently_updated ORDER BY status,age_bucket,recently_updated) row),
+ 'last_10m',json_build_object(
+  'tasks_created',(SELECT count(*) FROM tasks WHERE created_at>=(SELECT ts-600 FROM clock)),
+  'tasks_started',(SELECT count(*) FROM tasks WHERE start_time>=(SELECT ts-600 FROM clock)),
+  'tasks_finished',(SELECT count(*) FROM tasks WHERE finish_time>=(SELECT ts-600 FROM clock)),
+  'tasks_updated',(SELECT count(*) FROM tasks WHERE updated_at>=(SELECT ts-600 FROM clock)),
+  'settlements_created',(SELECT count(*) FROM pikno_settlements WHERE created_at>=(SELECT ts-600 FROM clock)),
+  'settlements_updated',(SELECT count(*) FROM pikno_settlements WHERE updated_at>=(SELECT ts-600 FROM clock)),
+  'llm_created',(SELECT count(*) FROM pikno_llm_requests WHERE created_at>=(SELECT ts-600 FROM clock)),
+  'llm_updated',(SELECT count(*) FROM pikno_llm_requests WHERE updated_at>=(SELECT ts-600 FROM clock)),
+  'pending_recharges',(SELECT count(*) FROM top_ups WHERE status='pending' AND create_time>=(SELECT ts-600 FROM clock))),
+ 'unknown_age',json_build_object(
+  'settlements_older_15m_unchanged',(SELECT count(*) FROM pikno_settlements WHERE generation_state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock)),
+  'settlements_recent',(SELECT count(*) FROM pikno_settlements WHERE generation_state='unknown' AND (created_at>=(SELECT ts-900 FROM clock) OR updated_at>=(SELECT ts-900 FROM clock))),
+  'llm_older_15m_unchanged',(SELECT count(*) FROM pikno_llm_requests WHERE state='unknown' AND created_at<(SELECT ts-900 FROM clock) AND updated_at<(SELECT ts-900 FROM clock)),
+  'llm_recent',(SELECT count(*) FROM pikno_llm_requests WHERE state='unknown' AND (created_at>=(SELECT ts-900 FROM clock) OR updated_at>=(SELECT ts-900 FROM clock)))))
+; ROLLBACK;"""
+r=subprocess.run(['docker','exec','-i','piknoai-relay-postgres-1','psql','-U','pikno','-d','newapi','-At','-v','ON_ERROR_STOP=1','-c',query],capture_output=True,text=True,timeout=30)
+if r.returncode:raise RuntimeError('READONLY_ACTIVITY_QUERY_FAILED')
+data=[line for line in r.stdout.splitlines() if line.startswith('{')]
+if len(data)!=1:raise RuntimeError('READONLY_ACTIVITY_SHAPE')
+result=json.loads(data[0])
+result.update({'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'read_only':True,'production_mutations':0,'customer_rows_returned':False})
+print(json.dumps(result))
+'''
+
+
+def main():
+    spec = importlib.util.spec_from_file_location('activity_readonly_transport', ROOT / 'output/direct-media-production-current/transport.py')
+    transport = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(transport)
+    result = transport.remote(REMOTE, timeout=60)
+    (HERE / 'production-activity-readonly.json').write_text(json.dumps(result, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps(result))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({'read_only':True,'error':type(error).__name__,'details_withheld':True,'production_mutations':0}))
+        raise SystemExit(1)

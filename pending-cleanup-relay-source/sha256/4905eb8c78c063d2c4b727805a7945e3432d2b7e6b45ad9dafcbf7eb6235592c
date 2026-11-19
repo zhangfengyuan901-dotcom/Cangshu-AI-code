@@ -1,0 +1,35 @@
+async(page)=>{
+ const base='https://www.piknoai.com',shots='D:/PIKNO/output/playwright/relay-hero-auth-current/';
+ const passed=[];let writes=0;
+ const check=(value,label)=>{if(!value)throw new Error('Public UI failed: '+label);passed.push(label);};
+ page.setDefaultTimeout(60000);page.setDefaultNavigationTimeout(60000);
+ page.on('request',r=>{const u=new URL(r.url());if(u.origin===base&&r.method()==='POST'&&u.pathname.startsWith('/api/')&&u.pathname!=='/api/user/auth/refresh')writes++;});
+ await page.setViewportSize({width:1440,height:1000});await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.goto(base+'/',{waitUntil:'domcontentloaded'});await page.locator('.portal-header').waitFor();
+ const status=await(await page.request.get(base+'/api/status')).json();check(status?.data?.version==='v1.0.0-rc.41-hamster.66','live_version_66');
+ await page.waitForFunction(()=>{const v=document.querySelector('video');return v&&v.readyState>=2&&!v.paused&&v.currentTime>0.1;});
+ const properties=await page.locator('video').evaluate(v=>({muted:v.muted,defaultMuted:v.defaultMuted,volume:v.volume,loop:v.loop,inline:v.playsInline,width:v.videoWidth,height:v.videoHeight,opacity:getComputedStyle(v).opacity,brightness:getComputedStyle(v).filter}));
+ check(properties.muted&&properties.defaultMuted&&properties.volume===0&&properties.loop&&properties.inline,'live_silent_inline_loop');
+ check(properties.width===1030&&properties.height===576,'live_video_decode');
+ check(Number(properties.opacity)===0.45&&properties.brightness.includes('0.65'),'live_dimmed_background');
+ check(await page.locator('.portal-brand-symbol').count()===0&&await page.locator('.portal-brand svg').count()===0,'live_wordmark_without_symbol');
+ await page.getByRole('button',{name:/暂停背景视频|Pause background video/}).click();await page.waitForFunction(()=>document.querySelector('video').paused);check(true,'live_pause');
+ await page.getByRole('button',{name:/播放背景视频|Play background video/}).click();await page.waitForFunction(()=>!document.querySelector('video').paused);check(true,'live_resume');
+ await page.locator('video').evaluate(v=>v.currentTime=v.duration-0.1);await page.waitForFunction(()=>document.querySelector('video').currentTime<1);check(true,'live_loop_boundary');
+ await page.screenshot({path:shots+'live-home-desktop.png'});
+ await page.setViewportSize({width:390,height:844});await page.goto(base+'/',{waitUntil:'domcontentloaded'});await page.locator('.portal-header').waitFor();
+ check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'live_mobile_no_overflow');
+ await page.screenshot({path:shots+'live-home-mobile.png'});
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:width===1440?1000:844});
+  await page.goto(base+'/auth-lite/index.html?mode=register',{waitUntil:'domcontentloaded'});
+  await page.locator('#auth-form').waitFor({state:'visible'});
+  check(await page.locator('#heading').innerText()==='注册账户','live_register_mode_'+width);
+  check(await page.locator('#username').isVisible()&&await page.locator('#password').isVisible()&&await page.locator('#confirm').isVisible(),'live_register_fields_'+width);
+  check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'live_register_no_overflow_'+width);
+  check(await page.locator('.brand img,.brand svg').count()===0,'live_auth_wordmark_'+width);
+  await page.screenshot({path:shots+'live-register-'+width+'.png',fullPage:true});
+ }
+ check(writes===0,'no_registration_or_email_submission');
+ return{ok:true,checks:passed.length,passed,properties,authentication_writes:writes,customer_login:false,real_registration:false,real_generation_calls:0,real_payment_calls:0};
+}

@@ -1,0 +1,26 @@
+from pathlib import Path
+import shutil
+ROOT=Path('D:/PIKNO')
+HERE=ROOT/'output/relay-admin-theme-current'
+OLD=ROOT/'output/relay-hero-auth-current'
+for name in ('release66-candidate.py','release66-run.py','test_release66_candidate.py','smoke66-candidate.py'):
+    text=(OLD/name).read_text(encoding='utf-8').replace('relay-hero-auth-current','relay-admin-theme-current')
+    for token in ('release66', 'portal66', 'backend66', 'build66', 'candidate66'):
+        text=text.replace(token,token.replace('66','67'))
+    text=text.replace("VERSION = 'v1.0.0-rc.41-hamster.66'", "VERSION = 'v1.0.0-rc.41-hamster.67'")
+    text=text.replace("manifest['version'] == 'v1.0.0-rc.41-hamster.66'", "manifest['version'] == 'v1.0.0-rc.41-hamster.67'")
+    if name=='release66-candidate.py':
+        text=text.replace("OLD_IMAGE = 'sha256:ab9026d686d6ca4979a765bc01c4c08414cb6165680a14ff829b8e1cffa8bd29'", "OLD_IMAGE = 'sha256:7b4b1ad0f5c4a1c9d93240138574807b8d4b47681c201540bea9b42f265585f4'")
+        text=text.replace("OLD_BINARY = '3541a28186d12f73945e6801b41360aee21103fd15dbab7eecd4433caed35507'", "OLD_BINARY = 'a5655de8e02fa7aabbaea84decf53282e09f38e273700a6b08c6f802238bcb6a'")
+        text=text.replace("OLD_VERSION = 'v1.0.0-rc.41-hamster.65'", "OLD_VERSION = 'v1.0.0-rc.41-hamster.66'")
+    if name=='smoke66-candidate.py':
+        text=text.replace("HERE / 'backend-web-baseline65'", "HERE / 'before/backend-web-dist'")
+    (HERE/name.replace('66','67')).write_text(text,encoding='utf-8')
+for name in ('media-http-check.go','hero-video-resource.json'):
+    shutil.copy2(OLD/name,HERE/name)
+merge=(OLD/'merge66-web.py').read_text().replace('65','66').replace('66-merge','67-merge')
+merge=merge.replace("HERE / 'backend-web-baseline66-manifest.json'", "HERE / 'baseline.json'")
+merge=merge.replace(" and name not in ('auth-lite/index.html', 'auth-lite/auth.css')",'')
+merge=merge.replace("name.startswith(('auth-lite/', 'account-lite/', 'examples/'))", "name.startswith(('auth-lite/', 'account-lite/', 'examples/', 'portal-artwork/', 'portal-media/'))")
+(HERE/'merge67-web.py').write_text(merge,encoding='utf-8')
+print('{"prepared":true}')

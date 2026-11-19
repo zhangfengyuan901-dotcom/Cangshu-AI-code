@@ -1,0 +1,13 @@
+ARG BUILD_IMAGE=golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039
+ARG RUNTIME_IMAGE=hamster-portal67-release:local
+FROM ${BUILD_IMAGE} AS build
+ARG RELEASE_VERSION=v1.0.0-rc.41-hamster.67
+ENV CGO_ENABLED=0
+WORKDIR /workspace
+COPY deploy/new-api/backend/go.mod deploy/new-api/backend/go.sum ./
+COPY deploy/new-api/backend/relaykit/go.mod deploy/new-api/backend/relaykit/go.sum ./relaykit/
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY deploy/new-api/backend/ ./
+RUN --network=none --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -ldflags "-s -w -X github.com/QuantumNous/new-api/common.Version=${RELEASE_VERSION}" -o /client-new-api
+FROM ${RUNTIME_IMAGE} AS release
+COPY --from=build /client-new-api /new-api
